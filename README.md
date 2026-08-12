@@ -29,7 +29,36 @@
 
 | フェーズ | 内容 | 状況 |
 |----------|------|------|
-| Phase 1 | 予約API基盤（D1 + 料金計算 + Google Calendar同期） | 準備中 |
+| Phase 1 | 予約API基盤（D1 + 料金計算 + Google Calendar同期） | 進行中 |
 | Phase 2 | フロントエンドUI（カレンダー + カート + 予約フロー） | 未着手 |
 | Phase 3 | 管理画面 + 自動化連携 | 未着手 |
 | Phase 4 | 決済統合（Stripe） | 未着手 |
+
+## 開発の始め方（ローカル）
+
+```bash
+npm install
+npm run db:reset:local   # ローカルD1を初期化 + シード投入
+npm run dev              # http://localhost:8787 で起動
+npm test                # ユニットテスト(vitest)
+npm run typecheck       # 型チェック
+```
+
+> Cloudflareアカウント未契約のため、当面はローカル（Wrangler + ローカルD1）で開発します。
+
+## 実装済みAPI（Phase 1）
+
+| メソッド | パス | 説明 |
+|----------|------|------|
+| GET | /api/spaces | スペース一覧 |
+| GET | /api/spaces/:id | スペース詳細 |
+| GET | /api/spaces/:id/slots?month=YYYY-MM | 月間の稼働状況（○△✕・商談中・季節料金） |
+| POST | /api/bookings | 予約作成（ゲスト・料金計算・競合防止・採番） |
+| GET | /api/bookings/:number | 予約取得（予約番号指定） |
+
+### 料金計算エンジン
+- `src/lib/pricing.ts` … スペース料金（時間/1日/最低利用/曜日・祝日/季節/残置）
+- `src/lib/discounts.ts` … クーポン/チケット/ポイント/キャンペーン/オプション（併用ルール）
+- `src/lib/availability.ts` … 稼働状況○△✕・予約バリデーション
+
+テスト: `test/` に46ケース（実料金表に基づく検証）。

@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import type { AppBindings } from './types';
+import spaces from './routes/spaces';
+import bookings from './routes/bookings';
 
 const app = new Hono<AppBindings>();
 
@@ -27,8 +29,8 @@ app.get('/api/health/db', async (c) => {
   }
 });
 
-// 今後、予約・スペース・料金などの API ルートをここに追加していく
-// import spaces from './routes/spaces';
-// app.route('/api/spaces', spaces);
+// API ルート
+app.route('/api/spaces', spaces);
+app.route('/api/bookings', bookings);
 
 export default app;

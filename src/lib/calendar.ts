@@ -19,6 +19,48 @@ export function dayOfWeek(dateISO: string): number {
   return d.getUTCDay();
 }
 
+/** 'YYYY-MM-DD' を UTC正午の Date に変換 */
+function toUTCDate(dateISO: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO);
+  if (!m) throw new Error(`invalid date format: ${dateISO}`);
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
+}
+
+/** Date を 'YYYY-MM-DD' に変換（UTC基準） */
+export function formatDate(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    d.getUTCDate(),
+  ).padStart(2, '0')}`;
+}
+
+/** a から b までの日数（b - a）。同日=0、翌日=1 */
+export function daysBetween(aISO: string, bISO: string): number {
+  const a = toUTCDate(aISO).getTime();
+  const b = toUTCDate(bISO).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+/** dateISO に days 日加算した 'YYYY-MM-DD' */
+export function addDays(dateISO: string, days: number): string {
+  const d = toUTCDate(dateISO);
+  d.setUTCDate(d.getUTCDate() + days);
+  return formatDate(d);
+}
+
+/** その月の全日付 'YYYY-MM-DD' を返す（month: 'YYYY-MM'） */
+export function datesInMonth(month: string): string[] {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) throw new Error(`invalid month format: ${month}`);
+  const year = Number(m[1]);
+  const mon = Number(m[2]);
+  const days = new Date(Date.UTC(year, mon, 0)).getUTCDate(); // 翌月0日=当月末日
+  const result: string[] = [];
+  for (let d = 1; d <= days; d++) {
+    result.push(`${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+  return result;
+}
+
 /** 土日か */
 export function isWeekend(dateISO: string): boolean {
   const dow = dayOfWeek(dateISO);

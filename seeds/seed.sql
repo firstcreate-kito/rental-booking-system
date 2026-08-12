@@ -56,6 +56,28 @@ VALUES
   ('vip',     'VIP',  3, 1, 3,    1, 3,    NULL, 0);
 
 -- -----------------------------------------------------------------------------
+-- cancel_policies（キャンセルポリシー）
+--   基本(共通, space_id=NULL): 31日以前0% / 30〜15日前50% / 14日前〜前日80% / 当日100%
+--   特別(防音室・ピアノ練習室): 上記に加え「前日17:00以降100%」
+-- -----------------------------------------------------------------------------
+INSERT OR REPLACE INTO cancel_policies (id, space_id, days_before, charge_pct, cutoff_time, sort_order) VALUES
+  ('cp-common-30', NULL, 30, 50,  NULL,    1),
+  ('cp-common-14', NULL, 14, 80,  NULL,    2),
+  ('cp-common-00', NULL, 0,  100, NULL,    3);
+
+-- 特別ポリシー: 名駅防音室A/B・東別院ピアノ（前日17:00以降100%）
+INSERT OR REPLACE INTO cancel_policies (id, space_id, days_before, charge_pct, cutoff_time, sort_order) VALUES
+  ('cp-piano-a-30', 'meieki-piano-a', 30, 50,  NULL,    1),
+  ('cp-piano-a-14', 'meieki-piano-a', 14, 80,  NULL,    2),
+  ('cp-piano-a-01', 'meieki-piano-a', 1,  100, '17:00', 3),
+  ('cp-piano-b-30', 'meieki-piano-b', 30, 50,  NULL,    1),
+  ('cp-piano-b-14', 'meieki-piano-b', 14, 80,  NULL,    2),
+  ('cp-piano-b-01', 'meieki-piano-b', 1,  100, '17:00', 3),
+  ('cp-higashi-30', 'higashibetsuin-piano-24h', 30, 50,  NULL,    1),
+  ('cp-higashi-14', 'higashibetsuin-piano-24h', 14, 80,  NULL,    2),
+  ('cp-higashi-01', 'higashibetsuin-piano-24h', 1,  100, '17:00', 3);
+
+-- -----------------------------------------------------------------------------
 -- system_settings（システム設定）※仕様2.39の主要キー
 -- -----------------------------------------------------------------------------
 INSERT OR REPLACE INTO system_settings (key, value) VALUES

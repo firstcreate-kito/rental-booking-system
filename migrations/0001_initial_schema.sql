@@ -437,6 +437,7 @@ CREATE TABLE cancel_policies (
   space_id    TEXT REFERENCES spaces(id),  -- NULLなら共通ポリシー
   days_before INTEGER NOT NULL,            -- 利用日の何日前(0=当日)
   charge_pct  INTEGER NOT NULL,            -- キャンセル料率(%)
+  cutoff_time TEXT,                        -- その日の適用開始時刻(例'17:00'。NULLは'00:00'扱い)
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 

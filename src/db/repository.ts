@@ -114,6 +114,24 @@ export async function getSpaceBookingsOnDate(
   return getSpaceBookingsInRange(db, spaceId, date, date);
 }
 
+/** 指定日の占有予約（自グループを除く。日時変更の競合チェック用） */
+export async function getOccupyingIntervalsExcludingGroup(
+  db: D1Database,
+  spaceId: string,
+  date: string,
+  excludeGroupId: string,
+): Promise<Array<{ start_time: string; end_time: string }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT start_time, end_time FROM bookings
+       WHERE space_id = ? AND date = ? AND group_id != ?
+         AND status IN ('confirmed','tentative','blocked','held')`,
+    )
+    .bind(spaceId, date, excludeGroupId)
+    .all<{ start_time: string; end_time: string }>();
+  return results ?? [];
+}
+
 /** system_settings を Map で返す */
 export async function getSystemSettings(db: D1Database): Promise<Map<string, string>> {
   const { results } = await db
@@ -149,6 +167,82 @@ export async function getCustomerByEmail(
     .prepare('SELECT id, is_blocked FROM customers WHERE email = ?')
     .bind(email)
     .first<{ id: string; is_blocked: number }>();
+}
+
+export interface BookingGroupRow {
+  id: string;
+  booking_number: string;
+  customer_id: string | null;
+  space_id: string;
+  event_name: string;
+  total_amount: number;
+  status: string;
+  source: string;
+  reschedule_count: number;
+  created_at: string;
+}
+
+export interface BookingRow {
+  id: string;
+  group_id: string;
+  space_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  billable_hours: number;
+  billing_mode: string;
+  is_residence: number;
+  rate: number | null;
+  price: number;
+  status: string;
+}
+
+export async function getBookingGroupByNumber(
+  db: D1Database,
+  bookingNumber: string,
+): Promise<BookingGroupRow | null> {
+  return db
+    .prepare('SELECT * FROM booking_groups WHERE booking_number = ?')
+    .bind(bookingNumber)
+    .first<BookingGroupRow>();
+}
+
+export async function getBookingsByGroup(db: D1Database, groupId: string): Promise<BookingRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM bookings WHERE group_id = ? ORDER BY date, start_time')
+    .bind(groupId)
+    .all<BookingRow>();
+  return results ?? [];
+}
+
+export interface CancelPolicyRow {
+  space_id: string | null;
+  days_before: number;
+  charge_pct: number;
+  cutoff_time: string | null;
+}
+
+export async function getCancelPolicies(db: D1Database): Promise<CancelPolicyRow[]> {
+  const { results } = await db
+    .prepare('SELECT space_id, days_before, charge_pct, cutoff_time FROM cancel_policies ORDER BY sort_order')
+    .all<CancelPolicyRow>();
+  return results ?? [];
+}
+
+/** 顧客の指定年月(YYYY-MM)のセルフキャンセル回数 */
+export async function getMonthlyCancelCount(
+  db: D1Database,
+  customerId: string,
+  yearMonth: string,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM cancellation_log
+       WHERE customer_id = ? AND substr(cancelled_at, 1, 7) = ?`,
+    )
+    .bind(customerId, yearMonth)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /**

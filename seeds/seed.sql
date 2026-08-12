@@ -87,3 +87,17 @@ INSERT OR REPLACE INTO system_settings (key, value) VALUES
   ('reminder_time',                 '18:00'),  -- 前日リマインダー送信時刻
   ('point_rate',                    '1'),      -- ポイント付与率(%)
   ('default_cancel_policy',         '1');       -- 共通キャンセルポリシー使用フラグ
+
+-- -----------------------------------------------------------------------------
+-- signage_tokens（サイネージ認証）※開発用の固定トークン。本番はランダム発行に差し替え
+-- -----------------------------------------------------------------------------
+INSERT OR REPLACE INTO signage_tokens (space_id, token) VALUES
+  ('albe-hall-nagoya',         'sig-albe-hall-dev'),
+  ('albe-event-sakae',         'sig-albe-sakae-dev'),
+  ('meieki-free',              'sig-meieki-free-dev'),
+  ('meieki-exercise',          'sig-meieki-exercise-dev'),
+  ('meieki-washitsu',          'sig-meieki-washitsu-dev'),
+  ('meieki-piano-a',           'sig-meieki-piano-a-dev'),
+  ('meieki-piano-b',           'sig-meieki-piano-b-dev'),
+  ('higashibetsuin-piano-24h', 'sig-higashibetsuin-dev'),
+  ('kitaokazaki-warehouse',    'sig-kitaokazaki-dev');

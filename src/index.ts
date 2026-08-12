@@ -6,6 +6,7 @@ import spaces from './routes/spaces';
 import bookings from './routes/bookings';
 import auth from './routes/auth';
 import mypage from './routes/mypage';
+import signage from './routes/signage';
 
 const app = new Hono<AppBindings>();
 
@@ -36,5 +37,6 @@ app.route('/api/spaces', spaces);
 app.route('/api/bookings', bookings);
 app.route('/api/auth', auth);
 app.route('/api/mypage', mypage);
+app.route('/api/signage', signage);
 
 export default app;

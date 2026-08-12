@@ -346,6 +346,43 @@ export async function removeFavorite(db: D1Database, customerId: string, spaceId
     .run();
 }
 
+// --- サイネージ ---
+export async function verifySignageToken(
+  db: D1Database,
+  spaceId: string,
+  token: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS ok FROM signage_tokens WHERE space_id = ? AND token = ?')
+    .bind(spaceId, token)
+    .first<{ ok: number }>();
+  return !!row;
+}
+
+export interface SignageBookingRow {
+  start_time: string;
+  end_time: string;
+  event_name: string;
+}
+
+/** サイネージ用: 指定日の確定予約（イベント名付き）を時刻順で */
+export async function getSignageBookings(
+  db: D1Database,
+  spaceId: string,
+  date: string,
+): Promise<SignageBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT b.start_time, b.end_time, bg.event_name
+       FROM bookings b JOIN booking_groups bg ON bg.id = b.group_id
+       WHERE b.space_id = ? AND b.date = ? AND b.status = 'confirmed'
+       ORDER BY b.start_time`,
+    )
+    .bind(spaceId, date)
+    .all<SignageBookingRow>();
+  return results ?? [];
+}
+
 export interface BookingGroupRow {
   id: string;
   booking_number: string;

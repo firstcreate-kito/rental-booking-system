@@ -21,9 +21,11 @@ CREATE TABLE spaces (
   name_en               TEXT,
   google_calendar_id    TEXT,
   billing_type          TEXT NOT NULL DEFAULT 'hourly',  -- 'hourly'(時間貸し) / 'block'(1日単位専用)
-  weekday_rate          INTEGER NOT NULL DEFAULT 0,       -- 平日1時間単価
-  weekend_rate          INTEGER NOT NULL DEFAULT 0,       -- 土日祝1時間単価
-  day_rate_hours        INTEGER,                          -- 1日料金の課金時間数(NULLなら1日料金なし)。billing_type='block'では必須
+  weekday_rate          INTEGER,                          -- 平日1時間単価(NULL=平日は時間貸ししない)
+  weekend_rate          INTEGER,                          -- 土日祝1時間単価(NULL=土日祝は時間貸ししない)
+  day_rate_hours        INTEGER,                          -- 1日料金の課金時間数(NULLなら1日料金なし)。全スペース共通で13運用
+  weekday_available     BOOLEAN NOT NULL DEFAULT 1,       -- 平日に予約可能か
+  weekend_available     BOOLEAN NOT NULL DEFAULT 1,       -- 土日祝に予約可能か
   slot_minutes          INTEGER NOT NULL DEFAULT 30,      -- 時間選択の刻み(分)
   has_minimum           BOOLEAN NOT NULL DEFAULT 0,
   min_hours             INTEGER NOT NULL DEFAULT 0,

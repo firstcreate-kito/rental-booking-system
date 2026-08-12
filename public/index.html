@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>レンタルスペースALBE 予約</title>
+<style>
+  :root {
+    --brand: #1f6feb; --ink: #1a1a1a; --muted: #6b7280; --line: #e5e7eb;
+    --bg: #f7f8fa; --ok: #16a34a; --warn: #f59e0b; --bad: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+         color: var(--ink); background: var(--bg); line-height: 1.6; }
+  header { background: #fff; border-bottom: 1px solid var(--line); padding: 14px 20px; position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { max-width: 920px; margin: 0 auto; padding: 20px; }
+  .steps { display: flex; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 18px; flex-wrap: wrap; }
+  .steps span { padding: 4px 10px; border-radius: 999px; background: #eef2f7; }
+  .steps span.active { background: var(--brand); color: #fff; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .space { border: 1px solid var(--line); border-radius: 10px; padding: 14px; cursor: pointer; transition: .15s; background: #fff; }
+  .space:hover { border-color: var(--brand); box-shadow: 0 2px 10px rgba(31,111,235,.1); }
+  .space h3 { margin: 0 0 6px; font-size: 15px; }
+  .space .rate { color: var(--muted); font-size: 13px; }
+  .btn { background: var(--brand); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+  .btn.sm { padding: 6px 10px; font-size: 13px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
+  .cal .day { aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: 8px; padding: 4px; font-size: 12px;
+              display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; }
+  .cal .day.weekend { background: #fffbea; }
+  .cal .day.closed { background: #f1f3f5; color: #adb5bd; }
+  .cal .day.seasonal { border-color: #fb923c; box-shadow: inset 0 0 0 1px #fb923c; }
+  .cal .day.bookable { cursor: pointer; }
+  .cal .day.bookable:hover { border-color: var(--brand); }
+  .cal .day.selected { background: #e7f0ff; border-color: var(--brand); }
+  .cal .day .sym { font-size: 15px; font-weight: 700; }
+  .cal .day .sym.ok { color: var(--ok); } .cal .day .sym.limited { color: var(--warn); } .cal .day .sym.full { color: var(--bad); }
+  .badge { font-size: 9px; background: #fde68a; color: #92400e; border-radius: 4px; padding: 0 3px; margin-top: 2px; }
+  .empty { grid-column: span 1; }
+  table.mini { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.mini td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .total { font-size: 20px; font-weight: 700; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; }
+  input, select { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .opt .qty { width: 64px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .modal-bg.show { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 20px; width: min(420px, 92vw); }
+  .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .hidden { display: none; }
+  .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 13px; }
+  .done { text-align: center; padding: 30px 10px; }
+  .done .num { font-size: 24px; font-weight: 700; color: var(--brand); }
+</style>
+</head>
+<body>
+<header>
+  <h1>レンタルスペースALBE 予約</h1>
+  <div class="sub">デモ環境（開発用）</div>
+</header>
+<main>
+  <div class="steps" id="steps"></div>
+
+  <!-- STEP 0: スペース選択 -->
+  <section id="view-spaces" class="card">
+    <h2>スペースを選択</h2>
+    <div id="spaceGrid" class="space-grid"></div>
+  </section>
+
+  <!-- STEP 1: カレンダー -->
+  <section id="view-calendar" class="card hidden">
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn ghost sm" onclick="backToSpaces()">← スペース選択へ</button>
+      <strong id="calSpaceName"></strong>
+    </div>
+    <div class="cal-head">
+      <button class="btn ghost sm" onclick="changeMonth(-1)">◀ 前月</button>
+      <strong id="calMonth"></strong>
+      <button class="btn ghost sm" onclick="changeMonth(1)">翌月 ▶</button>
+    </div>
+    <div class="cal" id="calDows"></div>
+    <div class="cal" id="calGrid" style="margin-top:4px"></div>
+    <div class="legend">
+      <span>○ 空きあり</span><span>△ 残りわずか</span><span>✕ 満枠</span>
+      <span>🟡 土日祝</span><span>🟧枠 季節料金</span><span>商談中=お問い合わせ</span>
+    </div>
+  </section>
+
+  <!-- カート -->
+  <section id="view-cart" class="card hidden">
+    <h2>選択中の日程</h2>
+    <table class="mini" id="cartTable"></table>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost sm" onclick="showCalendar()">＋ 日程を追加</button>
+      <button class="btn" onclick="goOptions()">オプションへ →</button>
+    </div>
+  </section>
+
+  <!-- オプション -->
+  <section id="view-options" class="card hidden">
+    <h2>オプション（任意）</h2>
+    <div id="optList"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost sm" onclick="show('view-cart')">← 戻る</button>
+      <button class="btn" onclick="goCustomer()">お客様情報へ →</button>
+    </div>
+  </section>
+
+  <!-- 顧客情報 -->
+  <section id="view-customer" class="card hidden">
+    <h2>お客様情報</h2>
+    <label>イベント名 <span style="color:var(--bad)">*</span></label>
+    <input id="f_event" placeholder="例）撮影会 / セミナー" />
+    <label>お名前 <span style="color:var(--bad)">*</span></label>
+    <input id="f_name" />
+    <label>メールアドレス <span style="color:var(--bad)">*</span></label>
+    <input id="f_email" type="email" />
+    <label>電話番号 <span style="color:var(--bad)">*</span></label>
+    <input id="f_phone" />
+    <label>会社名（任意）</label>
+    <input id="f_company" />
+    <div class="card" style="margin-top:14px;background:#fafbfc">
+      <div class="row"><span class="muted">スペース料金</span><span id="sum_space">-</span></div>
+      <div class="row"><span class="muted">オプション</span><span id="sum_opt">-</span></div>
+      <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
+      <div class="muted" id="sum_points"></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn ghost sm" onclick="show('view-options')">← 戻る</button>
+      <button class="btn" id="submitBtn" onclick="submitBooking()">この内容で予約する</button>
+    </div>
+    <div id="submitMsg" class="notice hidden" style="margin-top:12px"></div>
+  </section>
+
+  <!-- 完了 -->
+  <section id="view-done" class="card hidden">
+    <div class="done">
+      <div>ご予約ありがとうございます</div>
+      <div class="num" id="doneNum"></div>
+      <div class="muted">合計 <span id="doneTotal"></span>（税込）</div>
+      <div style="margin-top:20px"><button class="btn" onclick="location.reload()">最初に戻る</button></div>
+    </div>
+  </section>
+</main>
+
+<!-- 時間選択モーダル -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h2 id="modalDate"></h2>
+    <label>開始時刻</label>
+    <select id="mStart"></select>
+    <label>終了時刻</label>
+    <select id="mEnd"></select>
+    <div class="muted" id="mPreview" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn ghost sm" onclick="closeModal()">キャンセル</button>
+      <button class="btn" onclick="addToCart()">カートに追加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {} };
+const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, body: j };
+};
+const STEP_LABELS = ['スペース', 'カレンダー', 'カート', 'オプション', 'お客様情報', '完了'];
+function setStep(i) {
+  document.getElementById('steps').innerHTML = STEP_LABELS
+    .map((l, idx) => '<span class="' + (idx === i ? 'active' : '') + '">' + (idx + 1) + '. ' + l + '</span>').join('');
+}
+function show(id) {
+  ['view-spaces','view-calendar','view-cart','view-options','view-customer','view-done']
+    .forEach(v => document.getElementById(v).classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+async function loadSpaces() {
+  setStep(0);
+  const { body } = await api('/api/spaces');
+  S.spaces = body.spaces || [];
+  document.getElementById('spaceGrid').innerHTML = S.spaces.map(s => {
+    const rate = s.weekdayRate ? (yen(s.weekdayRate) + '/時〜') : '要問合せ';
+    return '<div class="space" onclick="selectSpace(\'' + s.id + '\')"><h3>' + s.name + '</h3>' +
+      '<div class="rate">' + rate + '　営業 ' + s.openTime + '–' + s.closeTime + '</div>' +
+      '<div class="rate">最低利用 ' + s.minHours + '時間' + (s.dayRateHours ? '／1日料金あり' : '') + '</div></div>';
+  }).join('');
+  show('view-spaces');
+}
+
+function backToSpaces() { S.space = null; S.cart = []; show('view-spaces'); setStep(0); }
+
+function selectSpace(id) {
+  S.space = S.spaces.find(s => s.id === id);
+  S.cart = [];
+  const now = new Date();
+  S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  document.getElementById('calSpaceName').textContent = S.space.name;
+  loadCalendar();
+}
+
+async function loadCalendar() {
+  setStep(1);
+  const { body } = await api('/api/spaces/' + S.space.id + '/slots?month=' + S.month);
+  S.slots = body.days || [];
+  document.getElementById('calMonth').textContent = S.month.replace('-', '年') + '月';
+  document.getElementById('calDows').innerHTML = ['日','月','火','水','木','金','土']
+    .map(d => '<div class="dow">' + d + '</div>').join('');
+  const first = new Date(S.month + '-01T12:00:00Z');
+  const offset = first.getUTCDay();
+  let html = '';
+  for (let i = 0; i < offset; i++) html += '<div class="empty"></div>';
+  for (const d of S.slots) {
+    const dayNum = Number(d.date.slice(8, 10));
+    const symClass = d.status === 'available' ? 'ok' : d.status === 'limited' ? 'limited' : 'full';
+    const sym = d.status === 'closed' ? '−' : d.symbol;
+    const cls = ['day'];
+    if (d.dayType === 'weekend') cls.push('weekend');
+    if (d.status === 'closed') cls.push('closed');
+    if (d.isSeasonal) cls.push('seasonal');
+    if (d.bookable) cls.push('bookable');
+    const onclick = d.bookable ? ' onclick="openModal(\'' + d.date + '\')"' : '';
+    html += '<div class="' + cls.join(' ') + '"' + onclick + '>' +
+      '<div>' + dayNum + '</div><div class="sym ' + symClass + '">' + sym + '</div>' +
+      (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
+  }
+  document.getElementById('calGrid').innerHTML = html;
+  showCalendar();
+}
+function showCalendar() { show('view-calendar'); setStep(1); if (S.cart.length) renderCart(); }
+
+function changeMonth(delta) {
+  const [y, m] = S.month.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  S.month = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+  loadCalendar();
+}
+
+function times(open, close) {
+  const out = []; const [oh, om] = open.split(':').map(Number); const [ch, cm] = close.split(':').map(Number);
+  let t = oh * 60 + om; const end = ch * 60 + cm;
+  while (t <= end) { out.push(String(Math.floor(t/60)).padStart(2,'0') + ':' + String(t%60).padStart(2,'0')); t += 30; }
+  return out;
+}
+function openModal(date) {
+  S.selectedDate = date;
+  document.getElementById('modalDate').textContent = date + ' の時間を選択';
+  const ts = times(S.space.openTime, S.space.closeTime);
+  document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => '<option>' + t + '</option>').join('');
+  document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => '<option>' + t + '</option>').join('');
+  document.getElementById('mPreview').textContent = '';
+  document.getElementById('modal').classList.add('show');
+  previewModal();
+}
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+document.getElementById('mStart').addEventListener('change', previewModal);
+document.getElementById('mEnd').addEventListener('change', previewModal);
+
+async function previewModal() {
+  const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
+  if (!start || !end || start >= end) { document.getElementById('mPreview').textContent = '終了は開始より後にしてください'; return; }
+  const { body } = await api('/api/bookings/quote', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ spaceId: S.space.id, items: [{ date: S.selectedDate, startTime: start, endTime: end }] }) });
+  if (body.total != null) {
+    const d = body.days[0];
+    document.getElementById('mPreview').textContent =
+      '概算 ' + yen(body.total) + '（' + (d.billingMode === 'day' ? '1日料金' : d.billableHours + '時間分') + '）';
+  }
+}
+
+function addToCart() {
+  const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
+  if (start >= end) { alert('終了は開始より後にしてください'); return; }
+  if (S.cart.some(c => c.date === S.selectedDate)) { alert('その日は既にカートにあります'); return; }
+  S.cart.push({ date: S.selectedDate, startTime: start, endTime: end });
+  S.cart.sort((a, b) => a.date.localeCompare(b.date));
+  closeModal();
+  renderCart();
+  show('view-cart'); setStep(2);
+}
+
+function renderCart() {
+  document.getElementById('cartTable').innerHTML = S.cart.map((c, i) =>
+    '<tr><td>' + c.date + '</td><td>' + c.startTime + '–' + c.endTime + '</td>' +
+    '<td style="text-align:right"><button class="btn ghost sm" onclick="removeCart(' + i + ')">削除</button></td></tr>'
+  ).join('');
+}
+function removeCart(i) { S.cart.splice(i, 1); renderCart(); if (!S.cart.length) showCalendar(); }
+
+async function goOptions() {
+  if (!S.cart.length) { alert('日程を選択してください'); return; }
+  setStep(3);
+  const { body } = await api('/api/spaces/' + S.space.id + '/options?date=' + S.cart[0].date);
+  S.options = body.options || [];
+  document.getElementById('optList').innerHTML = S.options.length === 0
+    ? '<div class="muted">このスペースにオプションはありません</div>'
+    : S.options.map(o => {
+      const price = o.priceType === 'free' ? '無料' : o.priceType === 'per_unit' ? (yen(o.unitPrice) + '/' + (o.unitLabel||'個')) : yen(o.unitPrice);
+      const stock = o.remaining != null ? '（残' + o.remaining + '）' : '';
+      const ctrl = o.type === 'toggle'
+        ? '<input type="checkbox" onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
+        : '<input class="qty" type="number" min="0" value="0" onchange="setOpt(\'' + o.id + '\', this.value)">';
+      return '<div class="opt"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + '</div></div><div>' + ctrl + '</div></div>';
+    }).join('');
+  show('view-options');
+}
+function setOpt(id, v) { const q = Number(v); if (q > 0) S.optQty[id] = q; else delete S.optQty[id]; }
+
+function optionsPayload() {
+  return Object.entries(S.optQty).map(([optionId, quantity]) => ({ optionId, quantity }));
+}
+
+async function goCustomer() {
+  setStep(4);
+  const { body } = await api('/api/bookings/quote', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ spaceId: S.space.id, items: S.cart, options: optionsPayload() }) });
+  document.getElementById('sum_space').textContent = yen(body.spaceFee || 0);
+  document.getElementById('sum_opt').textContent = yen(body.optionsTotal || 0);
+  document.getElementById('sum_total').textContent = yen(body.total || 0);
+  document.getElementById('sum_points').textContent = body.pointsEarned ? ('獲得予定ポイント: ' + body.pointsEarned + 'P') : '';
+  show('view-customer');
+}
+
+async function submitBooking() {
+  const event = document.getElementById('f_event').value.trim();
+  const name = document.getElementById('f_name').value.trim();
+  const email = document.getElementById('f_email').value.trim();
+  const phone = document.getElementById('f_phone').value.trim();
+  const company = document.getElementById('f_company').value.trim();
+  const msg = document.getElementById('submitMsg');
+  if (!event || !name || !email || !phone) { msg.textContent = '必須項目を入力してください'; msg.classList.remove('hidden'); return; }
+  document.getElementById('submitBtn').disabled = true;
+  const { ok, body } = await api('/api/bookings', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload() }) });
+  document.getElementById('submitBtn').disabled = false;
+  if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
+  document.getElementById('doneNum').textContent = body.bookingNumber;
+  document.getElementById('doneTotal').textContent = yen(body.total);
+  show('view-done'); setStep(5);
+}
+
+loadSpaces();
+</script>
+</body>
+</html>

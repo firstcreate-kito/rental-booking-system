@@ -326,6 +326,85 @@ app.post('/', async (c) => {
 });
 
 /**
+ * POST /api/bookings/quote 料金見積もり（保存しない）
+ * body: { spaceId, items:[{date,startTime,endTime,isResidence?}], options?:[{optionId,quantity?}] }
+ */
+app.post('/quote', async (c) => {
+  const db = c.env.DB;
+  let body: { spaceId?: string; items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>; options?: Array<{ optionId: string; quantity?: number }> };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  if (!body.spaceId || !Array.isArray(body.items) || body.items.length === 0) {
+    return c.json({ error: 'spaceId, items は必須です' }, 400);
+  }
+  const space = await getSpaceById(db, body.spaceId);
+  if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+
+  const settings = await getSystemSettings(db);
+  const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
+  const today = todayJST();
+  const itemDates = body.items.map((i) => i.date).sort();
+  const [holidays, seasonalRows] = await Promise.all([
+    getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
+    getActiveSeasonalRules(db),
+  ]);
+  const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
+
+  // 検証（エラーは warnings として返す。見積り自体は算出）
+  const valSpace = toValidationSpace(space);
+  const warnings: Array<{ index: number; code: string; message: string }> = [];
+  for (let i = 0; i < body.items.length; i++) {
+    const item = body.items[i];
+    const dayType = getDayType(item.date, holidayMap);
+    const closures = await getSpaceClosures(db, space.id, item.date, item.date);
+    const closed = isClosed(item.date, { holidays: holidayMap, spaceClosureDates: closures });
+    for (const e of validateBookingItem(valSpace, item as BookingItemInput, { today, dayType, isClosed: closed, defaultDeadlineDays: defaultDeadline })) {
+      warnings.push({ index: i, ...e });
+    }
+  }
+
+  let group;
+  try {
+    group = computeGroupSpacePrice(toPricingConfig(space), body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime, isResidence: i.isResidence })) as DayBookingInput[], { holidays: holidayMap, seasonalRules });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+
+  // オプション小計（在庫チェックはしない、金額のみ）
+  let optionsTotal = 0;
+  const optionLines: Array<{ optionId: string; name: string; quantity: number; subtotal: number }> = [];
+  if (body.options && body.options.length > 0) {
+    const optMap = await getOptionsByIds(db, body.options.map((o) => o.optionId));
+    for (const req of body.options) {
+      const opt = optMap.get(req.optionId);
+      if (!opt) continue;
+      const norm = normalizeQuantity({ id: opt.id, type: opt.type, priceType: opt.price_type, unitPrice: opt.unit_price, maxQty: opt.max_qty, stockTotal: opt.stock_total }, req.quantity ?? 1);
+      if (norm.error) continue;
+      const subtotal = optionSubtotal(opt.price_type, opt.unit_price, norm.quantity);
+      optionLines.push({ optionId: opt.id, name: opt.name, quantity: norm.quantity, subtotal });
+      optionsTotal += subtotal;
+    }
+  }
+
+  const pointRate = Number(settings.get('point_rate') ?? '1');
+  const totals = applyDiscounts({ days: group.days.map((d) => ({ billableHours: d.billableHours, price: d.price })), primary: { kind: 'none' }, optionsTotal, pointRate });
+
+  return c.json({
+    spaceFee: totals.spaceFee,
+    optionsTotal,
+    total: totals.total,
+    pointsEarned: totals.pointsEarned,
+    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, price: d.price, isResidence: d.isResidence })),
+    optionLines,
+    warnings,
+  });
+});
+
+/**
  * POST /api/bookings/:number/cancel 予約キャンセル
  * ※会員ステータス別のセルフ可否・月間上限の判定は認証実装時に接続する。
  *   本エンドポイントはキャンセル処理とキャンセル料計算を行う。

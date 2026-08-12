@@ -8,6 +8,8 @@ import {
   getActiveSeasonalRules,
   getSpaceBookingsInRange,
   getSystemSettings,
+  getSpaceOptions,
+  getDailyOptionUsage,
   type SpaceRow,
 } from '../db/repository';
 import {
@@ -55,6 +57,39 @@ app.get('/:id', async (c) => {
   const space = await getSpaceById(c.env.DB, c.req.param('id'));
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
   return c.json({ space: toPublicSpace(space) });
+});
+
+/** GET /api/spaces/:id/options?date=YYYY-MM-DD オプション一覧（在庫情報含む） */
+app.get('/:id/options', async (c) => {
+  const id = c.req.param('id');
+  const date = c.req.query('date');
+  const space = await getSpaceById(c.env.DB, id);
+  if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+
+  const options = await getSpaceOptions(c.env.DB, id);
+  const result = await Promise.all(
+    options.map(async (o) => {
+      let remaining: number | null = o.stock_total;
+      if (date && o.stock_total != null && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        const used = await getDailyOptionUsage(c.env.DB, o.id, date);
+        remaining = Math.max(0, o.stock_total - used);
+      }
+      return {
+        id: o.id,
+        name: o.name,
+        category: o.category,
+        type: o.type,
+        priceType: o.price_type,
+        unitPrice: o.unit_price,
+        unitLabel: o.unit_label,
+        maxQty: o.max_qty,
+        stockTotal: o.stock_total,
+        remaining, // date指定時はその日の残数
+        scope: o.scope,
+      };
+    }),
+  );
+  return c.json({ spaceId: id, date: date ?? null, options: result });
 });
 
 /** GET /api/spaces/:id/slots?month=YYYY-MM 月間の稼働状況 */

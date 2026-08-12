@@ -13,9 +13,13 @@ import {
   getBookingGroupByNumber,
   getBookingsByGroup,
   getCancelPolicies,
+  getOptionsByIds,
+  isOptionAvailableForSpace,
+  getDailyOptionUsage,
   peekNextBookingSeq,
   type SpaceRow,
 } from '../db/repository';
+import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import {
   computeCancelCharge,
@@ -52,6 +56,8 @@ interface CreateBookingBody {
     companyName?: string;
   };
   items: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>;
+  /** 全日程共通(per_group)オプション */
+  options?: Array<{ optionId: string; quantity?: number }>;
 }
 
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
@@ -172,11 +178,48 @@ app.post('/', async (c) => {
     billableHours: d.billableHours,
     price: d.price,
   }));
+
+  // オプション処理（全日程共通 per_group、在庫は各日でチェック）
+  const optionSelections: Array<{ optionId: string; quantity: number; subtotal: number }> = [];
+  let optionsTotal = 0;
+  if (body.options && body.options.length > 0) {
+    const ids = body.options.map((o) => o.optionId);
+    const optMap = await getOptionsByIds(db, ids);
+    for (const req of body.options) {
+      const opt = optMap.get(req.optionId);
+      if (!opt || !opt.is_active) {
+        return c.json({ error: `オプションが見つかりません: ${req.optionId}` }, 400);
+      }
+      if (!(await isOptionAvailableForSpace(db, space.id, opt.id))) {
+        return c.json({ error: `${opt.name} はこのスペースで利用できません` }, 400);
+      }
+      const norm = normalizeQuantity(
+        { id: opt.id, type: opt.type, priceType: opt.price_type, unitPrice: opt.unit_price, maxQty: opt.max_qty, stockTotal: opt.stock_total },
+        req.quantity ?? 1,
+      );
+      if (norm.error) return c.json({ error: `${opt.name}: ${norm.error}` }, 400);
+
+      // 各利用日で在庫確認（共通在庫は横断集計）
+      for (const item of body.items) {
+        const used = await getDailyOptionUsage(db, opt.id, item.date);
+        if (!hasStock(opt.stock_total, used, norm.quantity)) {
+          return c.json(
+            { error: `${opt.name} は ${item.date} の在庫が不足しています（残${Math.max(0, (opt.stock_total ?? 0) - used)}）` },
+            409,
+          );
+        }
+      }
+      const subtotal = optionSubtotal(opt.price_type, opt.unit_price, norm.quantity);
+      optionSelections.push({ optionId: opt.id, quantity: norm.quantity, subtotal });
+      optionsTotal += subtotal;
+    }
+  }
+
   const pointRate = Number(settings.get('point_rate') ?? '1');
   const totals = applyDiscounts({
     days: discountableDays,
     primary: { kind: 'none' },
-    optionsTotal: 0,
+    optionsTotal,
     pointRate,
   });
 
@@ -240,6 +283,17 @@ app.post('/', async (c) => {
           ),
       );
     }
+    // オプション選択（グループ単位）
+    for (const sel of optionSelections) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO booking_option_selections (id, group_id, option_id, quantity, subtotal)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), groupId, sel.optionId, sel.quantity, sel.subtotal),
+      );
+    }
     try {
       await db.batch(stmts);
       inserted = true;
@@ -255,6 +309,8 @@ app.post('/', async (c) => {
       bookingNumber,
       groupId,
       total: totals.total,
+      spaceFee: totals.spaceFee,
+      optionsTotal,
       pointsEarned: totals.pointsEarned,
       days: group.days.map((d) => ({
         date: d.date,
@@ -467,6 +523,96 @@ app.post('/:number/reschedule', async (c) => {
     adjustment,
     days: newGroup.days.map((d) => ({ date: d.date, billingMode: d.billingMode, price: d.price })),
   });
+});
+
+/**
+ * POST /api/bookings/:number/options オプション変更（全日程共通）
+ * body: { options: [{optionId, quantity?}] }  ※既存のオプションを置き換える
+ */
+app.post('/:number/options', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  let body: { options?: Array<{ optionId: string; quantity?: number }> };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  const reqOptions = body.options ?? [];
+
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約は変更できません' }, 400);
+
+  const groupBookings = await getBookingsByGroup(db, g.id);
+  const dates = [...new Set(groupBookings.map((b) => b.date))];
+
+  // 現在のオプション小計合計
+  const curRow = await db
+    .prepare('SELECT COALESCE(SUM(subtotal),0) AS t FROM booking_option_selections WHERE group_id = ?')
+    .bind(g.id)
+    .first<{ t: number }>();
+  const currentOptionsTotal = curRow?.t ?? 0;
+  const spaceFee = g.total_amount - currentOptionsTotal;
+
+  // 新オプションを検証・在庫確認（自グループ除外）
+  const newSelections: Array<{ optionId: string; quantity: number; subtotal: number }> = [];
+  let newOptionsTotal = 0;
+  if (reqOptions.length > 0) {
+    const optMap = await getOptionsByIds(db, reqOptions.map((o) => o.optionId));
+    for (const req of reqOptions) {
+      const opt = optMap.get(req.optionId);
+      if (!opt || !opt.is_active) return c.json({ error: `オプションが見つかりません: ${req.optionId}` }, 400);
+      if (!(await isOptionAvailableForSpace(db, g.space_id, opt.id))) {
+        return c.json({ error: `${opt.name} はこのスペースで利用できません` }, 400);
+      }
+      const norm = normalizeQuantity(
+        { id: opt.id, type: opt.type, priceType: opt.price_type, unitPrice: opt.unit_price, maxQty: opt.max_qty, stockTotal: opt.stock_total },
+        req.quantity ?? 1,
+      );
+      if (norm.error) return c.json({ error: `${opt.name}: ${norm.error}` }, 400);
+      for (const date of dates) {
+        const used = await getDailyOptionUsage(db, opt.id, date, g.id); // 自グループ除外
+        if (!hasStock(opt.stock_total, used, norm.quantity)) {
+          return c.json({ error: `${opt.name} は ${date} の在庫が不足しています（残${Math.max(0, (opt.stock_total ?? 0) - used)}）` }, 409);
+        }
+      }
+      const subtotal = optionSubtotal(opt.price_type, opt.unit_price, norm.quantity);
+      newSelections.push({ optionId: opt.id, quantity: norm.quantity, subtotal });
+      newOptionsTotal += subtotal;
+    }
+  }
+
+  const newTotal = spaceFee + newOptionsTotal;
+  const adjustment = computeAdjustment(g.total_amount, newTotal);
+  const now = nowJST();
+
+  const stmts: D1PreparedStatement[] = [];
+  stmts.push(db.prepare('DELETE FROM booking_option_selections WHERE group_id = ?').bind(g.id));
+  for (const sel of newSelections) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO booking_option_selections (id, group_id, option_id, quantity, subtotal)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), g.id, sel.optionId, sel.quantity, sel.subtotal),
+    );
+  }
+  stmts.push(db.prepare('UPDATE booking_groups SET total_amount = ? WHERE id = ?').bind(newTotal, g.id));
+  if (adjustment.type !== 'zero') {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO booking_adjustments (id, group_id, type, amount, payment_method, status, created_at)
+           VALUES (?, ?, ?, ?, 'invoice', 'pending', ?)`,
+        )
+        .bind(crypto.randomUUID(), g.id, adjustment.type, adjustment.amount, now),
+    );
+  }
+  await db.batch(stmts);
+
+  return c.json({ bookingNumber: number, spaceFee, optionsTotal: newOptionsTotal, newTotal, adjustment });
 });
 
 /**

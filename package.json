@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "db:migrate:local": "wrangler d1 migrations apply albe_booking --local",
     "db:migrate:remote": "wrangler d1 migrations apply albe_booking --remote",
-    "db:seed:local": "wrangler d1 execute albe_booking --local --file=./seeds/seed.sql",
+    "db:seed:local": "wrangler d1 execute albe_booking --local --file=./seeds/seed.sql && wrangler d1 execute albe_booking --local --file=./seeds/options.sql",
     "db:reset:local": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed:local"
   },
   "dependencies": {

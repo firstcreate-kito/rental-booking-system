@@ -215,6 +215,101 @@ export async function getBookingsByGroup(db: D1Database, groupId: string): Promi
   return results ?? [];
 }
 
+export interface OptionRow {
+  id: string;
+  name: string;
+  category: string;
+  type: 'toggle' | 'quantity';
+  price_type: 'free' | 'fixed' | 'per_unit';
+  unit_price: number;
+  unit_label: string | null;
+  max_qty: number | null;
+  stock_total: number | null;
+  scope: 'per_booking' | 'per_group';
+  sort_order: number;
+  is_active: number;
+}
+
+/** スペースで有効なオプション一覧 */
+export async function getSpaceOptions(db: D1Database, spaceId: string): Promise<OptionRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT o.* FROM options o
+       JOIN space_options so ON so.option_id = o.id
+       WHERE so.space_id = ? AND so.is_active = 1 AND o.is_active = 1
+       ORDER BY o.sort_order`,
+    )
+    .bind(spaceId)
+    .all<OptionRow>();
+  return results ?? [];
+}
+
+/** ID群からオプション詳細を取得 */
+export async function getOptionsByIds(db: D1Database, ids: string[]): Promise<Map<string, OptionRow>> {
+  const map = new Map<string, OptionRow>();
+  if (ids.length === 0) return map;
+  const placeholders = ids.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT * FROM options WHERE id IN (${placeholders})`)
+    .bind(...ids)
+    .all<OptionRow>();
+  for (const r of results ?? []) map.set(r.id, r);
+  return map;
+}
+
+/** あるオプションが、あるスペースで利用可能か */
+export async function isOptionAvailableForSpace(
+  db: D1Database,
+  spaceId: string,
+  optionId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok FROM space_options
+       WHERE space_id = ? AND option_id = ? AND is_active = 1 LIMIT 1`,
+    )
+    .bind(spaceId, optionId)
+    .first<{ ok: number }>();
+  return !!row;
+}
+
+/**
+ * 指定オプションの、指定日の利用数合計（共通在庫は全スペース横断で集計）。
+ * per_booking はその日のbooking、per_group はその日に予約があるグループの選択を集計。
+ * @param excludeGroupId 除外するグループ（日時変更時の自グループ除外用）
+ */
+export async function getDailyOptionUsage(
+  db: D1Database,
+  optionId: string,
+  date: string,
+  excludeGroupId?: string,
+): Promise<number> {
+  const exclude = excludeGroupId ?? '';
+  const perBooking = await db
+    .prepare(
+      `SELECT COALESCE(SUM(bos.quantity),0) AS q
+       FROM booking_option_selections bos
+       JOIN bookings b ON b.id = bos.booking_id
+       WHERE bos.option_id = ? AND b.date = ?
+         AND b.status IN ('confirmed','tentative','blocked','held')
+         AND b.group_id != ?`,
+    )
+    .bind(optionId, date, exclude)
+    .first<{ q: number }>();
+  const perGroup = await db
+    .prepare(
+      `SELECT COALESCE(SUM(bos.quantity),0) AS q
+       FROM booking_option_selections bos
+       WHERE bos.option_id = ? AND bos.group_id != ? AND bos.group_id IN (
+         SELECT DISTINCT group_id FROM bookings
+         WHERE date = ? AND status IN ('confirmed','tentative','blocked','held')
+       )`,
+    )
+    .bind(optionId, exclude, date)
+    .first<{ q: number }>();
+  return (perBooking?.q ?? 0) + (perGroup?.q ?? 0);
+}
+
 export interface CancelPolicyRow {
   space_id: string | null;
   days_before: number;

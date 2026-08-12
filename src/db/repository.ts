@@ -169,6 +169,183 @@ export async function getCustomerByEmail(
     .first<{ id: string; is_blocked: number }>();
 }
 
+export interface CustomerAuthRow {
+  id: string;
+  email: string;
+  password_hash: string | null;
+  is_registered: number;
+  is_blocked: number;
+  contact_name: string;
+  status_id: string;
+}
+
+/** 認証用に顧客をメールで取得（パスワードハッシュ含む） */
+export async function getCustomerAuthByEmail(
+  db: D1Database,
+  email: string,
+): Promise<CustomerAuthRow | null> {
+  return db
+    .prepare(
+      'SELECT id, email, password_hash, is_registered, is_blocked, contact_name, status_id FROM customers WHERE email = ?',
+    )
+    .bind(email)
+    .first<CustomerAuthRow>();
+}
+
+export async function updateLastLogin(db: D1Database, customerId: string, now: string): Promise<void> {
+  await db.prepare('UPDATE customers SET last_login_at = ? WHERE id = ?').bind(now, customerId).run();
+}
+
+// --- セッション ---
+export async function createSession(
+  db: D1Database,
+  token: string,
+  customerId: string,
+  expiresAt: string,
+  now: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO auth_sessions (token, customer_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+    .bind(token, customerId, expiresAt, now)
+    .run();
+}
+
+export interface SessionCustomerRow {
+  id: string;
+  email: string;
+  contact_name: string;
+  status_id: string;
+  is_registered: number;
+  is_blocked: number;
+  expires_at: string;
+}
+
+/** トークンからセッション+顧客を取得 */
+export async function getSessionCustomer(
+  db: D1Database,
+  token: string,
+): Promise<SessionCustomerRow | null> {
+  return db
+    .prepare(
+      `SELECT c.id, c.email, c.contact_name, c.status_id, c.is_registered, c.is_blocked, s.expires_at
+       FROM auth_sessions s JOIN customers c ON c.id = s.customer_id
+       WHERE s.token = ?`,
+    )
+    .bind(token)
+    .first<SessionCustomerRow>();
+}
+
+export async function deleteSession(db: D1Database, token: string): Promise<void> {
+  await db.prepare('DELETE FROM auth_sessions WHERE token = ?').bind(token).run();
+}
+
+// --- マイページ ---
+export async function getCustomerProfile(db: D1Database, customerId: string) {
+  return db
+    .prepare(
+      `SELECT id, email, company_name, contact_name, phone, postal_code, address, invoice_number,
+              status_id, point_balance, is_registered, created_at, last_login_at
+       FROM customers WHERE id = ?`,
+    )
+    .bind(customerId)
+    .first();
+}
+
+export async function updateCustomerProfile(
+  db: D1Database,
+  customerId: string,
+  fields: { companyName?: string | null; contactName?: string; phone?: string; postalCode?: string | null; address?: string | null; invoiceNumber?: string | null },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE customers SET
+        company_name = COALESCE(?, company_name),
+        contact_name = COALESCE(?, contact_name),
+        phone = COALESCE(?, phone),
+        postal_code = COALESCE(?, postal_code),
+        address = COALESCE(?, address),
+        invoice_number = COALESCE(?, invoice_number)
+       WHERE id = ?`,
+    )
+    .bind(
+      fields.companyName ?? null,
+      fields.contactName ?? null,
+      fields.phone ?? null,
+      fields.postalCode ?? null,
+      fields.address ?? null,
+      fields.invoiceNumber ?? null,
+      customerId,
+    )
+    .run();
+}
+
+export async function updateCustomerPassword(
+  db: D1Database,
+  customerId: string,
+  passwordHash: string,
+): Promise<void> {
+  await db.prepare('UPDATE customers SET password_hash = ? WHERE id = ?').bind(passwordHash, customerId).run();
+}
+
+/** 顧客の予約履歴（グループ単位） */
+export async function getCustomerBookingGroups(db: D1Database, customerId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.booking_number, bg.space_id, s.name AS space_name, bg.event_name,
+              bg.total_amount, bg.status, bg.created_at,
+              MIN(b.date) AS first_date, MAX(b.date) AS last_date, COUNT(b.id) AS day_count
+       FROM booking_groups bg
+       LEFT JOIN bookings b ON b.group_id = bg.id
+       LEFT JOIN spaces s ON s.id = bg.space_id
+       WHERE bg.customer_id = ?
+       GROUP BY bg.id
+       ORDER BY bg.created_at DESC`,
+    )
+    .bind(customerId)
+    .all();
+  return results ?? [];
+}
+
+export async function getPointBalanceAndLog(db: D1Database, customerId: string) {
+  const balance = await db
+    .prepare('SELECT point_balance FROM customers WHERE id = ?')
+    .bind(customerId)
+    .first<{ point_balance: number }>();
+  const { results: log } = await db
+    .prepare(
+      `SELECT type, amount, balance_after, description, created_at
+       FROM point_log WHERE customer_id = ? ORDER BY created_at DESC LIMIT 100`,
+    )
+    .bind(customerId)
+    .all();
+  return { balance: balance?.point_balance ?? 0, log: log ?? [] };
+}
+
+export async function getFavorites(db: D1Database, customerId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT cf.space_id, s.name AS space_name FROM customer_favorites cf
+       JOIN spaces s ON s.id = cf.space_id WHERE cf.customer_id = ? ORDER BY cf.created_at DESC`,
+    )
+    .bind(customerId)
+    .all();
+  return results ?? [];
+}
+
+export async function addFavorite(db: D1Database, customerId: string, spaceId: string, now: string): Promise<void> {
+  await db
+    .prepare('INSERT OR IGNORE INTO customer_favorites (customer_id, space_id, created_at) VALUES (?, ?, ?)')
+    .bind(customerId, spaceId, now)
+    .run();
+}
+
+export async function removeFavorite(db: D1Database, customerId: string, spaceId: string): Promise<void> {
+  await db
+    .prepare('DELETE FROM customer_favorites WHERE customer_id = ? AND space_id = ?')
+    .bind(customerId, spaceId)
+    .run();
+}
+
 export interface BookingGroupRow {
   id: string;
   booking_number: string;

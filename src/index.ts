@@ -4,6 +4,8 @@ import { logger } from 'hono/logger';
 import type { AppBindings } from './types';
 import spaces from './routes/spaces';
 import bookings from './routes/bookings';
+import auth from './routes/auth';
+import mypage from './routes/mypage';
 
 const app = new Hono<AppBindings>();
 
@@ -32,5 +34,7 @@ app.get('/api/health/db', async (c) => {
 // API ルート
 app.route('/api/spaces', spaces);
 app.route('/api/bookings', bookings);
+app.route('/api/auth', auth);
+app.route('/api/mypage', mypage);
 
 export default app;

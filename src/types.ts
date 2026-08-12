@@ -8,7 +8,19 @@ export interface Env {
   APP_ENV: string;
 }
 
+/** 認証済み顧客（コンテキストに載る最小情報） */
+export interface AuthCustomer {
+  id: string;
+  email: string;
+  contactName: string;
+  statusId: string;
+  isRegistered: boolean;
+}
+
 /** Hono のコンテキストに載せる型 */
 export type AppBindings = {
   Bindings: Env;
+  Variables: {
+    customer: AuthCustomer;
+  };
 };

@@ -17,10 +17,19 @@ export interface AuthCustomer {
   isRegistered: boolean;
 }
 
+/** 認証済み管理者 */
+export interface AuthAdmin {
+  id: string;
+  email: string;
+  name: string;
+  role: 'owner' | 'manager' | 'staff';
+}
+
 /** Hono のコンテキストに載せる型 */
 export type AppBindings = {
   Bindings: Env;
   Variables: {
     customer: AuthCustomer;
+    admin: AuthAdmin;
   };
 };

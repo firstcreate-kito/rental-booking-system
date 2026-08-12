@@ -7,6 +7,7 @@ import bookings from './routes/bookings';
 import auth from './routes/auth';
 import mypage from './routes/mypage';
 import signage from './routes/signage';
+import admin from './routes/admin';
 
 const app = new Hono<AppBindings>();
 
@@ -38,5 +39,6 @@ app.route('/api/bookings', bookings);
 app.route('/api/auth', auth);
 app.route('/api/mypage', mypage);
 app.route('/api/signage', signage);
+app.route('/api/admin', admin);
 
 export default app;

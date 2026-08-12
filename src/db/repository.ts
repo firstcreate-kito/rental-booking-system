@@ -346,6 +346,115 @@ export async function removeFavorite(db: D1Database, customerId: string, spaceId
     .run();
 }
 
+// --- 管理者 ---
+export interface AdminAuthRow {
+  id: string;
+  email: string;
+  password_hash: string;
+  name: string;
+  role: string;
+  is_active: number;
+}
+
+export async function countAdmins(db: D1Database): Promise<number> {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM admin_users').first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function insertAdmin(
+  db: D1Database,
+  admin: { id: string; email: string; passwordHash: string; name: string; role: string },
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO admin_users (id, email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1)')
+    .bind(admin.id, admin.email, admin.passwordHash, admin.name, admin.role)
+    .run();
+}
+
+export async function getAdminAuthByEmail(db: D1Database, email: string): Promise<AdminAuthRow | null> {
+  return db
+    .prepare('SELECT id, email, password_hash, name, role, is_active FROM admin_users WHERE email = ?')
+    .bind(email)
+    .first<AdminAuthRow>();
+}
+
+export async function createAdminSession(
+  db: D1Database,
+  token: string,
+  adminId: string,
+  expiresAt: string,
+  now: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO admin_sessions (token, admin_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+    .bind(token, adminId, expiresAt, now)
+    .run();
+}
+
+export interface AdminSessionRow {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  is_active: number;
+  expires_at: string;
+}
+
+export async function getAdminSession(db: D1Database, token: string): Promise<AdminSessionRow | null> {
+  return db
+    .prepare(
+      `SELECT a.id, a.email, a.name, a.role, a.is_active, s.expires_at
+       FROM admin_sessions s JOIN admin_users a ON a.id = s.admin_id WHERE s.token = ?`,
+    )
+    .bind(token)
+    .first<AdminSessionRow>();
+}
+
+export async function deleteAdminSession(db: D1Database, token: string): Promise<void> {
+  await db.prepare('DELETE FROM admin_sessions WHERE token = ?').bind(token).run();
+}
+
+/** 管理者向け予約一覧（フィルタ: 期間・スペース・ステータス） */
+export async function listBookingsForAdmin(
+  db: D1Database,
+  filters: { from?: string; to?: string; spaceId?: string; status?: string },
+) {
+  const conds: string[] = [];
+  const binds: unknown[] = [];
+  if (filters.from) {
+    conds.push('b.date >= ?');
+    binds.push(filters.from);
+  }
+  if (filters.to) {
+    conds.push('b.date <= ?');
+    binds.push(filters.to);
+  }
+  if (filters.spaceId) {
+    conds.push('b.space_id = ?');
+    binds.push(filters.spaceId);
+  }
+  if (filters.status) {
+    conds.push('b.status = ?');
+    binds.push(filters.status);
+  }
+  const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+  const { results } = await db
+    .prepare(
+      `SELECT b.date, b.start_time, b.end_time, b.status, b.price, b.billing_mode,
+              bg.booking_number, bg.event_name, bg.source, s.name AS space_name, b.space_id,
+              c.contact_name, c.company_name
+       FROM bookings b
+       JOIN booking_groups bg ON bg.id = b.group_id
+       LEFT JOIN spaces s ON s.id = b.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       ${where}
+       ORDER BY b.date, b.start_time`,
+    )
+    .bind(...binds)
+    .all();
+  return results ?? [];
+}
+
 // --- サイネージ ---
 export async function verifySignageToken(
   db: D1Database,

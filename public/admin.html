@@ -94,7 +94,10 @@
 
     <!-- 予約一覧 -->
     <section id="view-list" class="card">
-      <h2>予約一覧</h2>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">予約一覧</h2>
+        <button class="btn ghost sm" onclick="testEmail()">📧 メール送信テスト</button>
+      </div>
       <div class="grid">
         <div><label>開始日</label><input id="f_from" type="date" /></div>
         <div><label>終了日</label><input id="f_to" type="date" /></div>
@@ -527,6 +530,21 @@ async function loadBookings() {
   }).join('');
 }
 function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了' }[s] || s; }
+async function testEmail() {
+  const to = prompt('テストメールの送信先アドレスを入力してください。\n※onboarding@resend.dev を使用中は、Resend登録アドレス宛のみ届きます。', (A.admin && A.admin.email) || '');
+  if (!to) return;
+  const { ok, body } = await api('/api/admin/test-email', jsonBody({ to }));
+  if (!ok) { alert('エラー: ' + (body.error || '失敗')); return; }
+  if (body.skipped || !body.configured) {
+    alert('メール送信が未設定です。\n\nhasApiKey(RESEND_API_KEY): ' + body.hasApiKey + '\nhasFrom(MAIL_FROM): ' + body.hasFrom + '\n\n両方を wrangler secret put で登録し、npm run deploy してください。');
+    return;
+  }
+  if (body.ok) {
+    alert('✅ 送信リクエストは成功しました。\n\n送信元: ' + (body.mailFrom || '') + '\n宛先: ' + to + '\n\n受信箱（迷惑メールフォルダも）をご確認ください。届かない場合は、送信元が onboarding@resend.dev のときは「Resend登録アドレス宛のみ」届く点にご注意ください。');
+    return;
+  }
+  alert('❌ 送信に失敗しました。Resendからのエラー:\n\n' + (body.error || '不明') + '\n\n送信元(MAIL_FROM): ' + (body.mailFrom || '(未設定)'));
+}
 
 // --- 代理予約：既存顧客の検索・呼び出し ---
 let proxyCustomerId = null;

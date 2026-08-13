@@ -158,6 +158,24 @@ app.post('/logout', async (c) => {
 // 以降は管理者ログイン必須
 app.use('/*', requireAdmin);
 
+/** POST /api/admin/test-email メール送信テスト（設定確認用） */
+app.post('/test-email', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const to = String(body.to ?? '').trim();
+  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+    return c.json({ error: '送信先メールアドレスを入力してください' }, 400);
+  }
+  const configured = !!(c.env.RESEND_API_KEY && c.env.MAIL_FROM);
+  const result = await sendEmail(c.env, {
+    to,
+    subject: '【レンタルスペースALBE】メール送信テスト',
+    html: '<p>これはメール送信設定のテストメールです。この本文が届いていれば、メール送信は正常に動作しています。</p>',
+    text: 'これはメール送信設定のテストメールです。この本文が届いていれば、メール送信は正常に動作しています。',
+  });
+  // 送信元の設定状況も返す（原因切り分け用）
+  return c.json({ configured, hasApiKey: !!c.env.RESEND_API_KEY, hasFrom: !!c.env.MAIL_FROM, mailFrom: c.env.MAIL_FROM ?? null, ...result });
+});
+
 // ---------------------------------------------------------------------------
 // 予約管理
 // ---------------------------------------------------------------------------

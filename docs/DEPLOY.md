@@ -94,6 +94,32 @@ npm run deploy
 
 ---
 
+## 開発中の公開ゲート（ベーシック認証）
+
+開発中は、URLを知っている人でも閲覧できないよう、サイト全体（お客様画面・
+管理画面・API）にID/パスワードのゲートをかけられます。
+
+**有効にする**（本番Workerに認証情報を登録。1行ずつ実行し、値の入力を求められたら入力）:
+```powershell
+npx wrangler secret put BASIC_AUTH_USER
+npx wrangler secret put BASIC_AUTH_PASS
+```
+→ それぞれ ID とパスワードを入力（**半角英数字**で設定してください）。登録後、
+反映するために再デプロイ:
+```powershell
+npm run deploy
+```
+以降サイトを開くと、ブラウザにID/パスワードの入力を求められます。
+
+**一般公開する（ゲートを外す）**ときは、登録した認証情報を削除して再デプロイ:
+```powershell
+npx wrangler secret delete BASIC_AUTH_USER
+npx wrangler secret delete BASIC_AUTH_PASS
+npm run deploy
+```
+（`BASIC_AUTH_USER` と `BASIC_AUTH_PASS` の両方が設定されているときだけゲートが
+有効になります。片方でも未設定なら誰でも閲覧できます）
+
 ## 困ったとき
 - `wrangler login` でブラウザが開かない → 表示されたURLを手動でブラウザに貼り付け。
 - `npm run deploy` でエラー → メッセージをそのまま共有してください。

@@ -9,9 +9,12 @@
   "observability": {
     "enabled": true
   },
-  // 顧客向けデモUI（静的ファイル）。/api/* はWorkerが処理し、それ以外はpublic/を配信
+  // 静的ファイル（public/）。ベーシック認証を効かせるため Worker を先に実行し、
+  // ASSETS バインディング経由で配信する（src/index.ts の catch-all を参照）。
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
   // D1 データベース（ローカル開発では --local で SQLite が使われる）
   // ※ database_id は Cloudflare でDBを作成後に差し替える。ローカル開発には不要。

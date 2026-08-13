@@ -6,6 +6,11 @@ export interface Env {
   DB: D1Database;
   /** 実行環境識別子（development / production 等） */
   APP_ENV: string;
+  /** 静的アセット（public/）を配信するバインディング */
+  ASSETS: Fetcher;
+  /** ベーシック認証（開発用ゲート）。両方セット時のみ有効化 */
+  BASIC_AUTH_USER?: string;
+  BASIC_AUTH_PASS?: string;
 }
 
 /** 認証済み顧客（コンテキストに載る最小情報） */

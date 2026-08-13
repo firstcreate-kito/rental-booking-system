@@ -36,3 +36,11 @@ INSERT OR REPLACE INTO coupon_spaces (coupon_id, space_id) VALUES
   ('demo-coupon-1', 'meieki-exercise'),
   ('demo-coupon-1', 'meieki-washitsu'),
   ('demo-coupon-1', 'albe-hall-nagoya');
+
+-- デモ用管理者（オーナー権限）
+--   Email    : admin@albe.test
+--   Password : adminpass123
+INSERT OR REPLACE INTO admin_users (id, email, password_hash, name, role, is_active)
+VALUES ('demo-admin', 'admin@albe.test',
+  'pbkdf2$100000$iBwv0B+9kKctWYyM4MhQIQ==$k0dR61ZHIqZcZk5QOy/N6c7hd+aVFtDH+ENQ/nwflsg=',
+  '管理デモ', 'owner', 1);

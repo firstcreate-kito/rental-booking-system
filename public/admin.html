@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ALBE 管理画面</title>
+<style>
+  :root { --brand:#4338ca; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f6f7fb; --ok:#16a34a; --warn:#f59e0b; --bad:#dc2626; --tent:#d97706; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+  header { background:#1e1b4b; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  header .who { font-size:12px; opacity:.85; }
+  main { max-width:1040px; margin:0 auto; padding:20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .btn { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
+  .btn.sm { padding:5px 10px; font-size:12px; }
+  .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .btn.tent { background:var(--tent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  .tablewrap { overflow-x:auto; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
+  .pill.confirmed { background:#dcfce7; color:#166534; }
+  .pill.tentative { background:#fef3c7; color:#92400e; }
+  .pill.cancelled { background:#fee2e2; color:#991b1b; }
+  .pill.completed { background:#e0e7ff; color:#3730a3; }
+  .muted { color:var(--muted); font-size:12px; }
+  .hidden { display:none; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; }
+  .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+</style>
+</head>
+<body>
+<header>
+  <h1>レンタルスペースALBE 管理画面</h1>
+  <div class="who" id="who"></div>
+</header>
+<main>
+  <!-- ログイン -->
+  <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
+    <h2>管理者ログイン</h2>
+    <div class="muted">デモ管理者 → <code>admin@albe.test</code> / <code>adminpass123</code></div>
+    <label>メールアドレス</label>
+    <input id="a_email" type="email" />
+    <label>パスワード</label>
+    <input id="a_pass" type="password" />
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="btn" onclick="login()">ログイン</button>
+    </div>
+    <div class="msg bad" id="loginMsg"></div>
+  </section>
+
+  <!-- 管理画面本体 -->
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button id="tab-list" class="active" onclick="showTab('list')">予約一覧</button>
+      <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
+      <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
+    </div>
+
+    <!-- 予約一覧 -->
+    <section id="view-list" class="card">
+      <h2>予約一覧</h2>
+      <div class="grid">
+        <div><label>開始日</label><input id="f_from" type="date" /></div>
+        <div><label>終了日</label><input id="f_to" type="date" /></div>
+        <div><label>スペース</label><select id="f_space"><option value="">すべて</option></select></div>
+        <div><label>状態</label><select id="f_status">
+          <option value="">すべて</option>
+          <option value="confirmed">本予約</option>
+          <option value="tentative">商談中</option>
+          <option value="cancelled">キャンセル</option>
+        </select></div>
+      </div>
+      <div class="row" style="margin-top:12px;justify-content:flex-end">
+        <button class="btn ghost sm" onclick="loadBookings()">検索</button>
+      </div>
+      <div class="tablewrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>日付</th><th>時間</th><th>スペース</th><th>状態</th><th>予約番号</th><th>イベント</th><th>顧客</th><th></th></tr></thead>
+          <tbody id="listBody"></tbody>
+        </table>
+      </div>
+      <div class="muted" id="listEmpty"></div>
+    </section>
+
+    <!-- 代理予約 -->
+    <section id="view-proxy" class="card hidden">
+      <h2>代理予約（本予約として登録）</h2>
+      <div class="grid">
+        <div><label>スペース *</label><select id="p_space"></select></div>
+        <div><label>日付 *</label><input id="p_date" type="date" /></div>
+        <div><label>開始 *</label><input id="p_start" placeholder="10:00" /></div>
+        <div><label>終了 *</label><input id="p_end" placeholder="18:00" /></div>
+      </div>
+      <label>イベント名 *</label><input id="p_event" />
+      <div class="grid">
+        <div><label>お客様名</label><input id="p_name" /></div>
+        <div><label>メール</label><input id="p_email" /></div>
+        <div><label>電話</label><input id="p_phone" /></div>
+      </div>
+      <div class="row" style="margin-top:12px;justify-content:flex-end">
+        <button class="btn" onclick="createBooking('proxy')">登録する</button>
+      </div>
+      <div class="msg" id="proxyMsg"></div>
+    </section>
+
+    <!-- 商談中の作成 -->
+    <section id="view-tent" class="card hidden">
+      <h2>商談中（仮予約）の作成</h2>
+      <div class="muted">お客様のカレンダーに「商談中」と表示され、オンライン予約はできなくなります（お問い合わせ誘導）。</div>
+      <div class="grid" style="margin-top:8px">
+        <div><label>スペース *</label><select id="t_space"></select></div>
+        <div><label>日付 *</label><input id="t_date" type="date" /></div>
+        <div><label>開始 *</label><input id="t_start" placeholder="10:00" /></div>
+        <div><label>終了 *</label><input id="t_end" placeholder="18:00" /></div>
+      </div>
+      <label>案件名 *</label><input id="t_event" placeholder="例）○○社 商談中" />
+      <label>メモ（任意）</label><input id="t_note" />
+      <div class="row" style="margin-top:12px;justify-content:flex-end">
+        <button class="btn tent" onclick="createBooking('tent')">商談中で登録</button>
+      </div>
+      <div class="msg" id="tentMsg"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const A = { token: null, admin: null, spaces: [] };
+const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+async function api(path, opts) {
+  const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
+  if (A.token) o.headers['Authorization'] = 'Bearer ' + A.token;
+  const r = await fetch(path, o);
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, body: j };
+}
+const jsonBody = obj => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
+
+async function login() {
+  const email = document.getElementById('a_email').value.trim();
+  const password = document.getElementById('a_pass').value;
+  const msg = document.getElementById('loginMsg');
+  const { ok, body } = await api('/api/admin/login', jsonBody({ email, password }));
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  A.token = body.token; A.admin = body.admin;
+  document.getElementById('who').textContent = body.admin.name + '（' + body.admin.role + '）';
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  await loadSpaces();
+  loadBookings();
+}
+
+async function loadSpaces() {
+  const { body } = await api('/api/spaces');
+  A.spaces = body.spaces || [];
+  const opts = A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+  document.getElementById('f_space').innerHTML = '<option value="">すべて</option>' + opts;
+  document.getElementById('p_space').innerHTML = opts;
+  document.getElementById('t_space').innerHTML = opts;
+}
+
+function showTab(t) {
+  ['list','proxy','tent'].forEach(x => {
+    document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
+    document.getElementById('tab-' + x).classList.toggle('active', x === t);
+  });
+}
+
+async function loadBookings() {
+  const q = new URLSearchParams();
+  const from = document.getElementById('f_from').value, to = document.getElementById('f_to').value;
+  const sp = document.getElementById('f_space').value, st = document.getElementById('f_status').value;
+  if (from) q.set('from', from); if (to) q.set('to', to);
+  if (sp) q.set('spaceId', sp); if (st) q.set('status', st);
+  const { body } = await api('/api/admin/bookings?' + q.toString());
+  const rows = body.bookings || [];
+  document.getElementById('listEmpty').textContent = rows.length ? '' : '該当する予約はありません';
+  document.getElementById('listBody').innerHTML = rows.map(b => {
+    const cust = [b.company_name, b.contact_name].filter(Boolean).join(' / ') || '—';
+    const confirmBtn = b.status === 'tentative'
+      ? '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button>' : '';
+    return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
+      '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + b.booking_number +
+      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + confirmBtn + '</td></tr>';
+  }).join('');
+}
+function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了' }[s] || s; }
+
+async function createBooking(kind) {
+  const p = kind === 'proxy';
+  const pre = p ? 'p_' : 't_';
+  const msg = document.getElementById(p ? 'proxyMsg' : 'tentMsg');
+  const spaceId = document.getElementById(pre + 'space').value;
+  const date = document.getElementById(pre + 'date').value;
+  const startTime = document.getElementById(pre + 'start').value.trim();
+  const endTime = document.getElementById(pre + 'end').value.trim();
+  const eventName = document.getElementById(pre + 'event').value.trim();
+  if (!spaceId || !date || !startTime || !endTime || !eventName) { msg.className = 'msg bad'; msg.textContent = '必須項目を入力してください'; return; }
+  const payload = { spaceId, eventName, items: [{ date, startTime, endTime }] };
+  if (p) {
+    const name = document.getElementById('p_name').value.trim();
+    const email = document.getElementById('p_email').value.trim();
+    const phone = document.getElementById('p_phone').value.trim();
+    if (email && name && phone) payload.customer = { contactName: name, email, phone };
+  } else {
+    payload.note = document.getElementById('t_note').value.trim();
+  }
+  const url = p ? '/api/admin/bookings' : '/api/admin/bookings/tentative';
+  const { ok, body } = await api(url, jsonBody(payload));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || JSON.stringify(body.details || body); return; }
+  msg.className = 'msg ok';
+  msg.textContent = (p ? '代理予約' : '商談中') + 'を登録しました（予約番号 ' + body.bookingNumber + '・' + yen(body.total) + '）';
+  showTab('list'); loadBookings();
+}
+
+async function confirmTentative(number) {
+  if (!confirm('この商談中を本予約に切り替えますか？')) return;
+  const { ok, body } = await api('/api/admin/bookings/' + number + '/confirm', jsonBody({}));
+  if (!ok) { alert(body.error || '失敗しました'); return; }
+  loadBookings();
+}
+</script>
+</body>
+</html>

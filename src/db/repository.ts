@@ -8,6 +8,7 @@ export interface SpaceRow {
   id: string;
   name: string;
   name_en: string | null;
+  slug: string | null;
   google_calendar_id: string | null;
   billing_type: 'hourly' | 'block';
   weekday_rate: number | null;
@@ -25,6 +26,93 @@ export interface SpaceRow {
   block_name: string | null;
   sort_order: number;
   is_active: number;
+}
+
+/** スペース作成/更新の入力 */
+export interface SpaceInput {
+  name: string;
+  nameEn?: string | null;
+  slug?: string | null;
+  billingType: 'hourly' | 'block';
+  weekdayRate: number | null;
+  weekendRate: number | null;
+  dayRateHours: number | null;
+  weekdayAvailable: boolean;
+  weekendAvailable: boolean;
+  slotMinutes: number;
+  hasMinimum: boolean;
+  minHours: number;
+  openTime: string;
+  closeTime: string;
+  bookingHorizonDays: number;
+  bookingDeadlineDays: number | null;
+  blockName?: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+/** 全スペース（非公開含む・管理用） */
+export async function getAllSpaces(db: D1Database): Promise<SpaceRow[]> {
+  const { results } = await db.prepare('SELECT * FROM spaces ORDER BY sort_order').all<SpaceRow>();
+  return results ?? [];
+}
+
+/** slug または id でスペースを取得（ディープリンク解決用） */
+export async function getSpaceBySlugOrId(db: D1Database, key: string): Promise<SpaceRow | null> {
+  return db
+    .prepare('SELECT * FROM spaces WHERE slug = ? OR id = ? LIMIT 1')
+    .bind(key, key)
+    .first<SpaceRow>();
+}
+
+function bindSpace(s: SpaceInput): unknown[] {
+  return [
+    s.name,
+    s.nameEn ?? null,
+    s.slug ?? null,
+    s.billingType,
+    s.weekdayRate,
+    s.weekendRate,
+    s.dayRateHours,
+    s.weekdayAvailable ? 1 : 0,
+    s.weekendAvailable ? 1 : 0,
+    s.slotMinutes,
+    s.hasMinimum ? 1 : 0,
+    s.minHours,
+    s.openTime,
+    s.closeTime,
+    s.bookingHorizonDays,
+    s.bookingDeadlineDays,
+    s.blockName ?? null,
+    s.sortOrder,
+    s.isActive ? 1 : 0,
+  ];
+}
+
+export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO spaces
+       (id, name, name_en, slug, billing_type, weekday_rate, weekend_rate, day_rate_hours,
+        weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
+        open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, ...bindSpace(s))
+    .run();
+}
+
+export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE spaces SET
+        name = ?, name_en = ?, slug = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
+        weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
+        open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?
+       WHERE id = ?`,
+    )
+    .bind(...bindSpace(s), id)
+    .run();
 }
 
 export interface BookingIntervalRow {

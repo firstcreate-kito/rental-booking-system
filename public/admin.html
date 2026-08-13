@@ -67,6 +67,7 @@
       <button id="tab-list" class="active" onclick="showTab('list')">予約一覧</button>
       <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
+      <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
     </div>
 
     <!-- 予約一覧 -->
@@ -133,6 +134,57 @@
       </div>
       <div class="msg" id="tentMsg"></div>
     </section>
+
+    <!-- スペース設定 -->
+    <section id="view-spaces" class="card hidden">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">スペース設定</h2>
+        <button class="btn sm" onclick="newSpace()">＋ 新規スペース</button>
+      </div>
+      <div class="muted" style="margin:6px 0">追加・編集・非公開化ができます（owner / manager のみ）。</div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table>
+          <thead><tr><th>名前</th><th>スラッグ(URL)</th><th>平日/土日祝(円)</th><th>1日料金</th><th>営業</th><th>公開</th><th></th></tr></thead>
+          <tbody id="spBody"></tbody>
+        </table>
+      </div>
+
+      <!-- 追加/編集フォーム -->
+      <div id="spForm" class="card hidden" style="margin-top:16px;background:#fafbff">
+        <h2 id="spFormTitle">スペースを追加</h2>
+        <input type="hidden" id="sp_editing" />
+        <div class="grid">
+          <div><label>スペース名 *</label><input id="sp_name" /></div>
+          <div><label>スラッグ（URL用・任意 例:albehall）</label><input id="sp_slug" placeholder="英小文字・数字・-" /></div>
+          <div><label>課金タイプ</label><select id="sp_billing"><option value="hourly">時間貸し</option><option value="block">1日単位専用</option></select></div>
+        </div>
+        <div class="grid">
+          <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
+          <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
+          <div><label>1日料金の時間数（空欄=なし。例:13）</label><input id="sp_drh" type="number" /></div>
+        </div>
+        <div class="grid">
+          <div><label>営業開始 *</label><input id="sp_open" placeholder="08:00" /></div>
+          <div><label>営業終了 *</label><input id="sp_close" placeholder="22:00" /></div>
+          <div><label>最低利用時間</label><input id="sp_min" type="number" value="1" /></div>
+        </div>
+        <div class="grid">
+          <div><label>予約可能期間（日先まで）</label><input id="sp_horizon" type="number" value="180" /></div>
+          <div><label>受付締切（利用日の何日前・空欄=当日まで）</label><input id="sp_deadline" type="number" /></div>
+          <div><label>並び順</label><input id="sp_sort" type="number" value="0" /></div>
+        </div>
+        <div class="row" style="gap:18px;margin-top:8px">
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wda" checked style="width:auto"> 平日に予約可</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked style="width:auto"> 土日祝に予約可</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked style="width:auto"> 公開する</label>
+        </div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
+          <button class="btn" onclick="saveSpace()">保存</button>
+        </div>
+        <div class="msg" id="spMsg"></div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -146,7 +198,7 @@ async function api(path, opts) {
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, body: j };
 }
-const jsonBody = obj => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
+const jsonBody = (obj, method) => ({ method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
 
 async function login() {
   const email = document.getElementById('a_email').value.trim();
@@ -172,10 +224,11 @@ async function loadSpaces() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent'].forEach(x => {
+  ['list','proxy','tent','spaces'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
+  if (t === 'spaces') loadSpacesAdmin();
 }
 
 async function loadBookings() {
@@ -232,6 +285,63 @@ async function createBooking(kind) {
   msg.className = 'msg ok';
   msg.textContent = (p ? '代理予約' : '商談中') + 'を登録しました（予約番号 ' + body.bookingNumber + '・' + yen(body.total) + '）';
   showTab('list'); loadBookings();
+}
+
+// --- スペース設定（マスタ管理） ---
+let adminSpaces = [];
+async function loadSpacesAdmin() {
+  const { body } = await api('/api/admin/spaces');
+  adminSpaces = body.spaces || [];
+  document.getElementById('spBody').innerHTML = adminSpaces.map(s => {
+    const wd = s.weekday_rate != null ? yen(s.weekday_rate) : '—';
+    const we = s.weekend_rate != null ? yen(s.weekend_rate) : '—';
+    const day = s.day_rate_hours != null ? (s.day_rate_hours + '時間分') : '—';
+    const pub = s.is_active ? '<span class="pill confirmed">公開</span>' : '<span class="pill cancelled">非公開</span>';
+    return '<tr><td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
+      wd + ' / ' + we + '</td><td>' + day + '</td><td>' + s.open_time + '–' + s.close_time + '</td><td>' + pub +
+      '</td><td><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
+  }).join('');
+}
+function fillSpaceForm(s) {
+  document.getElementById('sp_editing').value = s ? s.id : '';
+  document.getElementById('spFormTitle').textContent = s ? ('スペースを編集：' + s.name) : 'スペースを追加';
+  const g = (id, v) => document.getElementById(id).value = (v ?? '');
+  g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
+  g('sp_drh', s?.day_rate_hours); g('sp_open', s?.open_time || '08:00'); g('sp_close', s?.close_time || '22:00');
+  g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
+  g('sp_sort', s?.sort_order ?? 0);
+  document.getElementById('sp_billing').value = s?.billing_type || 'hourly';
+  document.getElementById('sp_wda').checked = s ? !!s.weekday_available : true;
+  document.getElementById('sp_wea').checked = s ? !!s.weekend_available : true;
+  document.getElementById('sp_active').checked = s ? !!s.is_active : true;
+  document.getElementById('spMsg').textContent = '';
+  document.getElementById('spForm').classList.remove('hidden');
+}
+function newSpace() { fillSpaceForm(null); }
+function editSpace(id) { fillSpaceForm(adminSpaces.find(s => s.id === id)); }
+async function saveSpace() {
+  const msg = document.getElementById('spMsg');
+  const v = id => document.getElementById(id).value.trim();
+  const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
+  const editing = v('sp_editing');
+  const payload = {
+    name: v('sp_name'), slug: v('sp_slug') || null, billingType: document.getElementById('sp_billing').value,
+    weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
+    openTime: v('sp_open'), closeTime: v('sp_close'), minHours: Number(v('sp_min') || 1),
+    bookingHorizonDays: Number(v('sp_horizon') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),
+    sortOrder: Number(v('sp_sort') || 0),
+    weekdayAvailable: document.getElementById('sp_wda').checked,
+    weekendAvailable: document.getElementById('sp_wea').checked,
+    isActive: document.getElementById('sp_active').checked,
+    hasMinimum: true, slotMinutes: 30,
+  };
+  const res = editing
+    ? await api('/api/admin/spaces/' + editing, jsonBody(payload, 'PUT'))
+    : await api('/api/admin/spaces', jsonBody(payload));
+  if (!res.ok) { msg.className = 'msg bad'; msg.textContent = res.body.error || '保存に失敗しました'; return; }
+  msg.className = 'msg ok'; msg.textContent = '保存しました';
+  document.getElementById('spForm').classList.add('hidden');
+  loadSpacesAdmin();
 }
 
 async function confirmTentative(number) {

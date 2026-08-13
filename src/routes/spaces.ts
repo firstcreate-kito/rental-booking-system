@@ -31,6 +31,7 @@ const app = new Hono<AppBindings>();
 function toPublicSpace(s: SpaceRow) {
   return {
     id: s.id,
+    slug: s.slug,
     name: s.name,
     billingType: s.billing_type,
     weekdayRate: s.weekday_rate,

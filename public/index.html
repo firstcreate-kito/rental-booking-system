@@ -245,10 +245,9 @@ async function loadSpaces() {
   }).join('');
   // 部屋ごとの固有URL: ?space=<id> があればその部屋へ直接入る（公式サイト埋め込み用）
   const wanted = new URLSearchParams(location.search).get('space');
-  if (wanted && S.spaces.some(s => s.id === wanted)) {
-    S.deepLinked = true;
-    selectSpace(wanted);
-    return;
+  if (wanted) {
+    const match = S.spaces.find(s => s.id === wanted || s.slug === wanted);
+    if (match) { S.deepLinked = true; selectSpace(match.id); return; }
   }
   show('view-spaces');
 }

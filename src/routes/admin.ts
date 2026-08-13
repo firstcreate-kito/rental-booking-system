@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppBindings } from '../types';
-import { requireAdmin } from '../middleware/admin';
+import { requireAdmin, requireRole } from '../middleware/admin';
 import {
   countAdmins,
   insertAdmin,
@@ -9,7 +9,11 @@ import {
   createAdminSession,
   deleteAdminSession,
   listBookingsForAdmin,
+  getAllSpaces,
+  insertSpace,
+  updateSpace,
   getSpaceById,
+  type SpaceInput,
   getHolidays,
   getActiveSeasonalRules,
   getSpaceClosures,
@@ -374,6 +378,89 @@ app.post('/bookings/:number/release', async (c) => {
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ?").bind(g.id),
   ]);
   return c.json({ bookingNumber: number, status: 'cancelled' });
+});
+
+// ---------------------------------------------------------------------------
+// スペース設定（マスタ管理）※owner / manager のみ変更可
+// ---------------------------------------------------------------------------
+
+function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; error?: string } {
+  const name = String(body.name ?? '').trim();
+  if (!name) return { error: 'スペース名は必須です' };
+  const billingType = body.billingType === 'block' ? 'block' : 'hourly';
+  const openTime = String(body.openTime ?? '').trim();
+  const closeTime = String(body.closeTime ?? '').trim();
+  const timeRe = /^\d{1,2}:\d{2}$/;
+  if (!timeRe.test(openTime) || !timeRe.test(closeTime)) {
+    return { error: '営業時間は HH:MM 形式で入力してください' };
+  }
+  const num = (v: unknown): number | null => (v === '' || v == null ? null : Number(v));
+  const slug = body.slug ? String(body.slug).trim() : null;
+  if (slug && !/^[a-z0-9-]+$/.test(slug)) {
+    return { error: 'スラッグは半角英小文字・数字・ハイフンのみ使用できます' };
+  }
+  const input: SpaceInput = {
+    name,
+    nameEn: body.nameEn ? String(body.nameEn) : null,
+    slug,
+    billingType,
+    weekdayRate: num(body.weekdayRate),
+    weekendRate: num(body.weekendRate),
+    dayRateHours: num(body.dayRateHours),
+    weekdayAvailable: body.weekdayAvailable !== false,
+    weekendAvailable: body.weekendAvailable !== false,
+    slotMinutes: Number(body.slotMinutes ?? 30),
+    hasMinimum: body.hasMinimum !== false,
+    minHours: Number(body.minHours ?? 1),
+    openTime,
+    closeTime,
+    bookingHorizonDays: Number(body.bookingHorizonDays ?? 180),
+    bookingDeadlineDays: num(body.bookingDeadlineDays),
+    blockName: body.blockName ? String(body.blockName) : null,
+    sortOrder: Number(body.sortOrder ?? 0),
+    isActive: body.isActive !== false,
+  };
+  return { input };
+}
+
+/** GET /api/admin/spaces スペース一覧（非公開含む） */
+app.get('/spaces', async (c) => {
+  const spaces = await getAllSpaces(c.env.DB);
+  return c.json({ spaces });
+});
+
+/** POST /api/admin/spaces スペース追加（owner/manager） */
+app.post('/spaces', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { input, error } = parseSpaceInput(body as Record<string, unknown>);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const id = String((body as Record<string, unknown>).id ?? '').trim() || crypto.randomUUID();
+  try {
+    await insertSpace(c.env.DB, id, input);
+  } catch (err) {
+    const msg = (err as Error).message ?? '';
+    if (msg.includes('UNIQUE')) return c.json({ error: 'IDまたはスラッグが既に使われています' }, 409);
+    throw err;
+  }
+  return c.json({ id, ...input }, 201);
+});
+
+/** PUT /api/admin/spaces/:id スペース編集（owner/manager） */
+app.put('/spaces/:id', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await getSpaceById(c.env.DB, id);
+  if (!existing) return c.json({ error: 'space not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const { input, error } = parseSpaceInput(body as Record<string, unknown>);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  try {
+    await updateSpace(c.env.DB, id, input);
+  } catch (err) {
+    const msg = (err as Error).message ?? '';
+    if (msg.includes('UNIQUE')) return c.json({ error: 'スラッグが既に使われています' }, 409);
+    throw err;
+  }
+  return c.json({ id, ...input });
 });
 
 export default app;

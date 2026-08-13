@@ -13,10 +13,21 @@ const app = new Hono<AppBindings>();
 
 app.use('*', logger());
 
+/** ゲート通過印（Cookie）の値。認証情報から一意に導出（漏洩しても資格情報は復元不可）。 */
+async function gateToken(user: string, pass: string): Promise<string> {
+  const data = new TextEncoder().encode(`albe-gate:${user}:${pass}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /**
  * ベーシック認証（開発中の公開ゲート）。
  * BASIC_AUTH_USER と BASIC_AUTH_PASS の両方が設定されているときだけ有効。
  * 未設定なら素通り（ローカル開発や一般公開時はゲートなし）。
+ *
+ * 一度パスワードを通すと通過印の Cookie を発行し、以降は Cookie で判定する。
+ * これにより、アプリの Authorization: Bearer（会員/管理者ログイン）と
+ * ベーシック認証の Authorization: Basic が衝突しなくなる。
  * ※認証情報は ASCII で設定してください。
  */
 app.use('*', async (c, next) => {
@@ -24,6 +35,14 @@ app.use('*', async (c, next) => {
   const pass = c.env.BASIC_AUTH_PASS;
   if (!user || !pass) return next();
 
+  const expected = await gateToken(user, pass);
+
+  // 既に通過済み（Cookie）なら Authorization ヘッダに依存せず通す
+  const cookie = c.req.header('Cookie') ?? '';
+  const passed = cookie.split(';').some((kv) => kv.trim() === `albe_gate=${expected}`);
+  if (passed) return next();
+
+  // Basic 認証の検証
   const header = c.req.header('Authorization');
   if (header?.startsWith('Basic ')) {
     let decoded = '';
@@ -34,7 +53,15 @@ app.use('*', async (c, next) => {
     }
     const idx = decoded.indexOf(':');
     if (idx >= 0 && decoded.slice(0, idx) === user && decoded.slice(idx + 1) === pass) {
-      return next();
+      await next();
+      // 通過印の Cookie を付与（ASSETS 応答は不変なので作り直して設定）
+      const res = new Response(c.res.body, c.res);
+      res.headers.append(
+        'Set-Cookie',
+        `albe_gate=${expected}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
+      );
+      c.res = res;
+      return;
     }
   }
   return new Response('認証が必要です。', {

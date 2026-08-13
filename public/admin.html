@@ -190,6 +190,7 @@
           <div><label>スラッグ（URL用・任意 例:albehall）</label><input id="sp_slug" placeholder="英小文字・数字・-" /></div>
           <div><label>課金タイプ</label><select id="sp_billing"><option value="hourly">時間貸し</option><option value="block">1日単位専用</option></select></div>
         </div>
+        <div><label>GoogleカレンダーID（連携用・任意）</label><input id="sp_gcal" placeholder="例）xxxxx@group.calendar.google.com" /></div>
         <div class="grid">
           <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
@@ -627,7 +628,7 @@ function fillSpaceForm(s) {
   document.getElementById('sp_editing').value = s ? s.id : '';
   document.getElementById('spFormTitle').textContent = s ? ('スペースを編集：' + s.name) : 'スペースを追加';
   const g = (id, v) => document.getElementById(id).value = (v ?? '');
-  g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
+  g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
   g('sp_drh', s?.day_rate_hours); g('sp_open', s?.open_time || '08:00'); g('sp_close', s?.close_time || '22:00');
   g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
   g('sp_sort', s?.sort_order ?? 0);
@@ -646,7 +647,7 @@ async function saveSpace() {
   const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
   const editing = v('sp_editing');
   const payload = {
-    name: v('sp_name'), slug: v('sp_slug') || null, billingType: document.getElementById('sp_billing').value,
+    name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, billingType: document.getElementById('sp_billing').value,
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
     openTime: v('sp_open'), closeTime: v('sp_close'), minHours: Number(v('sp_min') || 1),
     bookingHorizonDays: Number(v('sp_horizon') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),

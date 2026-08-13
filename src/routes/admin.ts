@@ -557,6 +557,7 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     name,
     nameEn: body.nameEn ? String(body.nameEn) : null,
     slug,
+    googleCalendarId: body.googleCalendarId ? String(body.googleCalendarId).trim() : null,
     billingType,
     weekdayRate: num(body.weekdayRate),
     weekendRate: num(body.weekendRate),

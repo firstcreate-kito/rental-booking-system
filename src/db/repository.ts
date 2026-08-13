@@ -33,6 +33,7 @@ export interface SpaceInput {
   name: string;
   nameEn?: string | null;
   slug?: string | null;
+  googleCalendarId?: string | null;
   billingType: 'hourly' | 'block';
   weekdayRate: number | null;
   weekendRate: number | null;
@@ -70,6 +71,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.name,
     s.nameEn ?? null,
     s.slug ?? null,
+    s.googleCalendarId ?? null,
     s.billingType,
     s.weekdayRate,
     s.weekendRate,
@@ -93,10 +95,10 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
   await db
     .prepare(
       `INSERT INTO spaces
-       (id, name, name_en, slug, billing_type, weekday_rate, weekend_rate, day_rate_hours,
+       (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -106,7 +108,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
   await db
     .prepare(
       `UPDATE spaces SET
-        name = ?, name_en = ?, slug = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
+        name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?
        WHERE id = ?`,

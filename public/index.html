@@ -38,6 +38,7 @@
               display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; }
   .cal .day.weekend { background: #fffbea; }
   .cal .day.closed { background: #f1f3f5; color: #adb5bd; }
+  .cal .day .closed-label { margin-top: 2px; font-size: 11px; font-weight: 700; color: #868e96; letter-spacing: 1px; }
   .cal .day.seasonal { border-color: #fb923c; box-shadow: inset 0 0 0 1px #fb923c; }
   .cal .day.bookable { cursor: pointer; }
   .cal .day.bookable:hover { border-color: var(--brand); }
@@ -101,7 +102,7 @@
     <div class="cal" id="calGrid" style="margin-top:4px"></div>
     <div class="legend">
       <span>○ 空きあり</span><span>△ 残りわずか</span><span>✕ 満枠</span>
-      <span>🟡 土日祝</span><span>🟧枠 季節料金</span><span>商談中=お問い合わせ</span>
+      <span>🟡 土日祝</span><span>🟧枠 季節料金</span><span>商談中=お問い合わせ</span><span>休業=お休み</span>
     </div>
   </section>
 
@@ -280,11 +281,11 @@ async function loadCalendar() {
     const cls = ['day'];
     if (d.dayType === 'weekend') cls.push('weekend');
     if (d.isSeasonal) cls.push('seasonal');
-    // 記号の出し分け: 休業=− / 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△
+    // 記号の出し分け: 休業=「休業」表示 / 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△
     let symHtml = '';
-    if (d.status === 'closed') {
+    if (d.closed || d.status === 'closed') {
       cls.push('closed');
-      symHtml = '<div class="sym">−</div>';
+      symHtml = '<div class="closed-label">休業</div>';
     } else if (d.past || (!d.bookable && d.status !== 'full')) {
       cls.push('inactive'); // 今日より前 or 受付期間外 → 記号を出さない
     } else if (d.status === 'full') {

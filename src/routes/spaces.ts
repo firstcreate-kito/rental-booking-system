@@ -203,6 +203,7 @@ app.get('/:id/slots', async (c) => {
       freeSlots: avail.freeSlots,
       totalSlots: avail.totalSlots,
       bookable,
+      closed, // 休業日（祝日休業・全体休業日・個別休業）
       past: diff < 0, // 今日より前
     };
   });

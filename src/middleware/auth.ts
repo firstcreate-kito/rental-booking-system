@@ -15,6 +15,28 @@ function extractToken(c: Parameters<MiddlewareHandler>[0]): string | null {
   return null;
 }
 
+/**
+ * 任意認証: トークンがあり有効なら顧客情報を返す。無効/未ログインなら null。
+ * ブロックするのではなく、ゲスト/会員を分岐したい予約フロー等で使う。
+ */
+export async function getOptionalCustomer(
+  c: Parameters<MiddlewareHandler<AppBindings>>[0],
+): Promise<import('../types').AuthCustomer | null> {
+  const token = extractToken(c);
+  if (!token) return null;
+  const session = await getSessionCustomer(c.env.DB, token);
+  if (!session) return null;
+  if (session.expires_at <= nowJST()) return null;
+  if (session.is_blocked) return null;
+  return {
+    id: session.id,
+    email: session.email,
+    contactName: session.contact_name,
+    statusId: session.status_id,
+    isRegistered: !!session.is_registered,
+  };
+}
+
 /** ログイン必須ミドルウェア。認証済みなら c.get('customer') が使える */
 export const requireAuth: MiddlewareHandler<AppBindings> = async (c, next) => {
   const token = extractToken(c);

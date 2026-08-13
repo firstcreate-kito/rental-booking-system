@@ -306,6 +306,14 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
   return results ?? [];
 }
 
+export async function getPointBalance(db: D1Database, customerId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT point_balance FROM customers WHERE id = ?')
+    .bind(customerId)
+    .first<{ point_balance: number }>();
+  return row?.point_balance ?? 0;
+}
+
 export async function getPointBalanceAndLog(db: D1Database, customerId: string) {
   const balance = await db
     .prepare('SELECT point_balance FROM customers WHERE id = ?')
@@ -319,6 +327,56 @@ export async function getPointBalanceAndLog(db: D1Database, customerId: string) 
     .bind(customerId)
     .all();
   return { balance: balance?.point_balance ?? 0, log: log ?? [] };
+}
+
+// --- 割引クーポン ---
+export interface CouponRow {
+  id: string;
+  customer_id: string;
+  name: string;
+  code: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  total_hours: number;
+  remaining_hours: number;
+  valid_from: string;
+  valid_until: string;
+  status: string;
+}
+
+/** コードで顧客のクーポンを取得（本人限定） */
+export async function getCouponByCodeForCustomer(
+  db: D1Database,
+  code: string,
+  customerId: string,
+): Promise<CouponRow | null> {
+  return db
+    .prepare('SELECT * FROM discount_coupons WHERE code = ? AND customer_id = ?')
+    .bind(code, customerId)
+    .first<CouponRow>();
+}
+
+/** クーポン対象スペースID一覧 */
+export async function getCouponSpaceIds(db: D1Database, couponId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare('SELECT space_id FROM coupon_spaces WHERE coupon_id = ?')
+    .bind(couponId)
+    .all<{ space_id: string }>();
+  return (results ?? []).map((r) => r.space_id);
+}
+
+/** 会員の保有クーポン一覧（マイページ） */
+export async function getMemberCoupons(db: D1Database, customerId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT dc.code, dc.name, dc.discount_type, dc.discount_value, dc.total_hours, dc.remaining_hours,
+              dc.valid_from, dc.valid_until, dc.status,
+              (SELECT GROUP_CONCAT(s.name, ' / ') FROM coupon_spaces cs JOIN spaces s ON s.id = cs.space_id WHERE cs.coupon_id = dc.id) AS spaces
+       FROM discount_coupons dc WHERE dc.customer_id = ? ORDER BY dc.created_at DESC`,
+    )
+    .bind(customerId)
+    .all();
+  return results ?? [];
 }
 
 export async function getFavorites(db: D1Database, customerId: string) {

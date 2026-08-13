@@ -16,10 +16,15 @@ import {
   getOptionsByIds,
   isOptionAvailableForSpace,
   getDailyOptionUsage,
+  getCouponByCodeForCustomer,
+  getCouponSpaceIds,
+  getPointBalance,
   peekNextBookingSeq,
   type SpaceRow,
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
+import { getOptionalCustomer } from '../middleware/auth';
+import type { PrimaryDiscount } from '../lib/discounts';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import {
   computeCancelCharge,
@@ -58,6 +63,10 @@ interface CreateBookingBody {
   items: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>;
   /** 全日程共通(per_group)オプション */
   options?: Array<{ optionId: string; quantity?: number }>;
+  /** 会員のみ: 割引クーポンコード（ポイントとは併用不可） */
+  couponCode?: string;
+  /** 会員のみ: 使用ポイント（クーポンとは併用不可） */
+  pointsToUse?: number;
 }
 
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
@@ -87,6 +96,47 @@ function toValidationSpace(s: SpaceRow): BookingValidationSpace {
   };
 }
 
+/**
+ * 会員のクーポン/ポイント指定から、割引の主役(primary)を解決・検証する。
+ * @returns primary と、消費処理に必要な情報。error があれば適用不可。
+ */
+async function resolvePrimaryDiscount(
+  db: D1Database,
+  customerId: string,
+  spaceId: string,
+  today: string,
+  couponCode: string | undefined,
+  pointsToUse: number | undefined,
+): Promise<{ primary: PrimaryDiscount; couponId?: string; error?: string }> {
+  if (couponCode) {
+    const coupon = await getCouponByCodeForCustomer(db, couponCode, customerId);
+    if (!coupon) return { primary: { kind: 'none' }, error: 'クーポンが見つかりません' };
+    if (coupon.status !== 'active') return { primary: { kind: 'none' }, error: 'このクーポンは利用できません' };
+    if (today < coupon.valid_from || today > coupon.valid_until) {
+      return { primary: { kind: 'none' }, error: 'クーポンの有効期限外です' };
+    }
+    if (coupon.remaining_hours <= 0) return { primary: { kind: 'none' }, error: 'クーポンの残時間がありません' };
+    const spaces = await getCouponSpaceIds(db, coupon.id);
+    if (spaces.length > 0 && !spaces.includes(spaceId)) {
+      return { primary: { kind: 'none' }, error: 'このクーポンは対象スペース外です' };
+    }
+    return {
+      primary: {
+        kind: 'coupon',
+        discountType: coupon.discount_type,
+        discountValue: coupon.discount_value,
+        remainingHours: coupon.remaining_hours,
+      },
+      couponId: coupon.id,
+    };
+  }
+  if (pointsToUse && pointsToUse > 0) {
+    const balance = await getPointBalance(db, customerId);
+    return { primary: { kind: 'points', pointsToUse, pointBalance: balance } };
+  }
+  return { primary: { kind: 'none' } };
+}
+
 /** POST /api/bookings 予約作成（ゲスト対応・スペース料金のみ） */
 app.post('/', async (c) => {
   const db = c.env.DB;
@@ -109,8 +159,11 @@ app.post('/', async (c) => {
   const space = await getSpaceById(db, body.spaceId);
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
 
-  // ブラックリストチェック（理由・連絡先は返さない）
-  if (await isBlacklisted(db, email, phone)) {
+  // 会員ログインの有無（クーポン/ポイントは会員のみ）
+  const member = await getOptionalCustomer(c);
+
+  // ブラックリストチェック（ゲストのみ。会員は登録済みアカウント）
+  if (!member && (await isBlacklisted(db, email, phone))) {
     return c.json({ error: BLACKLIST_MESSAGE }, 403);
   }
 
@@ -215,35 +268,51 @@ app.post('/', async (c) => {
     }
   }
 
+  // 割引の主役を解決（会員のみ。クーポン/ポイント）
+  let primary: PrimaryDiscount = { kind: 'none' };
+  let couponId: string | undefined;
+  if (member && (body.couponCode || body.pointsToUse)) {
+    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse);
+    if (resolved.error) return c.json({ error: resolved.error }, 400);
+    primary = resolved.primary;
+    couponId = resolved.couponId;
+  }
+
   const pointRate = Number(settings.get('point_rate') ?? '1');
   const totals = applyDiscounts({
     days: discountableDays,
-    primary: { kind: 'none' },
+    primary,
     optionsTotal,
     pointRate,
   });
 
-  // 顧客（ゲスト）: 既存を再利用、なければ作成
-  const existingCustomer = await getCustomerByEmail(db, email);
-  if (existingCustomer?.is_blocked) {
-    return c.json({ error: BLACKLIST_MESSAGE }, 403);
-  }
-  let customerId = existingCustomer?.id;
   const now = nowJST();
-  if (!customerId) {
-    customerId = crypto.randomUUID();
-    await db
-      .prepare(
-        `INSERT INTO customers (id, email, is_registered, company_name, contact_name, phone, status_id, created_at)
-         VALUES (?, ?, 0, ?, ?, ?, 'general', ?)`,
-      )
-      .bind(customerId, email, companyName ?? null, contactName, phone, now)
-      .run();
+  let customerId: string;
+  if (member) {
+    // 会員予約: 会員アカウントに紐付け
+    customerId = member.id;
+  } else {
+    // ゲスト予約: 既存を再利用、なければ作成
+    const existingCustomer = await getCustomerByEmail(db, email);
+    if (existingCustomer?.is_blocked) {
+      return c.json({ error: BLACKLIST_MESSAGE }, 403);
+    }
+    customerId = existingCustomer?.id ?? crypto.randomUUID();
+    if (!existingCustomer) {
+      await db
+        .prepare(
+          `INSERT INTO customers (id, email, is_registered, company_name, contact_name, phone, status_id, created_at)
+           VALUES (?, ?, 0, ?, ?, ?, 'general', ?)`,
+        )
+        .bind(customerId, email, companyName ?? null, contactName, phone, now)
+        .run();
+    }
   }
 
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
+  const bookingIds = body.items.map(() => crypto.randomUUID());
   let bookingNumber = '';
   let inserted = false;
   for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
@@ -269,7 +338,7 @@ app.post('/', async (c) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web')`,
           )
           .bind(
-            crypto.randomUUID(),
+            bookingIds[i],
             groupId,
             space.id,
             item.date,
@@ -294,6 +363,42 @@ app.post('/', async (c) => {
           .bind(crypto.randomUUID(), groupId, sel.optionId, sel.quantity, sel.subtotal),
       );
     }
+    // クーポン消費（会員）
+    if (couponId && primary.kind === 'coupon' && totals.couponHoursConsumed > 0) {
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE discount_coupons
+             SET remaining_hours = remaining_hours - ?,
+                 status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
+             WHERE id = ?`,
+          )
+          .bind(totals.couponHoursConsumed, totals.couponHoursConsumed, couponId),
+      );
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO coupon_usage (id, coupon_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), couponId, bookingIds[0], totals.couponHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
+      );
+    }
+    // ポイント消費（会員）
+    if (primary.kind === 'points' && totals.pointsUsed > 0) {
+      const balanceAfter = primary.pointBalance - totals.pointsUsed;
+      stmts.push(
+        db.prepare('UPDATE customers SET point_balance = point_balance - ? WHERE id = ?').bind(totals.pointsUsed, customerId),
+      );
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO point_log (id, customer_id, type, amount, balance_after, group_id, description, created_at)
+             VALUES (?, ?, 'use', ?, ?, ?, '予約でのポイント利用', ?)`,
+          )
+          .bind(crypto.randomUUID(), customerId, totals.pointsUsed, balanceAfter, groupId, now),
+      );
+    }
     try {
       await db.batch(stmts);
       inserted = true;
@@ -311,7 +416,12 @@ app.post('/', async (c) => {
       total: totals.total,
       spaceFee: totals.spaceFee,
       optionsTotal,
+      primaryKind: totals.primaryKind,
+      primaryDiscount: totals.primaryDiscount,
+      couponHoursConsumed: totals.couponHoursConsumed,
+      pointsUsed: totals.pointsUsed,
       pointsEarned: totals.pointsEarned,
+      isMember: !!member,
       days: group.days.map((d) => ({
         date: d.date,
         dayType: d.dayType,
@@ -331,7 +441,7 @@ app.post('/', async (c) => {
  */
 app.post('/quote', async (c) => {
   const db = c.env.DB;
-  let body: { spaceId?: string; items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>; options?: Array<{ optionId: string; quantity?: number }> };
+  let body: { spaceId?: string; items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>; options?: Array<{ optionId: string; quantity?: number }>; couponCode?: string; pointsToUse?: number };
   try {
     body = await c.req.json();
   } catch {
@@ -342,6 +452,9 @@ app.post('/quote', async (c) => {
   }
   const space = await getSpaceById(db, body.spaceId);
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+
+  // 会員ログイン時のみ クーポン/ポイントを見積りに反映
+  const member = await getOptionalCustomer(c);
 
   const settings = await getSystemSettings(db);
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
@@ -390,14 +503,30 @@ app.post('/quote', async (c) => {
     }
   }
 
+  // 割引の主役を解決（会員のみ）
+  let primary: PrimaryDiscount = { kind: 'none' };
+  let discountError: string | undefined;
+  if (member && (body.couponCode || body.pointsToUse)) {
+    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse);
+    if (resolved.error) discountError = resolved.error;
+    else primary = resolved.primary;
+  }
+
   const pointRate = Number(settings.get('point_rate') ?? '1');
-  const totals = applyDiscounts({ days: group.days.map((d) => ({ billableHours: d.billableHours, price: d.price })), primary: { kind: 'none' }, optionsTotal, pointRate });
+  const totals = applyDiscounts({ days: group.days.map((d) => ({ billableHours: d.billableHours, price: d.price })), primary, optionsTotal, pointRate });
 
   return c.json({
     spaceFee: totals.spaceFee,
     optionsTotal,
+    primaryKind: totals.primaryKind,
+    primaryDiscount: totals.primaryDiscount,
+    couponHoursConsumed: totals.couponHoursConsumed,
+    pointsUsed: totals.pointsUsed,
+    campaignDiscount: totals.campaignDiscount,
     total: totals.total,
     pointsEarned: totals.pointsEarned,
+    isMember: !!member,
+    discountError,
     days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, price: d.price, isResidence: d.isResidence })),
     optionLines,
     warnings,

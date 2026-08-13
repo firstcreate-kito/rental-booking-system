@@ -8,6 +8,7 @@ import {
   getCustomerAuthByEmail,
   getCustomerBookingGroups,
   getPointBalanceAndLog,
+  getMemberCoupons,
   getFavorites,
   addFavorite,
   removeFavorite,
@@ -67,6 +68,12 @@ app.get('/bookings', async (c) => {
 app.get('/points', async (c) => {
   const { balance, log } = await getPointBalanceAndLog(c.env.DB, c.get('customer').id);
   return c.json({ balance, log });
+});
+
+/** GET /api/mypage/coupons 保有クーポン一覧 */
+app.get('/coupons', async (c) => {
+  const coupons = await getMemberCoupons(c.env.DB, c.get('customer').id);
+  return c.json({ coupons });
 });
 
 /** GET /api/mypage/favorites お気に入り一覧 */

@@ -128,6 +128,35 @@
   <!-- 顧客情報 -->
   <section id="view-customer" class="card hidden">
     <h2>お客様情報</h2>
+
+    <!-- 会員ログイン（クーポン・ポイント利用） -->
+    <div class="card" id="loginBox" style="background:#f0f6ff;border-color:#c7ddff">
+      <div id="loginForm">
+        <strong>会員の方（クーポン・ポイントを使う）</strong>
+        <div class="muted" style="margin:4px 0">デモ会員 → メール: <code>demo-member@albe.test</code> ／ パスワード: <code>demopass123</code></div>
+        <label>メールアドレス</label>
+        <input id="l_email" type="email" />
+        <label>パスワード</label>
+        <input id="l_pass" type="password" />
+        <div class="row" style="margin-top:10px">
+          <span class="muted" id="loginMsg"></span>
+          <button class="btn sm" onclick="memberLogin()">ログイン</button>
+        </div>
+      </div>
+      <div id="memberBox" class="hidden">
+        <div class="row">
+          <span><strong id="memberName"></strong> さんでログイン中</span>
+          <button class="btn ghost sm" onclick="memberLogout()">ログアウト</button>
+        </div>
+        <label>クーポンコード</label>
+        <input id="d_coupon" placeholder="例）WELCOME20" oninput="onCouponInput()" />
+        <label>ポイント利用（保有: <span id="ptBal">0</span>P）</label>
+        <input id="d_points" type="number" min="0" placeholder="0" oninput="onPointsInput()" />
+        <div class="muted">※ クーポンとポイントは併用できません</div>
+        <div class="warn-note" id="discountMsg" style="color:#166534"></div>
+      </div>
+    </div>
+
     <label>イベント名 <span style="color:var(--bad)">*</span></label>
     <input id="f_event" placeholder="例）撮影会 / セミナー" />
     <label>お名前 <span style="color:var(--bad)">*</span></label>
@@ -141,6 +170,7 @@
     <div class="card" style="margin-top:14px;background:#fafbfc">
       <div class="row"><span class="muted">スペース料金</span><span id="sum_space">-</span></div>
       <div class="row"><span class="muted">オプション</span><span id="sum_opt">-</span></div>
+      <div class="row hidden" id="sum_disc_row"><span class="muted">割引</span><span id="sum_disc" style="color:#166534">-</span></div>
       <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
       <div class="muted" id="sum_points"></div>
     </div>
@@ -184,13 +214,14 @@
 </div>
 
 <script>
-const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {} };
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null };
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 const api = async (path, opts) => {
   const r = await fetch(path, opts);
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, body: j };
 };
+function authHeaders(base) { const h = Object.assign({}, base || {}); if (S.token) h['Authorization'] = 'Bearer ' + S.token; return h; }
 const STEP_LABELS = ['スペース', 'カレンダー', 'カート', 'オプション', 'お客様情報', '完了'];
 function setStep(i) {
   document.getElementById('steps').innerHTML = STEP_LABELS
@@ -391,13 +422,67 @@ function optionsPayload() {
 
 async function goCustomer() {
   setStep(4);
-  const { body } = await api('/api/bookings/quote', { method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ spaceId: S.space.id, items: S.cart, options: optionsPayload() }) });
+  show('view-customer');
+  await recomputeSummary();
+}
+
+// --- 会員ログイン & 割引 ---
+async function memberLogin() {
+  const email = document.getElementById('l_email').value.trim();
+  const password = document.getElementById('l_pass').value;
+  const msg = document.getElementById('loginMsg');
+  if (!email || !password) { msg.textContent = 'メールとパスワードを入力'; return; }
+  const { ok, body } = await api('/api/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  S.token = body.token; S.member = body.customer;
+  document.getElementById('memberName').textContent = body.customer.contactName || body.customer.email;
+  document.getElementById('loginForm').classList.add('hidden');
+  document.getElementById('memberBox').classList.remove('hidden');
+  const pr = await api('/api/mypage/profile', { headers: authHeaders() });
+  if (pr.ok && pr.body.profile) {
+    document.getElementById('ptBal').textContent = pr.body.profile.point_balance;
+    if (!document.getElementById('f_name').value) document.getElementById('f_name').value = pr.body.profile.contact_name || '';
+    if (!document.getElementById('f_email').value) document.getElementById('f_email').value = pr.body.profile.email || '';
+    if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = pr.body.profile.phone || '';
+  }
+  recomputeSummary();
+}
+function memberLogout() {
+  S.token = null; S.member = null;
+  document.getElementById('loginForm').classList.remove('hidden');
+  document.getElementById('memberBox').classList.add('hidden');
+  recomputeSummary();
+}
+function onCouponInput() { if (document.getElementById('d_coupon').value.trim()) document.getElementById('d_points').value = ''; recomputeSummary(); }
+function onPointsInput() { if (Number(document.getElementById('d_points').value) > 0) document.getElementById('d_coupon').value = ''; recomputeSummary(); }
+function discountPayload() {
+  if (!S.token) return {};
+  const coupon = document.getElementById('d_coupon').value.trim();
+  const points = Number(document.getElementById('d_points').value) || 0;
+  if (coupon) return { couponCode: coupon };
+  if (points > 0) return { pointsToUse: points };
+  return {};
+}
+async function recomputeSummary() {
+  const { body } = await api('/api/bookings/quote', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+    body: JSON.stringify({ spaceId: S.space.id, items: S.cart, options: optionsPayload(), ...discountPayload() }) });
   document.getElementById('sum_space').textContent = yen(body.spaceFee || 0);
   document.getElementById('sum_opt').textContent = yen(body.optionsTotal || 0);
   document.getElementById('sum_total').textContent = yen(body.total || 0);
   document.getElementById('sum_points').textContent = body.pointsEarned ? ('獲得予定ポイント: ' + body.pointsEarned + 'P') : '';
-  show('view-customer');
+  // 割引行
+  const discRow = document.getElementById('sum_disc_row'), disc = document.getElementById('sum_disc');
+  const discAmt = (body.primaryDiscount || 0) + (body.campaignDiscount || 0);
+  if (discAmt > 0) { discRow.classList.remove('hidden'); disc.textContent = '-' + yen(discAmt); }
+  else discRow.classList.add('hidden');
+  // 割引メッセージ
+  const dmsg = document.getElementById('discountMsg');
+  if (dmsg) {
+    if (body.discountError) { dmsg.style.color = '#b91c1c'; dmsg.textContent = '⚠️ ' + body.discountError; }
+    else if (body.primaryKind === 'coupon') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ クーポン適用 -' + yen(body.primaryDiscount) + '（' + body.couponHoursConsumed + '時間消費）'; }
+    else if (body.primaryKind === 'points') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ ポイント利用 -' + yen(body.pointsUsed); }
+    else dmsg.textContent = '';
+  }
 }
 
 async function submitBooking() {
@@ -409,8 +494,8 @@ async function submitBooking() {
   const msg = document.getElementById('submitMsg');
   if (!event || !name || !email || !phone) { msg.textContent = '必須項目を入力してください'; msg.classList.remove('hidden'); return; }
   document.getElementById('submitBtn').disabled = true;
-  const { ok, body } = await api('/api/bookings', { method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload() }) });
+  const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;

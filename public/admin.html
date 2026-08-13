@@ -48,17 +48,35 @@
 </header>
 <main>
   <!-- ログイン -->
-  <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
+  <section id="loginView" class="card hidden" style="max-width:420px;margin:40px auto">
     <h2>管理者ログイン</h2>
-    <div class="muted">デモ管理者 → <code>admin@albe.test</code> / <code>adminpass123</code></div>
+    <div class="muted" id="loginHint">デモ管理者 → <code>admin@albe.test</code> / <code>adminpass123</code></div>
     <label>メールアドレス</label>
-    <input id="a_email" type="email" />
+    <input id="a_email" type="email" onkeydown="if(event.key==='Enter')login()" />
     <label>パスワード</label>
-    <input id="a_pass" type="password" />
+    <input id="a_pass" type="password" onkeydown="if(event.key==='Enter')login()" />
     <div class="row" style="margin-top:12px;justify-content:flex-end">
       <button class="btn" onclick="login()">ログイン</button>
     </div>
     <div class="msg bad" id="loginMsg"></div>
+  </section>
+
+  <!-- 初回セットアップ（管理者が未登録のとき） -->
+  <section id="setupView" class="card hidden" style="max-width:460px;margin:40px auto">
+    <h2>初回セットアップ（管理者アカウント作成）</h2>
+    <div class="muted" style="margin-bottom:8px">最初の管理者（オーナー）アカウントを作成します。この画面は管理者が未登録のときだけ表示されます。</div>
+    <label>お名前 *</label>
+    <input id="su_name" placeholder="例）鬼頭" />
+    <label>メールアドレス *</label>
+    <input id="su_email" type="email" placeholder="ログインに使うメールアドレス" />
+    <label>パスワード *（8文字以上）</label>
+    <input id="su_pass" type="password" />
+    <label>パスワード（確認）*</label>
+    <input id="su_pass2" type="password" onkeydown="if(event.key==='Enter')submitSetup()" />
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="btn" onclick="submitSetup()">管理者を作成してログイン</button>
+    </div>
+    <div class="msg" id="setupMsg"></div>
   </section>
 
   <!-- 管理画面本体 -->
@@ -987,6 +1005,47 @@ async function cancelBooking(number) {
   alert('キャンセルしました。キャンセル料 ' + yen(res.body.cancelFee) + '（手動徴収）');
   loadBookings();
 }
+
+// --- 初回セットアップ / ログイン画面の出し分け ---
+async function submitSetup() {
+  const msg = document.getElementById('setupMsg');
+  const name = document.getElementById('su_name').value.trim();
+  const email = document.getElementById('su_email').value.trim();
+  const password = document.getElementById('su_pass').value;
+  const password2 = document.getElementById('su_pass2').value;
+  if (!name || !email || !password) { msg.className='msg bad'; msg.textContent = 'お名前・メール・パスワードは必須です'; return; }
+  if (password.length < 8) { msg.className='msg bad'; msg.textContent = 'パスワードは8文字以上にしてください'; return; }
+  if (password !== password2) { msg.className='msg bad'; msg.textContent = 'パスワード（確認）が一致しません'; return; }
+  const { ok, body } = await api('/api/admin/setup', jsonBody({ name, email, password }));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '作成に失敗しました'; return; }
+  // 作成後そのままログイン
+  const lg = await api('/api/admin/login', jsonBody({ email, password }));
+  if (!lg.ok) { msg.className='msg ok'; msg.textContent = '作成しました。ログインしてください'; showLoginView(); return; }
+  A.token = lg.body.token; A.admin = lg.body.admin;
+  document.getElementById('who').textContent = lg.body.admin.name + '（' + lg.body.admin.role + '）';
+  document.getElementById('setupView').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  await loadSpaces();
+  loadBookings();
+}
+function showLoginView() {
+  document.getElementById('setupView').classList.add('hidden');
+  document.getElementById('loginView').classList.remove('hidden');
+}
+async function initAuth() {
+  const { ok, body } = await api('/api/admin/needs-setup');
+  // 本番ではデモ管理者のヒントを表示しない
+  if (!ok || body.appEnv !== 'development') {
+    const hint = document.getElementById('loginHint');
+    if (hint) hint.classList.add('hidden');
+  }
+  if (ok && body.needsSetup) {
+    document.getElementById('setupView').classList.remove('hidden');
+  } else {
+    document.getElementById('loginView').classList.remove('hidden');
+  }
+}
+initAuth();
 </script>
 </body>
 </html>

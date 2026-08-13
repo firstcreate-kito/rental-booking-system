@@ -106,6 +106,12 @@ function toValidationSpace(s: SpaceRow): BookingValidationSpace {
 // 管理者認証
 // ---------------------------------------------------------------------------
 
+/** GET /api/admin/needs-setup 管理者が未登録か（初回セットアップ要否） */
+app.get('/needs-setup', async (c) => {
+  const needsSetup = (await countAdmins(c.env.DB)) === 0;
+  return c.json({ needsSetup, appEnv: c.env.APP_ENV ?? 'development' });
+});
+
 /** POST /api/admin/setup 初回のオーナー作成（管理者が未登録のときのみ） */
 app.post('/setup', async (c) => {
   const db = c.env.DB;

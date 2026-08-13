@@ -188,7 +188,7 @@ async function loadCoupons() {
       '<span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></div>' +
       '<div>' + off + '　残り ' + c.remaining_hours + ' / ' + c.total_hours + ' 時間（' + pct + '%）</div>' +
       '<div class="muted">対象: ' + (c.spaces||'—') + '</div>' +
-      '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + c.valid_until + '</div></div>';
+      '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + (c.valid_until ? c.valid_until : '無期限') + '</div></div>';
   }).join('');
 }
 async function loadFavorites() {

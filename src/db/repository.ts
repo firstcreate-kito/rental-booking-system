@@ -428,7 +428,7 @@ export interface CouponRow {
   total_hours: number;
   remaining_hours: number;
   valid_from: string;
-  valid_until: string;
+  valid_until: string | null; // null = 無期限
   status: string;
 }
 
@@ -541,7 +541,7 @@ export async function issueCoupon(
     discountValue: number;
     totalHours: number;
     validFrom: string;
-    validUntil: string;
+    validUntil: string | null; // null = 無期限
     staffMemo: string | null;
     spaceIds: string[];
   },

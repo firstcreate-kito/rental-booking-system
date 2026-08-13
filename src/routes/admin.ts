@@ -167,7 +167,7 @@ interface AdminBookingBody {
   spaceId: string;
   eventName: string;
   items: AdminBookingItem[];
-  customer?: { contactName?: string; email?: string; phone?: string; companyName?: string };
+  customer?: { id?: string; contactName?: string; email?: string; phone?: string; companyName?: string };
   note?: string;
 }
 
@@ -303,7 +303,12 @@ async function prepareAdminBooking(
 
   // 顧客（任意）
   let customerId: string | null = null;
-  if (body.customer?.email) {
+  if (body.customer?.id) {
+    // 既存顧客を検索から選択したケース
+    const picked = await getCustomerProfile(db, body.customer.id);
+    if (picked) customerId = String(picked.id);
+  }
+  if (!customerId && body.customer?.email) {
     const existing = await getCustomerByEmail(db, body.customer.email);
     if (existing) {
       customerId = existing.id;
@@ -600,13 +605,21 @@ app.post('/coupons', requireRole('owner', 'manager'), async (c) => {
   const discountType = b.discountType === 'fixed' ? 'fixed' : 'percent';
   const discountValue = Number(b.discountValue ?? 0);
   const totalHours = Number(b.totalHours ?? 0);
-  const validFrom = String(b.validFrom ?? '').trim();
-  const validUntil = String(b.validUntil ?? '').trim();
+  // 有効開始: 未指定なら発行日（本日）から。有効終了: 未指定なら無期限（null）。
+  const validFrom = String(b.validFrom ?? '').trim() || todayJST();
+  const validUntilRaw = String(b.validUntil ?? '').trim();
+  const validUntil = validUntilRaw === '' ? null : validUntilRaw;
   const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
   if (!customerId || !name) return c.json({ error: '顧客・名称は必須です' }, 400);
   if (discountValue <= 0 || totalHours <= 0) return c.json({ error: '割引値・時間は1以上で入力してください' }, 400);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
-    return c.json({ error: '有効期間は YYYY-MM-DD で入力してください' }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) {
+    return c.json({ error: '有効開始日は YYYY-MM-DD で入力してください' }, 400);
+  }
+  if (validUntil !== null && !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
+    return c.json({ error: '有効終了日は YYYY-MM-DD で入力してください' }, 400);
+  }
+  if (validUntil !== null && validUntil < validFrom) {
+    return c.json({ error: '有効終了日は開始日以降にしてください' }, 400);
   }
   if (spaceIds.length === 0) return c.json({ error: '対象スペースを1つ以上選んでください' }, 400);
   // コードは6桁のランダム数字で自動採番（全体でユニークになるまで再試行）

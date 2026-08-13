@@ -112,7 +112,7 @@ async function resolvePrimaryDiscount(
     const coupon = await getCouponByCodeForCustomer(db, couponCode, customerId);
     if (!coupon) return { primary: { kind: 'none' }, error: 'クーポンが見つかりません' };
     if (coupon.status !== 'active') return { primary: { kind: 'none' }, error: 'このクーポンは利用できません' };
-    if (today < coupon.valid_from || today > coupon.valid_until) {
+    if (today < coupon.valid_from || (coupon.valid_until !== null && today > coupon.valid_until)) {
       return { primary: { kind: 'none' }, error: 'クーポンの有効期限外です' };
     }
     if (coupon.remaining_hours <= 0) return { primary: { kind: 'none' }, error: 'クーポンの残時間がありません' };

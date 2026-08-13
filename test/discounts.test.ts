@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyDiscounts, type DiscountableDay } from '../src/lib/discounts';
+import { applyDiscounts, resolveCampaign, type DiscountableDay, type CampaignCandidate } from '../src/lib/discounts';
 
 // 名駅フリースペース想定: 平日 4840/h, 土日祝 7260/h
 const weekdayDay = (hours: number): DiscountableDay => ({ billableHours: hours, price: hours * 4840 });
@@ -131,5 +131,59 @@ describe('applyDiscounts - キャンペーン(割引なし時フル適用)', () 
     });
     expect(r.campaignDiscount).toBe(Math.round(5 * 4840 * 0.1)); // 2420
     expect(r.total).toBe(5 * 4840 - 2420); // 21780
+  });
+});
+
+describe('resolveCampaign - 適用判定', () => {
+  const cp = (over: Partial<CampaignCandidate>): CampaignCandidate => ({
+    name: 'テスト', startDate: '2026-09-01', endDate: '2026-09-30',
+    discountType: 'percent', discountValue: 10, applyWeekday: true, applyWeekend: true,
+    spaceId: null, ...over,
+  });
+
+  it('期間内・全スペース対象なら適用（10%）', () => {
+    const r = resolveCampaign([cp({})], [{ date: '2026-09-10', dayType: 'weekday', price: 10000 }], 'space-a');
+    expect(r?.rule.discountValue).toBe(10);
+    expect(r?.name).toBe('テスト');
+  });
+
+  it('期間外は不適用', () => {
+    const r = resolveCampaign([cp({})], [{ date: '2026-10-01', dayType: 'weekday', price: 10000 }], 'space-a');
+    expect(r).toBeNull();
+  });
+
+  it('対象スペースが異なれば不適用', () => {
+    const r = resolveCampaign([cp({ spaceId: 'space-b' })], [{ date: '2026-09-10', dayType: 'weekday', price: 10000 }], 'space-a');
+    expect(r).toBeNull();
+  });
+
+  it('平日限定キャンペーンは土日祝に不適用', () => {
+    const r = resolveCampaign([cp({ applyWeekend: false })], [{ date: '2026-09-12', dayType: 'weekend', price: 10000 }], 'space-a');
+    expect(r).toBeNull();
+  });
+
+  it('複数日で一部でも対象外があれば不適用', () => {
+    const days = [
+      { date: '2026-09-10', dayType: 'weekday' as const, price: 10000 },
+      { date: '2026-10-10', dayType: 'weekday' as const, price: 10000 },
+    ];
+    expect(resolveCampaign([cp({})], days, 'space-a')).toBeNull();
+  });
+
+  it('複数該当時は割引額が大きい方を選ぶ', () => {
+    const small = cp({ name: '小', discountValue: 10 });
+    const big = cp({ name: '大', discountValue: 30 });
+    const r = resolveCampaign([small, big], [{ date: '2026-09-10', dayType: 'weekday', price: 10000 }], 'space-a');
+    expect(r?.name).toBe('大');
+  });
+
+  it('スペース指定ありは全スペース指定より具体的だが、選択は割引額で決まる', () => {
+    // 同率なら最初に見つかった方（安定挙動の確認）
+    const r = resolveCampaign(
+      [cp({ name: 'A', discountValue: 20 }), cp({ name: 'B', discountValue: 20, spaceId: 'space-a' })],
+      [{ date: '2026-09-10', dayType: 'weekday', price: 10000 }],
+      'space-a',
+    );
+    expect(r?.name).toBe('A');
   });
 });

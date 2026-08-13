@@ -22,6 +22,64 @@ export interface CampaignRule {
   discountValue: number;
 }
 
+/** 適用判定用のキャンペーン候補（DBの campaigns 行に対応） */
+export interface CampaignCandidate {
+  name: string;
+  startDate: string;
+  endDate: string;
+  discountType: DiscountType;
+  discountValue: number;
+  applyWeekday: boolean;
+  applyWeekend: boolean;
+  spaceId: string | null; // null = 全スペース対象
+}
+
+/** 割引対象日（キャンペーン適用判定用） */
+export interface CampaignDay {
+  date: string;
+  dayType: 'weekday' | 'weekend';
+  price: number;
+}
+
+/**
+ * 予約に適用できるキャンペーンを1つ解決する。
+ * - 予約の全日程が「期間内」かつ「曜日区分が対象」かつ「対象スペース」であること。
+ *   （複数日で一部でも対象外があれば、そのキャンペーンは不適用）
+ * - 対象が複数ある場合はスペース料金に対する割引額が最大のものを選ぶ。
+ */
+export function resolveCampaign(
+  campaigns: readonly CampaignCandidate[],
+  days: readonly CampaignDay[],
+  spaceId: string,
+): { rule: CampaignRule; name: string } | null {
+  const spaceFee = days.reduce((s, d) => s + d.price, 0);
+  if (spaceFee <= 0 || days.length === 0) return null;
+  let best: { rule: CampaignRule; name: string; discount: number } | null = null;
+  for (const cp of campaigns) {
+    if (cp.spaceId && cp.spaceId !== spaceId) continue;
+    const allEligible = days.every(
+      (d) =>
+        d.date >= cp.startDate &&
+        d.date <= cp.endDate &&
+        (d.dayType === 'weekday' ? cp.applyWeekday : cp.applyWeekend),
+    );
+    if (!allEligible) continue;
+    const discount =
+      cp.discountType === 'percent'
+        ? Math.round((spaceFee * cp.discountValue) / 100)
+        : Math.min(cp.discountValue, spaceFee);
+    if (discount <= 0) continue;
+    if (!best || discount > best.discount) {
+      best = {
+        rule: { discountType: cp.discountType, discountValue: cp.discountValue },
+        name: cp.name,
+        discount,
+      };
+    }
+  }
+  return best ? { rule: best.rule, name: best.name } : null;
+}
+
 /** 主となる割引の指定 */
 export type PrimaryDiscount =
   | { kind: 'none' }

@@ -175,6 +175,132 @@ export async function getActiveSeasonalRules(db: D1Database): Promise<SeasonalRu
   return results ?? [];
 }
 
+// --- 季節料金（管理） ---
+export interface SeasonalFullRow {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  surcharge_pct: number;
+  is_active: number;
+}
+
+export async function getSeasonalAll(db: D1Database): Promise<SeasonalFullRow[]> {
+  const { results } = await db
+    .prepare('SELECT id, name, start_date, end_date, surcharge_pct, is_active FROM seasonal_pricing ORDER BY start_date')
+    .all<SeasonalFullRow>();
+  return results ?? [];
+}
+
+export interface SeasonalInput {
+  name: string;
+  startDate: string;
+  endDate: string;
+  surchargePct: number;
+  isActive: boolean;
+}
+
+export async function insertSeasonal(db: D1Database, s: SeasonalInput): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO seasonal_pricing (id, name, start_date, end_date, surcharge_pct, is_active)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0)
+    .run();
+  return id;
+}
+
+export async function updateSeasonal(db: D1Database, id: string, s: SeasonalInput): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE seasonal_pricing SET name = ?, start_date = ?, end_date = ?, surcharge_pct = ?, is_active = ? WHERE id = ?`,
+    )
+    .bind(s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, id)
+    .run();
+}
+
+export async function deleteSeasonal(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM seasonal_pricing WHERE id = ?').bind(id).run();
+}
+
+// --- キャンペーン（管理・適用） ---
+export interface CampaignRow {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  apply_weekday: number;
+  apply_weekend: number;
+  space_id: string | null;
+  is_active: number;
+}
+
+export async function getCampaignsAll(db: D1Database): Promise<Array<CampaignRow & { space_name?: string }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT cp.id, cp.name, cp.start_date, cp.end_date, cp.discount_type, cp.discount_value,
+              cp.apply_weekday, cp.apply_weekend, cp.space_id, cp.is_active, s.name AS space_name
+       FROM campaigns cp LEFT JOIN spaces s ON s.id = cp.space_id
+       ORDER BY cp.start_date`,
+    )
+    .all<CampaignRow & { space_name?: string }>();
+  return results ?? [];
+}
+
+/** 有効なキャンペーン（適用判定用） */
+export async function getActiveCampaigns(db: D1Database): Promise<CampaignRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, name, start_date, end_date, discount_type, discount_value,
+              apply_weekday, apply_weekend, space_id, is_active
+       FROM campaigns WHERE is_active = 1`,
+    )
+    .all<CampaignRow>();
+  return results ?? [];
+}
+
+export interface CampaignInput {
+  name: string;
+  startDate: string;
+  endDate: string;
+  discountType: 'percent' | 'fixed';
+  discountValue: number;
+  applyWeekday: boolean;
+  applyWeekend: boolean;
+  spaceId: string | null;
+  isActive: boolean;
+}
+
+export async function insertCampaign(db: D1Database, cp: CampaignInput): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO campaigns (id, name, start_date, end_date, discount_type, discount_value, apply_weekday, apply_weekend, space_id, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, cp.name, cp.startDate, cp.endDate, cp.discountType, cp.discountValue, cp.applyWeekday ? 1 : 0, cp.applyWeekend ? 1 : 0, cp.spaceId, cp.isActive ? 1 : 0)
+    .run();
+  return id;
+}
+
+export async function updateCampaign(db: D1Database, id: string, cp: CampaignInput): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE campaigns SET name = ?, start_date = ?, end_date = ?, discount_type = ?, discount_value = ?,
+              apply_weekday = ?, apply_weekend = ?, space_id = ?, is_active = ? WHERE id = ?`,
+    )
+    .bind(cp.name, cp.startDate, cp.endDate, cp.discountType, cp.discountValue, cp.applyWeekday ? 1 : 0, cp.applyWeekend ? 1 : 0, cp.spaceId, cp.isActive ? 1 : 0, id)
+    .run();
+}
+
+export async function deleteCampaign(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM campaigns WHERE id = ?').bind(id).run();
+}
+
 /** スペースの、指定期間の占有予約（confirmed/tentative/blocked/held）を返す */
 export async function getSpaceBookingsInRange(
   db: D1Database,

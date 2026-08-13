@@ -37,6 +37,16 @@ import {
   type OptionInput,
   getHolidays,
   getActiveSeasonalRules,
+  getSeasonalAll,
+  insertSeasonal,
+  updateSeasonal,
+  deleteSeasonal,
+  getCampaignsAll,
+  insertCampaign,
+  updateCampaign,
+  deleteCampaign,
+  type SeasonalInput,
+  type CampaignInput,
   getSpaceClosures,
   getSpaceBookingsOnDate,
   getCustomerByEmail,
@@ -777,6 +787,107 @@ app.post('/closures', requireRole('owner', 'manager'), async (c) => {
 /** DELETE /api/admin/closures/:id */
 app.delete('/closures/:id', requireRole('owner', 'manager'), async (c) => {
   await deleteClosure(c.env.DB, c.req.param('id'));
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// 季節料金・キャンペーン（マスタ管理）※owner / manager
+// ---------------------------------------------------------------------------
+
+/** 季節料金の入力を検証して SeasonalInput に整形 */
+function parseSeasonalInput(b: Record<string, unknown>): { input?: SeasonalInput; error?: string } {
+  const name = String(b.name ?? '').trim();
+  const startDate = String(b.startDate ?? '').trim();
+  const endDate = String(b.endDate ?? '').trim();
+  const surchargePct = Number(b.surchargePct ?? 0);
+  const isActive = b.isActive === undefined ? true : !!b.isActive;
+  if (!name) return { error: '名称は必須です' };
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: '期間は YYYY-MM-DD で入力してください' };
+  if (endDate < startDate) return { error: '終了日は開始日以降にしてください' };
+  if (!Number.isFinite(surchargePct) || surchargePct <= 0) return { error: '割増率（％）は1以上で入力してください' };
+  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive } };
+}
+
+/** GET /api/admin/seasonal 季節料金一覧 */
+app.get('/seasonal', async (c) => {
+  const seasonal = await getSeasonalAll(c.env.DB);
+  return c.json({ seasonal });
+});
+
+/** POST /api/admin/seasonal 季節料金を追加 */
+app.post('/seasonal', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseSeasonalInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const id = await insertSeasonal(c.env.DB, input);
+  return c.json({ id }, 201);
+});
+
+/** PUT /api/admin/seasonal/:id 季節料金を更新 */
+app.put('/seasonal/:id', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseSeasonalInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  await updateSeasonal(c.env.DB, c.req.param('id'), input);
+  return c.json({ ok: true });
+});
+
+/** DELETE /api/admin/seasonal/:id 季節料金を削除 */
+app.delete('/seasonal/:id', requireRole('owner', 'manager'), async (c) => {
+  await deleteSeasonal(c.env.DB, c.req.param('id'));
+  return c.json({ ok: true });
+});
+
+/** キャンペーンの入力を検証して CampaignInput に整形 */
+function parseCampaignInput(b: Record<string, unknown>): { input?: CampaignInput; error?: string } {
+  const name = String(b.name ?? '').trim();
+  const startDate = String(b.startDate ?? '').trim();
+  const endDate = String(b.endDate ?? '').trim();
+  const discountType = b.discountType === 'fixed' ? 'fixed' : 'percent';
+  const discountValue = Number(b.discountValue ?? 0);
+  const applyWeekday = b.applyWeekday === undefined ? true : !!b.applyWeekday;
+  const applyWeekend = b.applyWeekend === undefined ? true : !!b.applyWeekend;
+  const spaceIdRaw = String(b.spaceId ?? '').trim();
+  const spaceId = spaceIdRaw === '' ? null : spaceIdRaw;
+  const isActive = b.isActive === undefined ? true : !!b.isActive;
+  if (!name) return { error: '名称は必須です' };
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: '期間は YYYY-MM-DD で入力してください' };
+  if (endDate < startDate) return { error: '終了日は開始日以降にしてください' };
+  if (!Number.isFinite(discountValue) || discountValue <= 0) return { error: '割引値は1以上で入力してください' };
+  if (discountType === 'percent' && discountValue > 100) return { error: '％割引は100以下で入力してください' };
+  if (!applyWeekday && !applyWeekend) return { error: '平日・土日祝の少なくとも一方を対象にしてください' };
+  return {
+    input: { name, startDate, endDate, discountType, discountValue: Math.round(discountValue), applyWeekday, applyWeekend, spaceId, isActive },
+  };
+}
+
+/** GET /api/admin/campaigns キャンペーン一覧 */
+app.get('/campaigns', async (c) => {
+  const campaigns = await getCampaignsAll(c.env.DB);
+  return c.json({ campaigns });
+});
+
+/** POST /api/admin/campaigns キャンペーンを追加 */
+app.post('/campaigns', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseCampaignInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const id = await insertCampaign(c.env.DB, input);
+  return c.json({ id }, 201);
+});
+
+/** PUT /api/admin/campaigns/:id キャンペーンを更新 */
+app.put('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseCampaignInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  await updateCampaign(c.env.DB, c.req.param('id'), input);
+  return c.json({ ok: true });
+});
+
+/** DELETE /api/admin/campaigns/:id キャンペーンを削除 */
+app.delete('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
+  await deleteCampaign(c.env.DB, c.req.param('id'));
   return c.json({ ok: true });
 });
 

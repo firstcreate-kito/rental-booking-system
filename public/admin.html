@@ -70,6 +70,7 @@
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
       <button id="tab-calendar" onclick="showTab('calendar')">カレンダー管理</button>
       <button id="tab-options" onclick="showTab('options')">オプション管理</button>
+      <button id="tab-pricing" onclick="showTab('pricing')">季節料金・キャンペーン</button>
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
     </div>
 
@@ -276,6 +277,79 @@
       </div>
     </section>
 
+    <!-- 季節料金・キャンペーン -->
+    <section id="view-pricing" class="card hidden">
+      <h2>季節料金・キャンペーン</h2>
+
+      <!-- 季節料金 -->
+      <div class="card" style="margin:0 0 16px 0;background:#fafbff">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">季節料金（割増）</h2>
+          <button class="btn sm ghost" onclick="toggleSeasonalForm()">＋ 追加</button>
+        </div>
+        <div class="muted" style="font-size:13px;margin-top:4px">繁忙期などに全スペース共通で料金を割増します（例：GW +30%）。設定した期間はお客様カレンダーで季節料金枠（🟧）として表示されます。</div>
+        <div id="seasonalForm" class="hidden" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff">
+          <input type="hidden" id="se_id" />
+          <div class="grid">
+            <div><label>名称 *</label><input id="se_name" placeholder="例）GW料金" /></div>
+            <div><label>割増率(%) *</label><input id="se_pct" type="number" placeholder="30" /></div>
+          </div>
+          <div class="grid">
+            <div><label>開始日 *</label><input id="se_from" type="date" /></div>
+            <div><label>終了日 *</label><input id="se_to" type="date" /></div>
+          </div>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="se_active" checked style="width:auto" /> 有効</label>
+          <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
+            <button class="btn ghost sm" onclick="toggleSeasonalForm(false)">キャンセル</button>
+            <button class="btn" onclick="submitSeasonal()">保存</button>
+          </div>
+          <div class="msg" id="seMsg"></div>
+        </div>
+        <div class="tablewrap" style="margin-top:10px"><table>
+          <thead><tr><th>名称</th><th>期間</th><th>割増</th><th>状態</th><th></th></tr></thead>
+          <tbody id="seasonalBody"></tbody>
+        </table></div>
+      </div>
+
+      <!-- キャンペーン -->
+      <div class="card" style="margin:0;background:#fafbff">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">キャンペーン（割引）</h2>
+          <button class="btn sm ghost" onclick="toggleCampaignForm()">＋ 追加</button>
+        </div>
+        <div class="muted" style="font-size:13px;margin-top:4px">期間限定でスペース料金を割引します。クーポン・チケット・ポイントとの併用ルールに従い自動適用されます（クーポン/ポイント利用時は不可）。予約の全日程が対象期間・対象曜日に含まれる場合に適用されます。</div>
+        <div id="campaignForm" class="hidden" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff">
+          <input type="hidden" id="cm_id" />
+          <div class="grid">
+            <div><label>名称 *</label><input id="cm_name" placeholder="例）オープン記念20%OFF" /></div>
+            <div><label>対象スペース</label><select id="cm_space"></select></div>
+          </div>
+          <div class="grid">
+            <div><label>割引種別</label><select id="cm_dtype"><option value="percent">％OFF</option><option value="fixed">円引き</option></select></div>
+            <div><label>値 *</label><input id="cm_dval" type="number" placeholder="20" /></div>
+          </div>
+          <div class="grid">
+            <div><label>開始日 *</label><input id="cm_from" type="date" /></div>
+            <div><label>終了日 *</label><input id="cm_to" type="date" /></div>
+          </div>
+          <div class="row" style="gap:16px;margin-top:6px">
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_wd" checked style="width:auto" /> 平日を対象</label>
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_we" checked style="width:auto" /> 土日祝を対象</label>
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_active" checked style="width:auto" /> 有効</label>
+          </div>
+          <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
+            <button class="btn ghost sm" onclick="toggleCampaignForm(false)">キャンセル</button>
+            <button class="btn" onclick="submitCampaign()">保存</button>
+          </div>
+          <div class="msg" id="cmMsg"></div>
+        </div>
+        <div class="tablewrap" style="margin-top:10px"><table>
+          <thead><tr><th>名称</th><th>期間</th><th>割引</th><th>対象</th><th>スペース</th><th>状態</th><th></th></tr></thead>
+          <tbody id="campaignBody"></tbody>
+        </table></div>
+      </div>
+    </section>
+
     <!-- 顧客・特典 -->
     <section id="view-customers" class="card hidden">
       <h2>顧客管理・特典</h2>
@@ -397,13 +471,14 @@ async function loadSpaces() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar','options','customers'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar','options','pricing','customers'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'options') loadOptionsAdmin();
+  if (t === 'pricing') loadPricingMgmt();
   if (t === 'customers') initCustomers();
 }
 
@@ -549,6 +624,129 @@ async function saveSpace() {
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();
+}
+
+// --- 季節料金・キャンペーン ---
+async function loadPricingMgmt() {
+  if (A.spaces.length === 0) await loadSpaces();
+  document.getElementById('cm_space').innerHTML = '<option value="">全スペース共通</option>' +
+    A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+  await Promise.all([loadSeasonal(), loadCampaigns()]);
+}
+function toggleSeasonalForm(show) {
+  const f = document.getElementById('seasonalForm');
+  const willShow = show === undefined ? f.classList.contains('hidden') : show;
+  if (willShow) {
+    document.getElementById('se_id').value = '';
+    ['se_name','se_pct','se_from','se_to'].forEach(i => document.getElementById(i).value = '');
+    document.getElementById('se_active').checked = true;
+    document.getElementById('seMsg').textContent = '';
+  }
+  f.classList.toggle('hidden', !willShow);
+}
+async function loadSeasonal() {
+  const { body } = await api('/api/admin/seasonal');
+  const rows = body.seasonal || [];
+  document.getElementById('seasonalBody').innerHTML = rows.length ? rows.map(s =>
+    '<tr><td>' + s.name + '</td><td>' + s.start_date + ' 〜 ' + s.end_date + '</td><td>+' + s.surcharge_pct + '%</td>' +
+    '<td><span class="pill ' + (s.is_active ? 'confirmed' : 'cancelled') + '">' + (s.is_active ? '有効' : '無効') + '</span></td>' +
+    '<td style="white-space:nowrap"><button class="btn ghost sm" onclick=\'editSeasonal(' + JSON.stringify(s) + ')\'>編集</button> ' +
+    '<button class="btn danger sm" onclick="deleteSeasonal(\'' + s.id + '\')">削除</button></td></tr>').join('')
+    : '<tr><td colspan="5" class="muted">季節料金は登録されていません</td></tr>';
+}
+function editSeasonal(s) {
+  toggleSeasonalForm(true);
+  document.getElementById('se_id').value = s.id;
+  document.getElementById('se_name').value = s.name;
+  document.getElementById('se_pct').value = s.surcharge_pct;
+  document.getElementById('se_from').value = s.start_date;
+  document.getElementById('se_to').value = s.end_date;
+  document.getElementById('se_active').checked = !!s.is_active;
+}
+async function submitSeasonal() {
+  const msg = document.getElementById('seMsg');
+  const id = document.getElementById('se_id').value;
+  const payload = {
+    name: document.getElementById('se_name').value.trim(),
+    surchargePct: Number(document.getElementById('se_pct').value),
+    startDate: document.getElementById('se_from').value,
+    endDate: document.getElementById('se_to').value,
+    isActive: document.getElementById('se_active').checked,
+  };
+  const { ok, body } = await api('/api/admin/seasonal' + (id ? '/' + id : ''), jsonBody(payload, id ? 'PUT' : 'POST'));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  toggleSeasonalForm(false);
+  loadSeasonal();
+}
+async function deleteSeasonal(id) {
+  if (!confirm('この季節料金を削除しますか？')) return;
+  await api('/api/admin/seasonal/' + id, { method: 'DELETE' });
+  loadSeasonal();
+}
+function toggleCampaignForm(show) {
+  const f = document.getElementById('campaignForm');
+  const willShow = show === undefined ? f.classList.contains('hidden') : show;
+  if (willShow) {
+    document.getElementById('cm_id').value = '';
+    ['cm_name','cm_dval','cm_from','cm_to'].forEach(i => document.getElementById(i).value = '');
+    document.getElementById('cm_dtype').value = 'percent';
+    document.getElementById('cm_space').value = '';
+    document.getElementById('cm_wd').checked = true;
+    document.getElementById('cm_we').checked = true;
+    document.getElementById('cm_active').checked = true;
+    document.getElementById('cmMsg').textContent = '';
+  }
+  f.classList.toggle('hidden', !willShow);
+}
+async function loadCampaigns() {
+  const { body } = await api('/api/admin/campaigns');
+  const rows = body.campaigns || [];
+  document.getElementById('campaignBody').innerHTML = rows.length ? rows.map(cp => {
+    const off = cp.discount_type === 'percent' ? (cp.discount_value + '%OFF') : (yen(cp.discount_value) + '引き');
+    const target = [cp.apply_weekday ? '平日' : '', cp.apply_weekend ? '土日祝' : ''].filter(Boolean).join('・');
+    return '<tr><td>' + cp.name + '</td><td>' + cp.start_date + ' 〜 ' + cp.end_date + '</td><td>' + off + '</td>' +
+      '<td>' + target + '</td><td>' + (cp.space_name || '全スペース') + '</td>' +
+      '<td><span class="pill ' + (cp.is_active ? 'confirmed' : 'cancelled') + '">' + (cp.is_active ? '有効' : '無効') + '</span></td>' +
+      '<td style="white-space:nowrap"><button class="btn ghost sm" onclick=\'editCampaign(' + JSON.stringify(cp) + ')\'>編集</button> ' +
+      '<button class="btn danger sm" onclick="deleteCampaign(\'' + cp.id + '\')">削除</button></td></tr>';
+  }).join('') : '<tr><td colspan="7" class="muted">キャンペーンは登録されていません</td></tr>';
+}
+function editCampaign(cp) {
+  toggleCampaignForm(true);
+  document.getElementById('cm_id').value = cp.id;
+  document.getElementById('cm_name').value = cp.name;
+  document.getElementById('cm_space').value = cp.space_id || '';
+  document.getElementById('cm_dtype').value = cp.discount_type;
+  document.getElementById('cm_dval').value = cp.discount_value;
+  document.getElementById('cm_from').value = cp.start_date;
+  document.getElementById('cm_to').value = cp.end_date;
+  document.getElementById('cm_wd').checked = !!cp.apply_weekday;
+  document.getElementById('cm_we').checked = !!cp.apply_weekend;
+  document.getElementById('cm_active').checked = !!cp.is_active;
+}
+async function submitCampaign() {
+  const msg = document.getElementById('cmMsg');
+  const id = document.getElementById('cm_id').value;
+  const payload = {
+    name: document.getElementById('cm_name').value.trim(),
+    spaceId: document.getElementById('cm_space').value,
+    discountType: document.getElementById('cm_dtype').value,
+    discountValue: Number(document.getElementById('cm_dval').value),
+    startDate: document.getElementById('cm_from').value,
+    endDate: document.getElementById('cm_to').value,
+    applyWeekday: document.getElementById('cm_wd').checked,
+    applyWeekend: document.getElementById('cm_we').checked,
+    isActive: document.getElementById('cm_active').checked,
+  };
+  const { ok, body } = await api('/api/admin/campaigns' + (id ? '/' + id : ''), jsonBody(payload, id ? 'PUT' : 'POST'));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  toggleCampaignForm(false);
+  loadCampaigns();
+}
+async function deleteCampaign(id) {
+  if (!confirm('このキャンペーンを削除しますか？')) return;
+  await api('/api/admin/campaigns/' + id, { method: 'DELETE' });
+  loadCampaigns();
 }
 
 // --- 顧客管理・特典 ---

@@ -19,6 +19,7 @@ import {
   getCouponByCodeForCustomer,
   getCouponSpaceIds,
   getPointBalance,
+  getActiveCampaigns,
   peekNextBookingSeq,
   type SpaceRow,
 } from '../db/repository';
@@ -38,7 +39,7 @@ import {
   type SeasonalRule,
   type DayBookingInput,
 } from '../lib/pricing';
-import { applyDiscounts, type DiscountableDay } from '../lib/discounts';
+import { applyDiscounts, resolveCampaign, type DiscountableDay, type CampaignCandidate } from '../lib/discounts';
 import {
   validateBookingItem,
   intervalsOverlap,
@@ -50,6 +51,31 @@ import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
 const app = new Hono<AppBindings>();
 
 const BLACKLIST_MESSAGE = '申し訳ございませんが、ご予約をお受けすることができません。';
+
+/** DBのキャンペーン行を適用判定用の候補に変換 */
+function toCampaignCandidates(
+  rows: Array<{
+    name: string;
+    start_date: string;
+    end_date: string;
+    discount_type: 'percent' | 'fixed';
+    discount_value: number;
+    apply_weekday: number;
+    apply_weekend: number;
+    space_id: string | null;
+  }>,
+): CampaignCandidate[] {
+  return rows.map((r) => ({
+    name: r.name,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    discountType: r.discount_type,
+    discountValue: r.discount_value,
+    applyWeekday: !!r.apply_weekday,
+    applyWeekend: !!r.apply_weekend,
+    spaceId: r.space_id,
+  }));
+}
 
 interface CreateBookingBody {
   spaceId: string;
@@ -171,11 +197,12 @@ app.post('/', async (c) => {
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
   const today = todayJST();
 
-  // 期間の祝日・季節料金
+  // 期間の祝日・季節料金・キャンペーン
   const itemDates = body.items.map((i) => i.date).sort();
-  const [holidays, seasonalRows] = await Promise.all([
+  const [holidays, seasonalRows, campaignRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
     getActiveSeasonalRules(db),
+    getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({
@@ -231,6 +258,12 @@ app.post('/', async (c) => {
     billableHours: d.billableHours,
     price: d.price,
   }));
+  // 該当するキャンペーンを解決（予約の全日程が対象の場合のみ適用）
+  const resolvedCampaign = resolveCampaign(
+    toCampaignCandidates(campaignRows),
+    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price })),
+    space.id,
+  );
 
   // オプション処理（全日程共通 per_group、在庫は各日でチェック）
   const optionSelections: Array<{ optionId: string; quantity: number; subtotal: number }> = [];
@@ -282,6 +315,7 @@ app.post('/', async (c) => {
   const totals = applyDiscounts({
     days: discountableDays,
     primary,
+    campaign: resolvedCampaign?.rule,
     optionsTotal,
     pointRate,
   });
@@ -460,9 +494,10 @@ app.post('/quote', async (c) => {
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
   const today = todayJST();
   const itemDates = body.items.map((i) => i.date).sort();
-  const [holidays, seasonalRows] = await Promise.all([
+  const [holidays, seasonalRows, campaignRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
     getActiveSeasonalRules(db),
+    getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
@@ -512,8 +547,15 @@ app.post('/quote', async (c) => {
     else primary = resolved.primary;
   }
 
+  // 該当するキャンペーンを解決（予約の全日程が対象の場合のみ適用）
+  const resolvedCampaign = resolveCampaign(
+    toCampaignCandidates(campaignRows),
+    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price })),
+    space.id,
+  );
+
   const pointRate = Number(settings.get('point_rate') ?? '1');
-  const totals = applyDiscounts({ days: group.days.map((d) => ({ billableHours: d.billableHours, price: d.price })), primary, optionsTotal, pointRate });
+  const totals = applyDiscounts({ days: group.days.map((d) => ({ billableHours: d.billableHours, price: d.price })), primary, campaign: resolvedCampaign?.rule, optionsTotal, pointRate });
 
   return c.json({
     spaceFee: totals.spaceFee,
@@ -523,6 +565,7 @@ app.post('/quote', async (c) => {
     couponHoursConsumed: totals.couponHoursConsumed,
     pointsUsed: totals.pointsUsed,
     campaignDiscount: totals.campaignDiscount,
+    campaignName: totals.campaignDiscount > 0 ? resolvedCampaign?.name ?? null : null,
     total: totals.total,
     pointsEarned: totals.pointsEarned,
     isMember: !!member,

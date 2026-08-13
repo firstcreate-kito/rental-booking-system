@@ -363,10 +363,11 @@ function buildTimeOptions() {
   };
   document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => opt(t, false)).join('');
   document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => opt(t, true)).join('');
-  // 先頭の有効な選択肢を選ぶ
   const st = document.getElementById('mStart'), en = document.getElementById('mEnd');
-  const firstEnabled = sel => { for (const o of sel.options) if (!o.disabled) { sel.value = o.value; return; } };
-  firstEnabled(st); firstEnabled(en);
+  // 開始: 先頭の有効な枠（当日は現在時刻に最も近い次の枠）を自動選択
+  for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }
+  // 終了: 開始より後で最初の有効な枠を自動選択（＝1コマ後）
+  for (const o of en.options) { if (!o.disabled && o.value > st.value) { en.value = o.value; break; } }
 }
 async function openModal(date) {
   S.selectedDate = date;

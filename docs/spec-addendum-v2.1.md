@@ -218,7 +218,11 @@
 - 例（本番デプロイ後のホストを `https://<booking-host>` とした場合）:
   - アルベホール名古屋: `https://<booking-host>/?space=albe-hall-nagoya`
   - 名駅フリースペース: `https://<booking-host>/?space=meieki-free`
-- 将来、よりわかりやすい独自スラッグ（例: `/albehall`）が必要になれば `spaces` に `slug` 列を追加して対応可能。
+- **現時点の方針**: 部屋IDをそのままURLに使用する。
+- **今後の拡張（合意済み）**: 各部屋に**独自スラッグを任意設定できる欄を管理画面（スペース設定）に追加**する。
+  - `spaces` に `slug` 列（NULL可・UNIQUE）を追加。
+  - ディープリンクは「slugがあればslug、なければid」で解決する。
+  - 管理画面のスペース編集で自由に設定・変更可能にする。
 
 ### 8.5 実装状況（Phase 1）
 - 料金計算エンジン（スペース料金）を `src/lib/pricing.ts` に実装。

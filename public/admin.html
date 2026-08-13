@@ -20,6 +20,7 @@
   .btn.sm { padding:5px 10px; font-size:12px; }
   .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .btn.tent { background:var(--tent); }
+  .btn.danger { background:var(--bad); }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -188,11 +189,13 @@ async function loadBookings() {
   document.getElementById('listEmpty').textContent = rows.length ? '' : '該当する予約はありません';
   document.getElementById('listBody').innerHTML = rows.map(b => {
     const cust = [b.company_name, b.contact_name].filter(Boolean).join(' / ') || '—';
-    const confirmBtn = b.status === 'tentative'
-      ? '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button>' : '';
+    const actions = b.status === 'tentative'
+      ? '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button> ' +
+        '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>'
+      : '';
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
       '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + b.booking_number +
-      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + confirmBtn + '</td></tr>';
+      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
   }).join('');
 }
 function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了' }[s] || s; }
@@ -234,6 +237,13 @@ async function createBooking(kind) {
 async function confirmTentative(number) {
   if (!confirm('この商談中を本予約に切り替えますか？')) return;
   const { ok, body } = await api('/api/admin/bookings/' + number + '/confirm', jsonBody({}));
+  if (!ok) { alert(body.error || '失敗しました'); return; }
+  loadBookings();
+}
+
+async function releaseTentative(number) {
+  if (!confirm('この商談中を解除（キャンセル）しますか？\n枠が空き、お客様が予約できるようになります。')) return;
+  const { ok, body } = await api('/api/admin/bookings/' + number + '/release', jsonBody({}));
   if (!ok) { alert(body.error || '失敗しました'); return; }
   loadBookings();
 }

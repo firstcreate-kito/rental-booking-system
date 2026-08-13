@@ -357,4 +357,23 @@ app.post('/bookings/:number/confirm', async (c) => {
   return c.json({ bookingNumber: number, status: 'confirmed' });
 });
 
+/**
+ * POST /api/admin/bookings/:number/release 商談中の解除（キャンセル）
+ * 商談が流れた場合に枠を空ける。キャンセル料は発生しない（本予約ではないため）。
+ */
+app.post('/bookings/:number/release', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status !== 'tentative') {
+    return c.json({ error: '商談中の予約のみ解除できます（本予約はキャンセル操作から）' }, 400);
+  }
+  await db.batch([
+    db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id),
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ?").bind(g.id),
+  ]);
+  return c.json({ bookingNumber: number, status: 'cancelled' });
+});
+
 export default app;

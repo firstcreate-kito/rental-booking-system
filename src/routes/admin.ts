@@ -26,6 +26,8 @@ import {
   setOptionSpaces,
   getOptionsByIds,
   searchCustomers,
+  createCustomer,
+  couponCodeExists,
   issueCoupon,
   adjustPoints,
   getCustomerProfile,
@@ -567,25 +569,56 @@ app.get('/customers/:id', async (c) => {
   return c.json({ profile, points, coupons });
 });
 
+/** POST /api/admin/customers 新規顧客の手動登録（owner/manager） */
+app.post('/customers', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const b = body as Record<string, unknown>;
+  const contactName = String(b.contactName ?? '').trim();
+  const email = String(b.email ?? '').trim();
+  const phone = String(b.phone ?? '').trim();
+  const companyName = String(b.companyName ?? '').trim();
+  if (!contactName) return c.json({ error: 'お名前は必須です' }, 400);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return c.json({ error: 'メールアドレスの形式が正しくありません' }, 400);
+  if (email) {
+    const existing = await getCustomerByEmail(c.env.DB, email);
+    if (existing) return c.json({ error: 'このメールアドレスの顧客は既に登録されています', id: existing.id }, 409);
+  }
+  const id = await createCustomer(
+    c.env.DB,
+    { email: email || null, contactName, phone: phone || null, companyName: companyName || null },
+    nowJST(),
+  );
+  return c.json({ id }, 201);
+});
+
 /** POST /api/admin/coupons クーポン発行（owner/manager） */
 app.post('/coupons', requireRole('owner', 'manager'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const b = body as Record<string, unknown>;
   const customerId = String(b.customerId ?? '').trim();
   const name = String(b.name ?? '').trim();
-  const code = String(b.code ?? '').trim();
   const discountType = b.discountType === 'fixed' ? 'fixed' : 'percent';
   const discountValue = Number(b.discountValue ?? 0);
   const totalHours = Number(b.totalHours ?? 0);
   const validFrom = String(b.validFrom ?? '').trim();
   const validUntil = String(b.validUntil ?? '').trim();
   const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
-  if (!customerId || !name || !code) return c.json({ error: '顧客・名称・コードは必須です' }, 400);
+  if (!customerId || !name) return c.json({ error: '顧客・名称は必須です' }, 400);
   if (discountValue <= 0 || totalHours <= 0) return c.json({ error: '割引値・時間は1以上で入力してください' }, 400);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
     return c.json({ error: '有効期間は YYYY-MM-DD で入力してください' }, 400);
   }
   if (spaceIds.length === 0) return c.json({ error: '対象スペースを1つ以上選んでください' }, 400);
+  // コードは6桁のランダム数字で自動採番（全体でユニークになるまで再試行）
+  let code = '';
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidate = String((crypto.getRandomValues(new Uint32Array(1))[0] % 900000) + 100000);
+    if (!(await couponCodeExists(c.env.DB, candidate))) {
+      code = candidate;
+      break;
+    }
+  }
+  if (!code) return c.json({ error: 'コードの採番に失敗しました。もう一度お試しください' }, 500);
   try {
     const id = await issueCoupon(
       c.env.DB,

@@ -507,6 +507,29 @@ export async function searchCustomers(db: D1Database, q: string) {
   return results ?? [];
 }
 
+/** 新規顧客を作成（管理画面から手動登録。ゲスト扱い） */
+export async function createCustomer(
+  db: D1Database,
+  params: { email: string | null; contactName: string; phone: string | null; companyName: string | null },
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO customers (id, email, is_registered, company_name, contact_name, phone, status_id, created_at)
+       VALUES (?, ?, 0, ?, ?, ?, 'general', ?)`,
+    )
+    .bind(id, params.email, params.companyName, params.contactName, params.phone, now)
+    .run();
+  return id;
+}
+
+/** クーポンコードの重複確認（全体でユニーク） */
+export async function couponCodeExists(db: D1Database, code: string): Promise<boolean> {
+  const row = await db.prepare('SELECT 1 FROM discount_coupons WHERE code = ? LIMIT 1').bind(code).first();
+  return row != null;
+}
+
 /** クーポン発行（顧客に紐付け、対象スペースも設定） */
 export async function issueCoupon(
   db: D1Database,

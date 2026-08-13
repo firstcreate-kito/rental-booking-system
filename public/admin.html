@@ -275,6 +275,26 @@
       <div class="row" style="gap:8px">
         <input id="cs_q" placeholder="名前・メール・電話・会社名で検索" style="flex:1" onkeydown="if(event.key==='Enter')searchCustomers()" />
         <button class="btn sm" onclick="searchCustomers()">検索</button>
+        <button class="btn sm ghost" onclick="toggleNewCustomer()">＋ 新規顧客を追加</button>
+      </div>
+
+      <!-- 新規顧客の登録フォーム -->
+      <div id="csNewForm" class="card hidden" style="margin-top:10px;background:#fafbff">
+        <h2 style="margin-top:0">新規顧客の登録</h2>
+        <div class="muted" style="margin-bottom:8px">来店・電話などオンライン予約のないお客様を登録し、ポイント付与やクーポン発行ができます。</div>
+        <div class="grid">
+          <div><label>お名前 *</label><input id="nc_name" placeholder="例）山田 太郎" /></div>
+          <div><label>電話</label><input id="nc_phone" placeholder="例）090-0000-0000" /></div>
+        </div>
+        <div class="grid">
+          <div><label>メール</label><input id="nc_email" placeholder="例）taro@example.com" /></div>
+          <div><label>会社名</label><input id="nc_company" placeholder="任意" /></div>
+        </div>
+        <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost sm" onclick="toggleNewCustomer(false)">キャンセル</button>
+          <button class="btn" onclick="submitNewCustomer()">登録して特典操作へ</button>
+        </div>
+        <div class="msg" id="ncMsg"></div>
       </div>
       <div class="tablewrap" style="margin-top:10px">
         <table><thead><tr><th>お名前</th><th>メール</th><th>電話</th><th>ポイント</th><th>会員</th><th></th></tr></thead><tbody id="csBody"></tbody></table>
@@ -308,7 +328,7 @@
             <h2>クーポン発行</h2>
             <div class="grid">
               <div><label>クーポン名 *</label><input id="cp_name" placeholder="例）特別20%OFF" /></div>
-              <div><label>コード *</label><input id="cp_code" placeholder="例）SPECIAL20" /></div>
+              <div><label>コード</label><input value="発行時に6桁の番号を自動採番" disabled style="background:#f1f3f9;color:var(--muted)" /></div>
             </div>
             <div class="grid">
               <div><label>割引</label><select id="cp_dtype"><option value="percent">％OFF</option><option value="fixed">円引き</option></select></div>
@@ -512,6 +532,28 @@ async function searchCustomers() {
     '<tr><td>' + (c.contact_name||'') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
     (c.is_registered ? '会員' : 'ゲスト') + '</td><td><button class="btn ghost sm" onclick="selectCustomer(\'' + c.id + '\')">特典操作</button></td></tr>').join('');
 }
+function toggleNewCustomer(show) {
+  const f = document.getElementById('csNewForm');
+  const willShow = show === undefined ? f.classList.contains('hidden') : show;
+  f.classList.toggle('hidden', !willShow);
+  if (willShow) { document.getElementById('ncMsg').textContent=''; document.getElementById('nc_name').focus(); }
+}
+async function submitNewCustomer() {
+  const msg = document.getElementById('ncMsg');
+  const payload = {
+    contactName: document.getElementById('nc_name').value.trim(),
+    phone: document.getElementById('nc_phone').value.trim(),
+    email: document.getElementById('nc_email').value.trim(),
+    companyName: document.getElementById('nc_company').value.trim(),
+  };
+  if (!payload.contactName) { msg.className='msg bad'; msg.textContent='お名前を入力してください'; return; }
+  const { ok, body } = await api('/api/admin/customers', jsonBody(payload));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '登録に失敗しました'; return; }
+  ['nc_name','nc_phone','nc_email','nc_company'].forEach(i => document.getElementById(i).value='');
+  toggleNewCustomer(false);
+  await searchCustomers();
+  selectCustomer(body.id); // そのまま特典操作パネルを開く
+}
 async function selectCustomer(id) {
   const { ok, body } = await api('/api/admin/customers/' + id);
   if (!ok) { alert(body.error || '取得失敗'); return; }
@@ -544,7 +586,6 @@ async function submitCoupon() {
   const payload = {
     customerId: selectedCustomer,
     name: document.getElementById('cp_name').value.trim(),
-    code: document.getElementById('cp_code').value.trim(),
     discountType: document.getElementById('cp_dtype').value,
     discountValue: Number(document.getElementById('cp_dval').value),
     totalHours: Number(document.getElementById('cp_hours').value),
@@ -554,8 +595,8 @@ async function submitCoupon() {
   };
   const { ok, body } = await api('/api/admin/coupons', jsonBody(payload));
   if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '発行に失敗しました'; return; }
-  msg.className='msg ok'; msg.textContent = 'クーポン ' + body.code + ' を発行しました';
-  document.getElementById('cp_name').value=''; document.getElementById('cp_code').value='';
+  msg.className='msg ok'; msg.textContent = 'クーポンを発行しました（コード：' + body.code + '）';
+  document.getElementById('cp_name').value='';
   selectCustomer(selectedCustomer); // 一覧更新
 }
 

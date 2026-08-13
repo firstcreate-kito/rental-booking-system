@@ -17,12 +17,13 @@
     "run_worker_first": true
   },
   // D1 データベース（ローカル開発では --local で SQLite が使われる）
-  // ※ database_id は Cloudflare でDBを作成後に差し替える。ローカル開発には不要。
+  // database_id は本番D1のID（機密ではない）。別環境で作り直した場合は
+  // `node scripts/set-d1-id.mjs <新しいID>` で差し替える。
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "albe_booking",
-      "database_id": "REPLACE_WITH_REAL_ID_AFTER_CREATE",
+      "database_id": "0f12f0d8-a87a-4194-9902-bed75d6ea47e",
       "migrations_dir": "migrations"
     }
   ],

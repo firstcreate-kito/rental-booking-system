@@ -68,6 +68,7 @@
       <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
+      <button id="tab-calendar" onclick="showTab('calendar')">カレンダー管理</button>
     </div>
 
     <!-- 予約一覧 -->
@@ -185,6 +186,41 @@
         <div class="msg" id="spMsg"></div>
       </div>
     </section>
+
+    <!-- カレンダー管理 -->
+    <section id="view-calendar" class="card hidden">
+      <h2>祝日・全体休業日</h2>
+      <div class="muted">全スペース共通。祝日/独自休日は「土日祝料金」、休業は「予約不可」になります。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
+        <div><label>日付</label><input id="hd_date" type="date" /></div>
+        <div><label>区分</label><select id="hd_type">
+          <option value="holiday">祝日（土日祝料金）</option>
+          <option value="custom">独自休日（土日祝料金）</option>
+          <option value="closed">休業（予約不可）</option>
+        </select></div>
+        <div style="flex:1"><label>名称（任意）</label><input id="hd_name" placeholder="例）お盆 / 年末年始" /></div>
+        <button class="btn sm" onclick="addHoliday()">追加</button>
+      </div>
+      <div class="msg" id="hdMsg"></div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table><thead><tr><th>日付</th><th>区分</th><th>名称</th><th></th></tr></thead><tbody id="hdBody"></tbody></table>
+      </div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
+
+      <h2>スペース別の休業日</h2>
+      <div class="muted">特定スペースだけを休業にします。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
+        <div><label>スペース</label><select id="cl_space"></select></div>
+        <div><label>日付</label><input id="cl_date" type="date" /></div>
+        <div style="flex:1"><label>理由（任意）</label><input id="cl_reason" placeholder="例）設備メンテナンス" /></div>
+        <button class="btn sm" onclick="addClosure()">追加</button>
+      </div>
+      <div class="msg" id="clMsg"></div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table><thead><tr><th>日付</th><th>スペース</th><th>理由</th><th></th></tr></thead><tbody id="clBody"></tbody></table>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -224,11 +260,12 @@ async function loadSpaces() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'spaces') loadSpacesAdmin();
+  if (t === 'calendar') loadCalendarMgmt();
 }
 
 async function loadBookings() {
@@ -342,6 +379,61 @@ async function saveSpace() {
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();
+}
+
+// --- カレンダー管理 ---
+const holidayTypeLabel = t => ({holiday:'祝日',custom:'独自休日',closed:'休業(予約不可)'}[t]||t);
+async function loadCalendarMgmt() {
+  // スペースのドロップダウン
+  if (A.spaces.length === 0) await loadSpaces();
+  document.getElementById('cl_space').innerHTML = A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+  loadHolidays(); loadClosures();
+}
+async function loadHolidays() {
+  const { body } = await api('/api/admin/holidays');
+  document.getElementById('hdBody').innerHTML = (body.holidays||[]).map(h =>
+    '<tr><td>' + h.date + '</td><td>' + holidayTypeLabel(h.type) + '</td><td>' + (h.name||'') +
+    '</td><td><button class="btn danger sm" onclick="delHoliday(\'' + h.date + '\')">削除</button></td></tr>').join('')
+    || '<tr><td colspan="4" class="muted">登録なし</td></tr>';
+}
+async function addHoliday() {
+  const msg = document.getElementById('hdMsg');
+  const date = document.getElementById('hd_date').value;
+  const type = document.getElementById('hd_type').value;
+  const name = document.getElementById('hd_name').value.trim();
+  if (!date) { msg.className='msg bad'; msg.textContent='日付を選んでください'; return; }
+  const { ok, body } = await api('/api/admin/holidays', jsonBody({ date, type, name }));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '追加に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent='追加しました'; document.getElementById('hd_name').value='';
+  loadHolidays();
+}
+async function delHoliday(date) {
+  if (!confirm(date + ' の登録を削除しますか？')) return;
+  await api('/api/admin/holidays/' + date, { method:'DELETE' });
+  loadHolidays();
+}
+async function loadClosures() {
+  const { body } = await api('/api/admin/closures');
+  document.getElementById('clBody').innerHTML = (body.closures||[]).map(c =>
+    '<tr><td>' + c.date + '</td><td>' + (c.space_name||'') + '</td><td>' + (c.reason||'') +
+    '</td><td><button class="btn danger sm" onclick="delClosure(\'' + c.id + '\')">削除</button></td></tr>').join('')
+    || '<tr><td colspan="4" class="muted">登録なし</td></tr>';
+}
+async function addClosure() {
+  const msg = document.getElementById('clMsg');
+  const spaceId = document.getElementById('cl_space').value;
+  const date = document.getElementById('cl_date').value;
+  const reason = document.getElementById('cl_reason').value.trim();
+  if (!spaceId || !date) { msg.className='msg bad'; msg.textContent='スペースと日付を指定してください'; return; }
+  const { ok, body } = await api('/api/admin/closures', jsonBody({ spaceId, date, reason }));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '追加に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent='追加しました'; document.getElementById('cl_reason').value='';
+  loadClosures();
+}
+async function delClosure(id) {
+  if (!confirm('この休業日を削除しますか？')) return;
+  await api('/api/admin/closures/' + id, { method:'DELETE' });
+  loadClosures();
 }
 
 async function confirmTentative(number) {

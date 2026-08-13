@@ -601,6 +601,78 @@ export async function listBookingsForAdmin(
   return results ?? [];
 }
 
+// --- カレンダー管理（休業日・祝日） ---
+export interface HolidayRow {
+  id: string;
+  date: string;
+  name: string | null;
+  type: HolidayType;
+}
+
+export async function getHolidaysAll(db: D1Database, from?: string, to?: string): Promise<HolidayRow[]> {
+  let sql = 'SELECT id, date, name, type FROM calendar_holidays';
+  const binds: unknown[] = [];
+  if (from && to) {
+    sql += ' WHERE date >= ? AND date <= ?';
+    binds.push(from, to);
+  }
+  sql += ' ORDER BY date';
+  const { results } = await db.prepare(sql).bind(...binds).all<HolidayRow>();
+  return results ?? [];
+}
+
+export async function upsertHoliday(
+  db: D1Database,
+  h: { date: string; name: string | null; type: HolidayType },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO calendar_holidays (id, date, name, type) VALUES (?, ?, ?, ?)
+       ON CONFLICT(date) DO UPDATE SET name = excluded.name, type = excluded.type`,
+    )
+    .bind(crypto.randomUUID(), h.date, h.name, h.type)
+    .run();
+}
+
+export async function deleteHoliday(db: D1Database, date: string): Promise<void> {
+  await db.prepare('DELETE FROM calendar_holidays WHERE date = ?').bind(date).run();
+}
+
+export interface ClosureRow {
+  id: string;
+  space_id: string;
+  date: string;
+  reason: string | null;
+}
+
+export async function getClosuresAll(db: D1Database, spaceId?: string): Promise<Array<ClosureRow & { space_name?: string }>> {
+  let sql =
+    `SELECT sc.id, sc.space_id, sc.date, sc.reason, s.name AS space_name
+     FROM space_closures sc LEFT JOIN spaces s ON s.id = sc.space_id`;
+  const binds: unknown[] = [];
+  if (spaceId) { sql += ' WHERE sc.space_id = ?'; binds.push(spaceId); }
+  sql += ' ORDER BY sc.date';
+  const { results } = await db.prepare(sql).bind(...binds).all<ClosureRow & { space_name?: string }>();
+  return results ?? [];
+}
+
+export async function insertClosure(
+  db: D1Database,
+  c: { spaceId: string; date: string; reason: string | null },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO space_closures (id, space_id, date, reason) VALUES (?, ?, ?, ?)
+       ON CONFLICT(space_id, date) DO UPDATE SET reason = excluded.reason`,
+    )
+    .bind(crypto.randomUUID(), c.spaceId, c.date, c.reason)
+    .run();
+}
+
+export async function deleteClosure(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM space_closures WHERE id = ?').bind(id).run();
+}
+
 // --- サイネージ ---
 export async function verifySignageToken(
   db: D1Database,

@@ -13,6 +13,12 @@ import {
   insertSpace,
   updateSpace,
   getSpaceById,
+  getHolidaysAll,
+  upsertHoliday,
+  deleteHoliday,
+  getClosuresAll,
+  insertClosure,
+  deleteClosure,
   type SpaceInput,
   getHolidays,
   getActiveSeasonalRules,
@@ -461,6 +467,58 @@ app.put('/spaces/:id', requireRole('owner', 'manager'), async (c) => {
     throw err;
   }
   return c.json({ id, ...input });
+});
+
+// ---------------------------------------------------------------------------
+// カレンダー管理（休業日・祝日・スペース別休業）※owner / manager
+// ---------------------------------------------------------------------------
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** GET /api/admin/holidays?from=&to= 祝日・全体休業日一覧 */
+app.get('/holidays', async (c) => {
+  const holidays = await getHolidaysAll(c.env.DB, c.req.query('from'), c.req.query('to'));
+  return c.json({ holidays });
+});
+
+/** POST /api/admin/holidays 祝日/休業日を追加（type: holiday/custom/closed） */
+app.post('/holidays', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const date = String(body.date ?? '').trim();
+  const type = body.type;
+  if (!DATE_RE.test(date)) return c.json({ error: '日付は YYYY-MM-DD 形式で入力してください' }, 400);
+  if (!['holiday', 'custom', 'closed'].includes(type)) {
+    return c.json({ error: 'type は holiday / custom / closed のいずれかです' }, 400);
+  }
+  await upsertHoliday(c.env.DB, { date, name: body.name ? String(body.name) : null, type });
+  return c.json({ date, name: body.name ?? null, type }, 201);
+});
+
+/** DELETE /api/admin/holidays/:date */
+app.delete('/holidays/:date', requireRole('owner', 'manager'), async (c) => {
+  await deleteHoliday(c.env.DB, c.req.param('date'));
+  return c.json({ ok: true });
+});
+
+/** GET /api/admin/closures?spaceId= スペース別休業日一覧 */
+app.get('/closures', async (c) => {
+  const closures = await getClosuresAll(c.env.DB, c.req.query('spaceId'));
+  return c.json({ closures });
+});
+
+/** POST /api/admin/closures スペース別休業日を追加 */
+app.post('/closures', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const spaceId = String(body.spaceId ?? '').trim();
+  const date = String(body.date ?? '').trim();
+  if (!spaceId || !DATE_RE.test(date)) return c.json({ error: 'spaceId と 日付(YYYY-MM-DD) は必須です' }, 400);
+  await insertClosure(c.env.DB, { spaceId, date, reason: body.reason ? String(body.reason) : null });
+  return c.json({ ok: true }, 201);
+});
+
+/** DELETE /api/admin/closures/:id */
+app.delete('/closures/:id', requireRole('owner', 'manager'), async (c) => {
+  await deleteClosure(c.env.DB, c.req.param('id'));
+  return c.json({ ok: true });
 });
 
 export default app;

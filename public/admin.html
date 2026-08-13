@@ -69,6 +69,7 @@
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
       <button id="tab-calendar" onclick="showTab('calendar')">カレンダー管理</button>
+      <button id="tab-options" onclick="showTab('options')">オプション管理</button>
     </div>
 
     <!-- 予約一覧 -->
@@ -221,6 +222,51 @@
         <table><thead><tr><th>日付</th><th>スペース</th><th>理由</th><th></th></tr></thead><tbody id="clBody"></tbody></table>
       </div>
     </section>
+
+    <!-- オプション管理 -->
+    <section id="view-options" class="card hidden">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">オプション管理</h2>
+        <button class="btn sm" onclick="newOption()">＋ 新規オプション</button>
+      </div>
+      <div class="muted" style="margin:6px 0">追加・編集・非公開化・在庫・対象スペースの設定（owner / manager のみ）。共通在庫は複数スペースに紐付けると自動で共有されます。</div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table>
+          <thead><tr><th>名前</th><th>カテゴリ</th><th>料金</th><th>在庫</th><th>対象</th><th>公開</th><th></th></tr></thead>
+          <tbody id="optBody"></tbody>
+        </table>
+      </div>
+
+      <div id="optForm" class="card hidden" style="margin-top:16px;background:#fafbff">
+        <h2 id="optFormTitle">オプションを追加</h2>
+        <input type="hidden" id="op_editing" />
+        <div class="grid">
+          <div><label>オプション名 *</label><input id="op_name" /></div>
+          <div><label>カテゴリ</label><input id="op_category" placeholder="家具/音響/映像/備品/サービス" /></div>
+          <div><label>タイプ</label><select id="op_type"><option value="toggle">ON/OFF（1個）</option><option value="quantity">数量指定</option></select></div>
+        </div>
+        <div class="grid">
+          <div><label>料金タイプ</label><select id="op_pricetype"><option value="free">無料</option><option value="fixed">固定（数量に依らず）</option><option value="per_unit">単価×数量</option></select></div>
+          <div><label>単価（円）</label><input id="op_price" type="number" value="0" /></div>
+          <div><label>単位ラベル（例:台/脚/袋）</label><input id="op_unitlabel" /></div>
+        </div>
+        <div class="grid">
+          <div><label>総在庫数（空欄=無制限）</label><input id="op_stock" type="number" /></div>
+          <div><label>1予約あたり上限（空欄=なし）</label><input id="op_maxqty" type="number" /></div>
+          <div><label>並び順</label><input id="op_sort" type="number" value="0" /></div>
+        </div>
+        <label>対象スペース（チェックした部屋で表示。複数で在庫共有）</label>
+        <div id="op_spaces" class="row" style="gap:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px"></div>
+        <div class="row" style="gap:18px;margin-top:8px">
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="op_active" checked style="width:auto"> 公開する</label>
+        </div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost sm" onclick="document.getElementById('optForm').classList.add('hidden')">閉じる</button>
+          <button class="btn" onclick="saveOption()">保存</button>
+        </div>
+        <div class="msg" id="optMsg"></div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -260,12 +306,13 @@ async function loadSpaces() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar','options'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
+  if (t === 'options') loadOptionsAdmin();
 }
 
 async function loadBookings() {
@@ -379,6 +426,64 @@ async function saveSpace() {
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();
+}
+
+// --- オプション管理 ---
+let adminOptions = [];
+const priceTypeLabel = (pt, price, unit) => pt === 'free' ? '無料' : pt === 'per_unit' ? (yen(price) + '/' + (unit||'個')) : yen(price);
+async function loadOptionsAdmin() {
+  if (A.spaces.length === 0) await loadSpaces();
+  const { body } = await api('/api/admin/options');
+  adminOptions = body.options || [];
+  document.getElementById('optBody').innerHTML = adminOptions.map(o => {
+    const stock = o.stock_total != null ? (o.stock_total + '個') : '無制限';
+    const pub = o.is_active ? '<span class="pill confirmed">公開</span>' : '<span class="pill cancelled">非公開</span>';
+    return '<tr><td>' + o.name + '</td><td>' + o.category + '</td><td>' + priceTypeLabel(o.price_type, o.unit_price, o.unit_label) +
+      '</td><td>' + stock + '</td><td>' + (o.space_ids ? o.space_ids.length : 0) + 'スペース</td><td>' + pub +
+      '</td><td><button class="btn ghost sm" onclick="editOption(\'' + o.id + '\')">編集</button></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">登録なし</td></tr>';
+}
+function renderSpaceChecks(selected) {
+  const set = new Set(selected || []);
+  document.getElementById('op_spaces').innerHTML = A.spaces.map(s =>
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)">' +
+    '<input type="checkbox" class="op-space" value="' + s.id + '" style="width:auto"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
+}
+function fillOptionForm(o) {
+  document.getElementById('op_editing').value = o ? o.id : '';
+  document.getElementById('optFormTitle').textContent = o ? ('オプションを編集：' + o.name) : 'オプションを追加';
+  const g = (id, v) => document.getElementById(id).value = (v ?? '');
+  g('op_name', o?.name); g('op_category', o?.category || ''); g('op_price', o?.unit_price ?? 0);
+  g('op_unitlabel', o?.unit_label); g('op_stock', o?.stock_total); g('op_maxqty', o?.max_qty); g('op_sort', o?.sort_order ?? 0);
+  document.getElementById('op_type').value = o?.type || 'toggle';
+  document.getElementById('op_pricetype').value = o?.price_type || 'free';
+  document.getElementById('op_active').checked = o ? !!o.is_active : true;
+  renderSpaceChecks(o?.space_ids);
+  document.getElementById('optMsg').textContent = '';
+  document.getElementById('optForm').classList.remove('hidden');
+}
+function newOption() { fillOptionForm(null); }
+function editOption(id) { fillOptionForm(adminOptions.find(o => o.id === id)); }
+async function saveOption() {
+  const msg = document.getElementById('optMsg');
+  const v = id => document.getElementById(id).value.trim();
+  const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
+  const spaceIds = Array.from(document.querySelectorAll('.op-space:checked')).map(el => el.value);
+  const editing = v('op_editing');
+  const payload = {
+    name: v('op_name'), category: v('op_category') || 'その他',
+    type: document.getElementById('op_type').value, priceType: document.getElementById('op_pricetype').value,
+    unitPrice: Number(v('op_price') || 0), unitLabel: v('op_unitlabel') || null,
+    stockTotal: numOrNull('op_stock'), maxQty: numOrNull('op_maxqty'), sortOrder: Number(v('op_sort') || 0),
+    scope: 'per_group', isActive: document.getElementById('op_active').checked, spaceIds,
+  };
+  const res = editing
+    ? await api('/api/admin/options/' + editing, jsonBody(payload, 'PUT'))
+    : await api('/api/admin/options', jsonBody(payload));
+  if (!res.ok) { msg.className = 'msg bad'; msg.textContent = res.body.error || '保存に失敗しました'; return; }
+  msg.className = 'msg ok'; msg.textContent = '保存しました';
+  document.getElementById('optForm').classList.add('hidden');
+  loadOptionsAdmin();
 }
 
 // --- カレンダー管理 ---

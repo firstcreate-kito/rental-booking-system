@@ -785,6 +785,74 @@ export async function getSpaceOptions(db: D1Database, spaceId: string): Promise<
   return results ?? [];
 }
 
+/** 全オプション（非公開含む・管理用） */
+export async function getAllOptions(db: D1Database): Promise<OptionRow[]> {
+  const { results } = await db.prepare('SELECT * FROM options ORDER BY sort_order').all<OptionRow>();
+  return results ?? [];
+}
+
+/** 全 space_options リンク（option_id → space_id[] のマップ構築用） */
+export async function getAllOptionSpaceLinks(db: D1Database): Promise<Array<{ option_id: string; space_id: string }>> {
+  const { results } = await db
+    .prepare('SELECT option_id, space_id FROM space_options WHERE is_active = 1')
+    .all<{ option_id: string; space_id: string }>();
+  return results ?? [];
+}
+
+export interface OptionInput {
+  name: string;
+  category: string;
+  type: 'toggle' | 'quantity';
+  priceType: 'free' | 'fixed' | 'per_unit';
+  unitPrice: number;
+  unitLabel: string | null;
+  maxQty: number | null;
+  stockTotal: number | null;
+  scope: 'per_booking' | 'per_group';
+  sortOrder: number;
+  isActive: boolean;
+}
+
+function bindOption(o: OptionInput): unknown[] {
+  return [
+    o.name, o.category, o.type, o.priceType, o.unitPrice, o.unitLabel ?? null,
+    o.maxQty, o.stockTotal, o.scope, o.sortOrder, o.isActive ? 1 : 0,
+  ];
+}
+
+export async function insertOption(db: D1Database, id: string, o: OptionInput): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO options (id, name, category, type, price_type, unit_price, unit_label, max_qty, stock_total, scope, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, ...bindOption(o))
+    .run();
+}
+
+export async function updateOption(db: D1Database, id: string, o: OptionInput): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE options SET name=?, category=?, type=?, price_type=?, unit_price=?, unit_label=?, max_qty=?, stock_total=?, scope=?, sort_order=?, is_active=?
+       WHERE id = ?`,
+    )
+    .bind(...bindOption(o), id)
+    .run();
+}
+
+/** オプションの対象スペースを置き換える */
+export async function setOptionSpaces(db: D1Database, optionId: string, spaceIds: string[]): Promise<void> {
+  const stmts: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM space_options WHERE option_id = ?').bind(optionId),
+  ];
+  for (const sid of spaceIds) {
+    stmts.push(
+      db.prepare('INSERT OR REPLACE INTO space_options (space_id, option_id, is_active) VALUES (?, ?, 1)').bind(sid, optionId),
+    );
+  }
+  await db.batch(stmts);
+}
+
 /** ID群からオプション詳細を取得 */
 export async function getOptionsByIds(db: D1Database, ids: string[]): Promise<Map<string, OptionRow>> {
   const map = new Map<string, OptionRow>();

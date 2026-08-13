@@ -19,7 +19,14 @@ import {
   getClosuresAll,
   insertClosure,
   deleteClosure,
+  getAllOptions,
+  getAllOptionSpaceLinks,
+  insertOption,
+  updateOption,
+  setOptionSpaces,
+  getOptionsByIds,
   type SpaceInput,
+  type OptionInput,
   getHolidays,
   getActiveSeasonalRules,
   getSpaceClosures,
@@ -467,6 +474,69 @@ app.put('/spaces/:id', requireRole('owner', 'manager'), async (c) => {
     throw err;
   }
   return c.json({ id, ...input });
+});
+
+// ---------------------------------------------------------------------------
+// オプション管理（マスタ）※owner / manager
+// ---------------------------------------------------------------------------
+function parseOptionInput(body: Record<string, unknown>): { input?: OptionInput; spaceIds?: string[]; error?: string } {
+  const name = String(body.name ?? '').trim();
+  if (!name) return { error: 'オプション名は必須です' };
+  const type = body.type === 'quantity' ? 'quantity' : 'toggle';
+  const priceType = ['free', 'fixed', 'per_unit'].includes(String(body.priceType)) ? (body.priceType as OptionInput['priceType']) : 'free';
+  const scope = body.scope === 'per_booking' ? 'per_booking' : 'per_group';
+  const num = (v: unknown): number | null => (v === '' || v == null ? null : Number(v));
+  const input: OptionInput = {
+    name,
+    category: String(body.category ?? 'その他').trim() || 'その他',
+    type,
+    priceType,
+    unitPrice: Number(body.unitPrice ?? 0),
+    unitLabel: body.unitLabel ? String(body.unitLabel) : null,
+    maxQty: num(body.maxQty),
+    stockTotal: num(body.stockTotal),
+    scope,
+    sortOrder: Number(body.sortOrder ?? 0),
+    isActive: body.isActive !== false,
+  };
+  const spaceIds = Array.isArray(body.spaceIds) ? (body.spaceIds as unknown[]).map(String) : [];
+  return { input, spaceIds };
+}
+
+/** GET /api/admin/options オプション一覧（対象スペース含む） */
+app.get('/options', async (c) => {
+  const [options, links] = await Promise.all([getAllOptions(c.env.DB), getAllOptionSpaceLinks(c.env.DB)]);
+  const byOption = new Map<string, string[]>();
+  for (const l of links) {
+    const arr = byOption.get(l.option_id) ?? [];
+    arr.push(l.space_id);
+    byOption.set(l.option_id, arr);
+  }
+  return c.json({ options: options.map((o) => ({ ...o, space_ids: byOption.get(o.id) ?? [] })) });
+});
+
+/** POST /api/admin/options オプション追加（owner/manager） */
+app.post('/options', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { input, spaceIds, error } = parseOptionInput(body as Record<string, unknown>);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const id = crypto.randomUUID();
+  await insertOption(c.env.DB, id, input);
+  await setOptionSpaces(c.env.DB, id, spaceIds ?? []);
+  return c.json({ id, ...input, space_ids: spaceIds }, 201);
+});
+
+/** PUT /api/admin/options/:id オプション編集（owner/manager） */
+app.put('/options/:id', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await getOptionsByIds(c.env.DB, [id]);
+  if (!existing.has(id)) return c.json({ error: 'option not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const { input, spaceIds, error } = parseOptionInput(body as Record<string, unknown>);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  await updateOption(c.env.DB, id, input);
+  await setOptionSpaces(c.env.DB, id, spaceIds ?? []);
+  return c.json({ id, ...input, space_ids: spaceIds });
 });
 
 // ---------------------------------------------------------------------------

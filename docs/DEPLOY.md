@@ -120,6 +120,32 @@ npm run deploy
 （`BASIC_AUTH_USER` と `BASIC_AUTH_PASS` の両方が設定されているときだけゲートが
 有効になります。片方でも未設定なら誰でも閲覧できます）
 
+## 通知メール（Resend）
+
+予約時・キャンセル時に、お客様へ確認メール／管理者へ通知メールを送れます。
+メール送信サービス **Resend** のAPIキーを登録すると有効になります。
+
+**準備**（Resend側・コード不要）:
+1. https://resend.com でアカウント作成
+2. API Keys でキーを1つ作成（`re_xxx...`）してコピー
+3. （本番運用時）Domains で自社ドメイン（例: albe.jp）を認証。テスト段階は
+   送信元に `onboarding@resend.dev` を使えます（自分のメール宛のみ届きます）
+
+**登録**（PCで。値の入力を求められたら入力）:
+```powershell
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put MAIL_FROM
+npx wrangler secret put MAIL_ADMIN
+npm run deploy
+```
+- `RESEND_API_KEY`: Resendのキー（`re_...`）
+- `MAIL_FROM`: 送信元。例 `レンタルスペースALBE <onboarding@resend.dev>`
+  （ドメイン認証後は `... <noreply@albe.jp>` に変更）
+- `MAIL_ADMIN`: 新規予約の通知を受け取る管理者メール（任意。不要なら登録しない）
+
+`RESEND_API_KEY` と `MAIL_FROM` の両方が設定されているときだけメールを送ります。
+未設定でも予約自体は正常に動作します（メールをスキップするだけ）。
+
 ## 困ったとき
 - `wrangler login` でブラウザが開かない → 表示されたURLを手動でブラウザに貼り付け。
 - `npm run deploy` でエラー → メッセージをそのまま共有してください。

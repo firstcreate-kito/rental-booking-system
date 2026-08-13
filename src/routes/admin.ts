@@ -60,6 +60,7 @@ import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmai
 import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail } from '../lib/email';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -351,6 +352,21 @@ async function prepareAdminBooking(
     note: body.note ?? null,
   });
 
+  // 本予約（confirmed）でお客様のメールが分かる場合のみ、予約確認メールを送る。
+  // 商談中（tentative）は社内の仮押さえのため送らない。
+  if (status === 'confirmed' && body.customer?.email) {
+    const mail = bookingConfirmationEmail({
+      bookingNumber: inserted.bookingNumber,
+      spaceName: space.name,
+      eventName: body.eventName,
+      customerName: body.customer.contactName ?? 'お客様',
+      days: body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime })),
+      total: group.spaceTotal,
+      status: 'confirmed',
+    });
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: body.customer.email, ...mail }));
+  }
+
   return {
     result: c.json(
       {
@@ -462,6 +478,21 @@ app.post('/bookings/:number/cancel', async (c) => {
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
   await db.batch(stmts);
+
+  // キャンセル確認メール（お客様宛）
+  if (g.customer_id) {
+    const [prof, sp] = await Promise.all([getCustomerProfile(db, g.customer_id), getSpaceById(db, g.space_id)]);
+    const to = prof?.email ? String(prof.email) : '';
+    if (to) {
+      const mail = cancellationEmail({
+        bookingNumber: g.booking_number,
+        spaceName: sp?.name ?? '',
+        customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+        cancelFee: totalFee,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+    }
+  }
 
   return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, note: 'キャンセル料は管理者が手動で徴収します' });
 });

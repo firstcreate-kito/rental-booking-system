@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import {
   getSpaceById,
+  getCustomerProfile,
   getHolidays,
   getSpaceClosures,
   getActiveSeasonalRulesForSpace,
@@ -47,6 +48,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
 
@@ -443,6 +445,25 @@ app.post('/', async (c) => {
     }
   }
 
+  // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
+  // 失敗しても予約は成立させる（バックグラウンド送信）。
+  const mailDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
+  const emailData = {
+    bookingNumber,
+    spaceName: space.name,
+    eventName: body.eventName,
+    customerName: contactName,
+    days: mailDays,
+    total: totals.total,
+    status: 'confirmed' as const,
+  };
+  const confirm = bookingConfirmationEmail(emailData);
+  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
+  if (c.env.MAIL_ADMIN) {
+    const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+  }
+
   return c.json(
     {
       bookingNumber,
@@ -633,6 +654,21 @@ app.post('/:number/cancel', async (c) => {
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
   await db.batch(stmts);
+
+  // キャンセル確認メール（お客様宛。会員/ゲスト問わず customer_id があれば送信）
+  if (g.customer_id) {
+    const [prof, sp] = await Promise.all([getCustomerProfile(db, g.customer_id), getSpaceById(db, g.space_id)]);
+    const to = prof?.email ? String(prof.email) : '';
+    if (to) {
+      const mail = cancellationEmail({
+        bookingNumber: number,
+        spaceName: sp?.name ?? '',
+        customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+        cancelFee: totalFee,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+    }
+  }
 
   return c.json({
     bookingNumber: number,

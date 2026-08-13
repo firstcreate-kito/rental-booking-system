@@ -70,6 +70,7 @@
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
       <button id="tab-calendar" onclick="showTab('calendar')">カレンダー管理</button>
       <button id="tab-options" onclick="showTab('options')">オプション管理</button>
+      <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
     </div>
 
     <!-- 予約一覧 -->
@@ -267,6 +268,68 @@
         <div class="msg" id="optMsg"></div>
       </div>
     </section>
+
+    <!-- 顧客・特典 -->
+    <section id="view-customers" class="card hidden">
+      <h2>顧客管理・特典</h2>
+      <div class="row" style="gap:8px">
+        <input id="cs_q" placeholder="名前・メール・電話・会社名で検索" style="flex:1" onkeydown="if(event.key==='Enter')searchCustomers()" />
+        <button class="btn sm" onclick="searchCustomers()">検索</button>
+      </div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table><thead><tr><th>お名前</th><th>メール</th><th>電話</th><th>ポイント</th><th>会員</th><th></th></tr></thead><tbody id="csBody"></tbody></table>
+      </div>
+      <div class="muted" id="csEmpty"></div>
+
+      <!-- 選択した顧客の特典操作 -->
+      <div id="csDetail" class="card hidden" style="margin-top:16px;background:#fafbff">
+        <div class="row" style="justify-content:space-between">
+          <h2 id="csName" style="margin:0"></h2>
+          <button class="btn ghost sm" onclick="document.getElementById('csDetail').classList.add('hidden')">閉じる</button>
+        </div>
+        <div class="muted" id="csInfo"></div>
+
+        <div class="grid2" style="margin-top:14px">
+          <!-- ポイント付与 -->
+          <div class="card" style="margin:0">
+            <h2>ポイント操作</h2>
+            <div>現在の残高：<span class="big" id="csPts" style="font-size:22px">-</span> P</div>
+            <div class="grid" style="margin-top:8px">
+              <div><label>ポイント数</label><input id="pt_amount" type="number" /></div>
+              <div><label>操作</label><select id="pt_type"><option value="add">付与</option><option value="remove">取消</option></select></div>
+            </div>
+            <label>理由（任意）</label><input id="pt_desc" placeholder="例）お詫び / キャンペーン" />
+            <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="submitPoints()">実行</button></div>
+            <div class="msg" id="ptMsg2"></div>
+          </div>
+
+          <!-- クーポン発行 -->
+          <div class="card" style="margin:0">
+            <h2>クーポン発行</h2>
+            <div class="grid">
+              <div><label>クーポン名 *</label><input id="cp_name" placeholder="例）特別20%OFF" /></div>
+              <div><label>コード *</label><input id="cp_code" placeholder="例）SPECIAL20" /></div>
+            </div>
+            <div class="grid">
+              <div><label>割引</label><select id="cp_dtype"><option value="percent">％OFF</option><option value="fixed">円引き</option></select></div>
+              <div><label>値</label><input id="cp_dval" type="number" placeholder="20" /></div>
+              <div><label>利用可能時間</label><input id="cp_hours" type="number" placeholder="10" /></div>
+            </div>
+            <div class="grid">
+              <div><label>有効開始</label><input id="cp_from" type="date" /></div>
+              <div><label>有効終了</label><input id="cp_until" type="date" /></div>
+            </div>
+            <label>対象スペース *</label>
+            <div id="cp_spaces" class="row" style="gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:120px;overflow:auto"></div>
+            <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="submitCoupon()">発行</button></div>
+            <div class="msg" id="cpMsg"></div>
+          </div>
+        </div>
+
+        <h2 style="margin-top:16px">保有クーポン</h2>
+        <div class="tablewrap"><table><thead><tr><th>コード</th><th>名称</th><th>割引</th><th>残/総</th><th>期限</th><th>状態</th></tr></thead><tbody id="csCoupons"></tbody></table></div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -306,13 +369,14 @@ async function loadSpaces() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar','options'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar','options','customers'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'options') loadOptionsAdmin();
+  if (t === 'customers') initCustomers();
 }
 
 async function loadBookings() {
@@ -426,6 +490,70 @@ async function saveSpace() {
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();
+}
+
+// --- 顧客管理・特典 ---
+let selectedCustomer = null;
+async function initCustomers() {
+  if (A.spaces.length === 0) await loadSpaces();
+  document.getElementById('cp_spaces').innerHTML = A.spaces.map(s =>
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="cp-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+  if (!document.getElementById('csBody').innerHTML) searchCustomers();
+}
+async function searchCustomers() {
+  const q = document.getElementById('cs_q').value.trim();
+  const { body } = await api('/api/admin/customers?q=' + encodeURIComponent(q));
+  const rows = body.customers || [];
+  document.getElementById('csEmpty').textContent = rows.length ? '' : '該当する顧客がいません';
+  document.getElementById('csBody').innerHTML = rows.map(c =>
+    '<tr><td>' + (c.contact_name||'') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
+    (c.is_registered ? '会員' : 'ゲスト') + '</td><td><button class="btn ghost sm" onclick="selectCustomer(\'' + c.id + '\')">特典操作</button></td></tr>').join('');
+}
+async function selectCustomer(id) {
+  const { ok, body } = await api('/api/admin/customers/' + id);
+  if (!ok) { alert(body.error || '取得失敗'); return; }
+  selectedCustomer = id;
+  const p = body.profile;
+  document.getElementById('csName').textContent = (p.contact_name||'') + ' さん';
+  document.getElementById('csInfo').textContent = (p.email||'') + '　' + (p.is_registered ? '会員' : 'ゲスト');
+  document.getElementById('csPts').textContent = body.points.balance;
+  document.getElementById('csCoupons').innerHTML = (body.coupons||[]).map(c => {
+    const off = c.discount_type === 'percent' ? (c.discount_value+'%') : yen(c.discount_value);
+    return '<tr><td>' + c.code + '</td><td>' + c.name + '</td><td>' + off + '</td><td>' + c.remaining_hours + '/' + c.total_hours + 'h</td><td>' + c.valid_until + '</td><td><span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
+  document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = '';
+  document.getElementById('csDetail').classList.remove('hidden');
+}
+async function submitPoints() {
+  const msg = document.getElementById('ptMsg2');
+  const amount = Number(document.getElementById('pt_amount').value);
+  const type = document.getElementById('pt_type').value;
+  const description = document.getElementById('pt_desc').value.trim();
+  const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/points', jsonBody({ amount, type, description }));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '失敗'; return; }
+  msg.className='msg ok'; msg.textContent = '実行しました。残高 ' + body.balanceAfter + 'P';
+  document.getElementById('csPts').textContent = body.balanceAfter;
+  document.getElementById('pt_amount').value = '';
+}
+async function submitCoupon() {
+  const msg = document.getElementById('cpMsg');
+  const spaceIds = Array.from(document.querySelectorAll('.cp-space:checked')).map(el => el.value);
+  const payload = {
+    customerId: selectedCustomer,
+    name: document.getElementById('cp_name').value.trim(),
+    code: document.getElementById('cp_code').value.trim(),
+    discountType: document.getElementById('cp_dtype').value,
+    discountValue: Number(document.getElementById('cp_dval').value),
+    totalHours: Number(document.getElementById('cp_hours').value),
+    validFrom: document.getElementById('cp_from').value,
+    validUntil: document.getElementById('cp_until').value,
+    spaceIds,
+  };
+  const { ok, body } = await api('/api/admin/coupons', jsonBody(payload));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '発行に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent = 'クーポン ' + body.code + ' を発行しました';
+  document.getElementById('cp_name').value=''; document.getElementById('cp_code').value='';
+  selectCustomer(selectedCustomer); // 一覧更新
 }
 
 // --- オプション管理 ---

@@ -492,6 +492,83 @@ export async function removeFavorite(db: D1Database, customerId: string, spaceId
     .run();
 }
 
+// --- 顧客管理・特典（管理者用） ---
+export async function searchCustomers(db: D1Database, q: string) {
+  const like = `%${q}%`;
+  const { results } = await db
+    .prepare(
+      `SELECT id, email, contact_name, company_name, phone, status_id, point_balance, is_registered, is_blocked
+       FROM customers
+       WHERE (?1 = '' OR email LIKE ?2 OR contact_name LIKE ?2 OR phone LIKE ?2 OR company_name LIKE ?2)
+       ORDER BY created_at DESC LIMIT 50`,
+    )
+    .bind(q, like)
+    .all();
+  return results ?? [];
+}
+
+/** クーポン発行（顧客に紐付け、対象スペースも設定） */
+export async function issueCoupon(
+  db: D1Database,
+  coupon: {
+    customerId: string;
+    name: string;
+    code: string;
+    discountType: 'percent' | 'fixed';
+    discountValue: number;
+    totalHours: number;
+    validFrom: string;
+    validUntil: string;
+    staffMemo: string | null;
+    spaceIds: string[];
+  },
+  createdBy: string,
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const stmts: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `INSERT INTO discount_coupons
+         (id, customer_id, name, code, discount_type, discount_value, total_hours, remaining_hours, apply_to, valid_from, valid_until, staff_memo, status, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'space_only', ?, ?, ?, 'active', ?, ?)`,
+      )
+      .bind(
+        id, coupon.customerId, coupon.name, coupon.code, coupon.discountType, coupon.discountValue,
+        coupon.totalHours, coupon.totalHours, coupon.validFrom, coupon.validUntil, coupon.staffMemo, createdBy, now,
+      ),
+  ];
+  for (const sid of coupon.spaceIds) {
+    stmts.push(db.prepare('INSERT OR REPLACE INTO coupon_spaces (coupon_id, space_id) VALUES (?, ?)').bind(id, sid));
+  }
+  await db.batch(stmts);
+  return id;
+}
+
+/** ポイント手動付与/取消（残高更新 + 履歴記録） */
+export async function adjustPoints(
+  db: D1Database,
+  customerId: string,
+  params: { amount: number; type: 'add' | 'remove'; description: string | null },
+  createdBy: string,
+  now: string,
+): Promise<{ balanceAfter: number }> {
+  const current = await getPointBalance(db, customerId);
+  const delta = params.type === 'add' ? params.amount : -params.amount;
+  const balanceAfter = Math.max(0, current + delta);
+  const logType = params.type === 'add' ? 'manual_add' : 'manual_remove';
+  await db.batch([
+    db.prepare('UPDATE customers SET point_balance = ? WHERE id = ?').bind(balanceAfter, customerId),
+    db
+      .prepare(
+        `INSERT INTO point_log (id, customer_id, type, amount, balance_after, description, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), customerId, logType, params.amount, balanceAfter, params.description, createdBy, now),
+  ]);
+  return { balanceAfter };
+}
+
 // --- 管理者 ---
 export interface AdminAuthRow {
   id: string;

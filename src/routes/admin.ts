@@ -25,6 +25,12 @@ import {
   updateOption,
   setOptionSpaces,
   getOptionsByIds,
+  searchCustomers,
+  issueCoupon,
+  adjustPoints,
+  getCustomerProfile,
+  getPointBalanceAndLog,
+  getMemberCoupons,
   type SpaceInput,
   type OptionInput,
   getHolidays,
@@ -474,6 +480,80 @@ app.put('/spaces/:id', requireRole('owner', 'manager'), async (c) => {
     throw err;
   }
   return c.json({ id, ...input });
+});
+
+// ---------------------------------------------------------------------------
+// 顧客管理・特典（クーポン発行・ポイント付与）
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/customers?q= 顧客検索 */
+app.get('/customers', async (c) => {
+  const customers = await searchCustomers(c.env.DB, (c.req.query('q') ?? '').trim());
+  return c.json({ customers });
+});
+
+/** GET /api/admin/customers/:id 顧客詳細（プロフィール + ポイント + クーポン） */
+app.get('/customers/:id', async (c) => {
+  const id = c.req.param('id');
+  const profile = await getCustomerProfile(c.env.DB, id);
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+  const [points, coupons] = await Promise.all([
+    getPointBalanceAndLog(c.env.DB, id),
+    getMemberCoupons(c.env.DB, id),
+  ]);
+  return c.json({ profile, points, coupons });
+});
+
+/** POST /api/admin/coupons クーポン発行（owner/manager） */
+app.post('/coupons', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const b = body as Record<string, unknown>;
+  const customerId = String(b.customerId ?? '').trim();
+  const name = String(b.name ?? '').trim();
+  const code = String(b.code ?? '').trim();
+  const discountType = b.discountType === 'fixed' ? 'fixed' : 'percent';
+  const discountValue = Number(b.discountValue ?? 0);
+  const totalHours = Number(b.totalHours ?? 0);
+  const validFrom = String(b.validFrom ?? '').trim();
+  const validUntil = String(b.validUntil ?? '').trim();
+  const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  if (!customerId || !name || !code) return c.json({ error: '顧客・名称・コードは必須です' }, 400);
+  if (discountValue <= 0 || totalHours <= 0) return c.json({ error: '割引値・時間は1以上で入力してください' }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
+    return c.json({ error: '有効期間は YYYY-MM-DD で入力してください' }, 400);
+  }
+  if (spaceIds.length === 0) return c.json({ error: '対象スペースを1つ以上選んでください' }, 400);
+  try {
+    const id = await issueCoupon(
+      c.env.DB,
+      { customerId, name, code, discountType, discountValue, totalHours, validFrom, validUntil, staffMemo: b.staffMemo ? String(b.staffMemo) : null, spaceIds },
+      c.get('admin').id,
+      nowJST(),
+    );
+    return c.json({ id, code }, 201);
+  } catch (err) {
+    if ((err as Error).message?.includes('UNIQUE')) return c.json({ error: 'このクーポンコードは既に使われています' }, 409);
+    throw err;
+  }
+});
+
+/** POST /api/admin/customers/:id/points ポイント手動付与/取消（owner/manager） */
+app.post('/customers/:id/points', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const profile = await getCustomerProfile(c.env.DB, id);
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const amount = Number((body as Record<string, unknown>).amount ?? 0);
+  const type = (body as Record<string, unknown>).type === 'remove' ? 'remove' : 'add';
+  if (!Number.isInteger(amount) || amount <= 0) return c.json({ error: 'ポイントは1以上の整数で入力してください' }, 400);
+  const { balanceAfter } = await adjustPoints(
+    c.env.DB,
+    id,
+    { amount, type, description: (body as Record<string, unknown>).description ? String((body as Record<string, unknown>).description) : null },
+    c.get('admin').id,
+    nowJST(),
+  );
+  return c.json({ balanceAfter });
 });
 
 // ---------------------------------------------------------------------------

@@ -40,12 +40,14 @@ import {
   getCustomerByEmail,
   getBookingGroupByNumber,
   getBookingsByGroup,
+  getCancelPolicies,
   peekNextBookingSeq,
   type SpaceRow,
 } from '../db/repository';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
-import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
+import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
+import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -378,6 +380,67 @@ app.post('/bookings/:number/confirm', async (c) => {
   ];
   await db.batch(stmts);
   return c.json({ bookingNumber: number, status: 'confirmed' });
+});
+
+/** 予約グループのキャンセル料を日別に計算（キャンセルはしない） */
+async function computeGroupCancel(db: D1Database, spaceId: string, bookings: Array<{ id: string; date: string; price: number; status: string }>, now: string) {
+  const policiesAll = await getCancelPolicies(db);
+  const tiers: CancelPolicyTier[] = selectCancelPolicy(
+    policiesAll.map((p) => ({ spaceId: p.space_id, daysBefore: p.days_before, chargePct: p.charge_pct, cutoffTime: p.cutoff_time })),
+    spaceId,
+  );
+  const today = now.slice(0, 10);
+  let totalFee = 0;
+  const breakdown = bookings
+    .filter((b) => b.status !== 'cancelled')
+    .map((b) => {
+      const charge = computeCancelCharge(tiers, b.date, now, b.price);
+      totalFee += charge.cancelFee;
+      return { bookingId: b.id, date: b.date, price: b.price, daysBefore: daysBetween(today, b.date), chargePct: charge.chargePct, cancelFee: charge.cancelFee };
+    });
+  return { totalFee, breakdown };
+}
+
+/** GET /api/admin/bookings/:number/cancel-preview キャンセル料の事前確認 */
+app.get('/bookings/:number/cancel-preview', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
+  const bookings = await getBookingsByGroup(db, g.id);
+  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, nowJST());
+  return c.json({ bookingNumber: g.booking_number, status: g.status, totalFee, breakdown });
+});
+
+/** POST /api/admin/bookings/:number/cancel 本予約のキャンセル（キャンセル料計算・記録） */
+app.post('/bookings/:number/cancel', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
+  if (g.status === 'tentative') return c.json({ error: '商談中は「解除」を使ってください' }, 400);
+
+  const bookings = await getBookingsByGroup(db, g.id);
+  const now = nowJST();
+  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now);
+
+  const stmts: D1PreparedStatement[] = [];
+  for (const b of breakdown) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO cancellation_log
+           (id, group_id, booking_id, customer_id, cancelled_at, days_before, charge_pct, original_price, cancel_fee, collection_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        )
+        .bind(crypto.randomUUID(), g.id, b.bookingId, g.customer_id ?? '', now, b.daysBefore, b.chargePct, b.price, b.cancelFee),
+    );
+    stmts.push(db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").bind(b.bookingId));
+  }
+  stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
+  await db.batch(stmts);
+
+  return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, note: 'キャンセル料は管理者が手動で徴収します' });
 });
 
 /**

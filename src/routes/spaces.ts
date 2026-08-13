@@ -5,7 +5,7 @@ import {
   getSpaceById,
   getHolidays,
   getSpaceClosures,
-  getActiveSeasonalRules,
+  getActiveSeasonalRulesForSpace,
   getSpaceBookingsInRange,
   getSpaceBookingsOnDate,
   getSystemSettings,
@@ -23,7 +23,7 @@ import {
 } from '../lib/calendar';
 import { findSeasonalPct, type SeasonalRule } from '../lib/pricing';
 import { computeDayAvailability, statusSymbol } from '../lib/availability';
-import { todayJST } from '../lib/clock';
+import { todayJST, nowJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
 
@@ -121,6 +121,7 @@ app.get('/:id/day', async (c) => {
     slotMinutes: space.slot_minutes,
     booked,
     today: todayJST(),
+    nowTime: nowJST().slice(11, 16), // 当日の過去枠グレーアウト用（JST HH:MM）
   });
 });
 
@@ -142,7 +143,7 @@ app.get('/:id/slots', async (c) => {
   const [holidays, closures, seasonalRows, bookings, settings] = await Promise.all([
     getHolidays(c.env.DB, startDate, endDate),
     getSpaceClosures(c.env.DB, id, startDate, endDate),
-    getActiveSeasonalRules(c.env.DB),
+    getActiveSeasonalRulesForSpace(c.env.DB, id),
     getSpaceBookingsInRange(c.env.DB, id, startDate, endDate),
     getSystemSettings(c.env.DB),
   ]);

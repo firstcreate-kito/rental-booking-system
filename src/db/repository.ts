@@ -175,6 +175,29 @@ export async function getActiveSeasonalRules(db: D1Database): Promise<SeasonalRu
   return results ?? [];
 }
 
+/**
+ * 指定スペースに適用される有効な季節料金を返す。
+ * 対象スペースの紐付けが無い季節料金は全スペース対象として含める。
+ */
+export async function getActiveSeasonalRulesForSpace(
+  db: D1Database,
+  spaceId: string,
+): Promise<SeasonalRuleRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT sp.start_date, sp.end_date, sp.surcharge_pct
+       FROM seasonal_pricing sp
+       WHERE sp.is_active = 1
+         AND (
+           NOT EXISTS (SELECT 1 FROM seasonal_spaces ss WHERE ss.seasonal_id = sp.id)
+           OR EXISTS (SELECT 1 FROM seasonal_spaces ss WHERE ss.seasonal_id = sp.id AND ss.space_id = ?)
+         )`,
+    )
+    .bind(spaceId)
+    .all<SeasonalRuleRow>();
+  return results ?? [];
+}
+
 // --- 季節料金（管理） ---
 export interface SeasonalFullRow {
   id: string;
@@ -185,11 +208,22 @@ export interface SeasonalFullRow {
   is_active: number;
 }
 
-export async function getSeasonalAll(db: D1Database): Promise<SeasonalFullRow[]> {
-  const { results } = await db
-    .prepare('SELECT id, name, start_date, end_date, surcharge_pct, is_active FROM seasonal_pricing ORDER BY start_date')
-    .all<SeasonalFullRow>();
-  return results ?? [];
+export async function getSeasonalAll(
+  db: D1Database,
+): Promise<Array<SeasonalFullRow & { space_ids: string[] }>> {
+  const [{ results }, links] = await Promise.all([
+    db
+      .prepare('SELECT id, name, start_date, end_date, surcharge_pct, is_active FROM seasonal_pricing ORDER BY start_date')
+      .all<SeasonalFullRow>(),
+    db.prepare('SELECT seasonal_id, space_id FROM seasonal_spaces').all<{ seasonal_id: string; space_id: string }>(),
+  ]);
+  const bySeasonal = new Map<string, string[]>();
+  for (const l of links.results ?? []) {
+    const arr = bySeasonal.get(l.seasonal_id) ?? [];
+    arr.push(l.space_id);
+    bySeasonal.set(l.seasonal_id, arr);
+  }
+  return (results ?? []).map((r) => ({ ...r, space_ids: bySeasonal.get(r.id) ?? [] }));
 }
 
 export interface SeasonalInput {
@@ -198,6 +232,17 @@ export interface SeasonalInput {
   endDate: string;
   surchargePct: number;
   isActive: boolean;
+  spaceIds: string[]; // 空配列 = 全スペース対象
+}
+
+async function setSeasonalSpaces(db: D1Database, seasonalId: string, spaceIds: string[]): Promise<void> {
+  const stmts: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM seasonal_spaces WHERE seasonal_id = ?').bind(seasonalId),
+  ];
+  for (const sid of spaceIds) {
+    stmts.push(db.prepare('INSERT OR IGNORE INTO seasonal_spaces (seasonal_id, space_id) VALUES (?, ?)').bind(seasonalId, sid));
+  }
+  await db.batch(stmts);
 }
 
 export async function insertSeasonal(db: D1Database, s: SeasonalInput): Promise<string> {
@@ -209,6 +254,7 @@ export async function insertSeasonal(db: D1Database, s: SeasonalInput): Promise<
     )
     .bind(id, s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0)
     .run();
+  await setSeasonalSpaces(db, id, s.spaceIds);
   return id;
 }
 
@@ -219,10 +265,14 @@ export async function updateSeasonal(db: D1Database, id: string, s: SeasonalInpu
     )
     .bind(s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, id)
     .run();
+  await setSeasonalSpaces(db, id, s.spaceIds);
 }
 
 export async function deleteSeasonal(db: D1Database, id: string): Promise<void> {
-  await db.prepare('DELETE FROM seasonal_pricing WHERE id = ?').bind(id).run();
+  await db.batch([
+    db.prepare('DELETE FROM seasonal_spaces WHERE seasonal_id = ?').bind(id),
+    db.prepare('DELETE FROM seasonal_pricing WHERE id = ?').bind(id),
+  ]);
 }
 
 // --- キャンペーン（管理・適用） ---

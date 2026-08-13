@@ -36,7 +36,7 @@ import {
   type SpaceInput,
   type OptionInput,
   getHolidays,
-  getActiveSeasonalRules,
+  getActiveSeasonalRulesForSpace,
   getSeasonalAll,
   insertSeasonal,
   updateSeasonal,
@@ -267,7 +267,7 @@ async function prepareAdminBooking(
   const itemDates = body.items.map((i) => i.date).sort();
   const [holidays, seasonalRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
-    getActiveSeasonalRules(db),
+    getActiveSeasonalRulesForSpace(db, space.id),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({
@@ -801,11 +801,12 @@ function parseSeasonalInput(b: Record<string, unknown>): { input?: SeasonalInput
   const endDate = String(b.endDate ?? '').trim();
   const surchargePct = Number(b.surchargePct ?? 0);
   const isActive = b.isActive === undefined ? true : !!b.isActive;
+  const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
   if (!name) return { error: '名称は必須です' };
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: '期間は YYYY-MM-DD で入力してください' };
   if (endDate < startDate) return { error: '終了日は開始日以降にしてください' };
   if (!Number.isFinite(surchargePct) || surchargePct <= 0) return { error: '割増率（％）は1以上で入力してください' };
-  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive } };
+  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive, spaceIds } };
 }
 
 /** GET /api/admin/seasonal 季節料金一覧 */

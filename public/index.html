@@ -53,6 +53,7 @@
   .slot.st-free { background: #eaf7ee; border-color: #bbe6c8; }
   .slot.st-booked { background: #fdecec; border-color: #f5b5b5; color: #b91c1c; text-decoration: line-through; }
   .slot.st-tent { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+  .slot.st-past { background: #f1f3f5; border-color: #e2e5ea; color: #c0c4cc; text-decoration: line-through; }
   .slotlegend { font-size: 10px; color: var(--muted); display: flex; gap: 12px; margin-bottom: 6px; }
   .warn-note { color: #b45309; font-size: 12px; margin-top: 6px; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -169,7 +170,8 @@
     <label>会社名（任意）</label>
     <input id="f_company" />
     <div class="card" style="margin-top:14px;background:#fafbfc">
-      <div class="row"><span class="muted">スペース料金</span><span id="sum_space">-</span></div>
+      <div class="row"><span class="muted">スペース料金（通常）</span><span id="sum_space">-</span></div>
+      <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:#b45309">-</span></div>
       <div class="row"><span class="muted">オプション</span><span id="sum_opt">-</span></div>
       <div class="row hidden" id="sum_disc_row"><span class="muted">割引</span><span id="sum_disc" style="color:#166534">-</span></div>
       <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
@@ -215,7 +217,7 @@
 </div>
 
 <script>
-const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null };
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1 };
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 const api = async (path, opts) => {
   const r = await fetch(path, opts);
@@ -335,20 +337,36 @@ function rangeOverlapsBooked(s, e) {
 function renderSlotBar() {
   const ts = times(S.space.openTime, S.space.closeTime);
   let html = '';
+  const cut = S.pastCutoffMin; // 当日の現在時刻（分）。当日でなければ -1
   for (let i = 0; i < ts.length - 1; i++) {
     const s = ts[i], e = ts[i + 1];
+    const isPast = cut >= 0 && toMin(s) < cut;
     const k = slotKind(s, e);
-    const cls = k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
+    const cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
     html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '">' + s + '</div>';
   }
   document.getElementById('mSlots').innerHTML = html;
 }
+function buildTimeOptions() {
+  const ts = times(S.space.openTime, S.space.closeTime);
+  const cut = S.pastCutoffMin; // 当日の現在時刻（分）。当日でなければ -1
+  const opt = (t, isEnd) => {
+    // 開始: 現在時刻より前は不可 / 終了: 現在時刻以前は不可
+    const past = cut >= 0 && (isEnd ? toMin(t) <= cut : toMin(t) < cut);
+    return '<option' + (past ? ' disabled' : '') + '>' + t + '</option>';
+  };
+  document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => opt(t, false)).join('');
+  document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => opt(t, true)).join('');
+  // 先頭の有効な選択肢を選ぶ
+  const st = document.getElementById('mStart'), en = document.getElementById('mEnd');
+  const firstEnabled = sel => { for (const o of sel.options) if (!o.disabled) { sel.value = o.value; return; } };
+  firstEnabled(st); firstEnabled(en);
+}
 async function openModal(date) {
   S.selectedDate = date;
+  S.pastCutoffMin = -1;
   document.getElementById('modalDate').textContent = date + ' の時間を選択';
-  const ts = times(S.space.openTime, S.space.closeTime);
-  document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => '<option>' + t + '</option>').join('');
-  document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => '<option>' + t + '</option>').join('');
+  buildTimeOptions();
   document.getElementById('mPreview').textContent = '';
   document.getElementById('mWarn').classList.add('hidden');
   document.getElementById('modal').classList.add('show');
@@ -356,6 +374,9 @@ async function openModal(date) {
   renderSlotBar();
   const { body } = await api('/api/spaces/' + S.space.id + '/day?date=' + date);
   S.booked = body.booked || [];
+  // 当日予約：現在時刻より前の枠を無効化
+  if (body.today === date && body.nowTime) S.pastCutoffMin = toMin(body.nowTime);
+  buildTimeOptions();
   renderSlotBar();
   previewModal();
 }
@@ -385,7 +406,11 @@ async function previewModal() {
     let note = '';
     if (d.billingMode === 'day') note = '（営業時間まるごと＝1日料金が適用されます）';
     else if (d.billableHours > actual) note = '（ご利用' + actual + '時間ですが、料金は' + d.billableHours + '時間分です。1時間単位の切り上げ／最低利用時間のため）';
-    prev.innerHTML = '概算 <strong>' + yen(body.total) + '</strong>' + (note ? '<br><span style="color:#b45309">' + note + '</span>' : '');
+    let seasonalNote = '';
+    if (d.seasonalSurcharge > 0) {
+      seasonalNote = '<br><span style="color:#b45309">内訳：通常 ' + yen(d.basePrice) + ' ＋ 季節料金 ' + yen(d.seasonalSurcharge) + '（+' + d.seasonalPct + '%）</span>';
+    }
+    prev.innerHTML = '概算 <strong>' + yen(body.total) + '</strong>' + (note ? '<br><span style="color:#b45309">' + note + '</span>' : '') + seasonalNote;
   }
 }
 
@@ -478,7 +503,20 @@ function discountPayload() {
 async function recomputeSummary() {
   const { body } = await api('/api/bookings/quote', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
     body: JSON.stringify({ spaceId: S.space.id, items: S.cart, options: optionsPayload(), ...discountPayload() }) });
-  document.getElementById('sum_space').textContent = yen(body.spaceFee || 0);
+  // 季節料金の内訳（通常料金 ＋ 割増）
+  const days = body.days || [];
+  const baseTotal = days.reduce((s, d) => s + (d.basePrice || 0), 0);
+  const seasonalTotal = days.reduce((s, d) => s + (d.seasonalSurcharge || 0), 0);
+  document.getElementById('sum_space').textContent = yen(baseTotal || body.spaceFee || 0);
+  const seRow = document.getElementById('sum_seasonal_row');
+  if (seasonalTotal > 0) {
+    seRow.classList.remove('hidden');
+    document.getElementById('sum_seasonal').textContent = '+' + yen(seasonalTotal);
+    const pcts = [...new Set(days.filter(d => d.seasonalPct > 0).map(d => d.seasonalPct))];
+    document.getElementById('sum_seasonal_note').textContent = pcts.length ? '（+' + pcts.join('%・+') + '%）' : '';
+  } else {
+    seRow.classList.add('hidden');
+  }
   document.getElementById('sum_opt').textContent = yen(body.optionsTotal || 0);
   document.getElementById('sum_total').textContent = yen(body.total || 0);
   document.getElementById('sum_points').textContent = body.pointsEarned ? ('獲得予定ポイント: ' + body.pointsEarned + 'P') : '';

@@ -4,7 +4,7 @@ import {
   getSpaceById,
   getHolidays,
   getSpaceClosures,
-  getActiveSeasonalRules,
+  getActiveSeasonalRulesForSpace,
   getSpaceBookingsOnDate,
   getOccupyingIntervalsExcludingGroup,
   getSystemSettings,
@@ -201,7 +201,7 @@ app.post('/', async (c) => {
   const itemDates = body.items.map((i) => i.date).sort();
   const [holidays, seasonalRows, campaignRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
-    getActiveSeasonalRules(db),
+    getActiveSeasonalRulesForSpace(db, space.id),
     getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
@@ -496,7 +496,7 @@ app.post('/quote', async (c) => {
   const itemDates = body.items.map((i) => i.date).sort();
   const [holidays, seasonalRows, campaignRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
-    getActiveSeasonalRules(db),
+    getActiveSeasonalRulesForSpace(db, space.id),
     getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
@@ -570,7 +570,7 @@ app.post('/quote', async (c) => {
     pointsEarned: totals.pointsEarned,
     isMember: !!member,
     discountError,
-    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, price: d.price, isResidence: d.isResidence })),
+    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, basePrice: d.basePrice, seasonalPct: d.seasonalPct, seasonalSurcharge: d.seasonalSurcharge, price: d.price, isResidence: d.isResidence })),
     optionLines,
     warnings,
   });
@@ -675,7 +675,7 @@ app.post('/:number/reschedule', async (c) => {
   const itemDates = body.items.map((i) => i.date).sort();
   const [holidays, seasonalRows] = await Promise.all([
     getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
-    getActiveSeasonalRules(db),
+    getActiveSeasonalRulesForSpace(db, space.id),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({

@@ -7,6 +7,7 @@ import {
   getSpaceClosures,
   getActiveSeasonalRules,
   getSpaceBookingsInRange,
+  getSpaceBookingsOnDate,
   getSystemSettings,
   getSpaceOptions,
   getDailyOptionUsage,
@@ -92,6 +93,36 @@ app.get('/:id/options', async (c) => {
   return c.json({ spaceId: id, date: date ?? null, options: result });
 });
 
+/** GET /api/spaces/:id/day?date=YYYY-MM-DD その日の予約済み時間帯（時間選択の空き状況バー用） */
+app.get('/:id/day', async (c) => {
+  const id = c.req.param('id');
+  const date = c.req.query('date');
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return c.json({ error: 'date(YYYY-MM-DD) is required' }, 400);
+  }
+  const space = await getSpaceById(c.env.DB, id);
+  if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+
+  const bookings = await getSpaceBookingsOnDate(c.env.DB, id, date);
+  // 占有中の予約（確定/商談中/ブロック/仮確保）を時間帯として返す
+  const booked = bookings.map((b) => ({
+    startTime: b.start_time,
+    endTime: b.end_time,
+    // 顧客には確定/商談中の区別のみ見せる（商談中はお問い合わせ誘導）
+    kind: b.status === 'tentative' ? 'tentative' : 'booked',
+  }));
+
+  return c.json({
+    spaceId: id,
+    date,
+    openTime: space.open_time,
+    closeTime: space.close_time,
+    slotMinutes: space.slot_minutes,
+    booked,
+    today: todayJST(),
+  });
+});
+
 /** GET /api/spaces/:id/slots?month=YYYY-MM 月間の稼働状況 */
 app.get('/:id/slots', async (c) => {
   const id = c.req.param('id');
@@ -171,6 +202,7 @@ app.get('/:id/slots', async (c) => {
       freeSlots: avail.freeSlots,
       totalSlots: avail.totalSlots,
       bookable,
+      past: diff < 0, // 今日より前
     };
   });
 

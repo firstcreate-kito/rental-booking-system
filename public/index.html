@@ -45,7 +45,15 @@
   .cal .day .sym { font-size: 15px; font-weight: 700; }
   .cal .day .sym.ok { color: var(--ok); } .cal .day .sym.limited { color: var(--warn); } .cal .day .sym.full { color: var(--bad); }
   .badge { font-size: 9px; background: #fde68a; color: #92400e; border-radius: 4px; padding: 0 3px; margin-top: 2px; }
+  .cal .day.inactive { background: #fafafa; color: #c9ced6; }
   .empty { grid-column: span 1; }
+  .slotbar { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
+  .slot { font-size: 10px; color: #374151; width: 40px; text-align: center; padding: 3px 0; border-radius: 4px; border: 1px solid var(--line); }
+  .slot.st-free { background: #eaf7ee; border-color: #bbe6c8; }
+  .slot.st-booked { background: #fdecec; border-color: #f5b5b5; color: #b91c1c; text-decoration: line-through; }
+  .slot.st-tent { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+  .slotlegend { font-size: 10px; color: var(--muted); display: flex; gap: 12px; margin-bottom: 6px; }
+  .warn-note { color: #b45309; font-size: 12px; margin-top: 6px; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.mini td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
   .muted { color: var(--muted); font-size: 12px; }
@@ -158,11 +166,16 @@
 <div class="modal-bg" id="modal">
   <div class="modal">
     <h2 id="modalDate"></h2>
+    <div class="slotlegend">
+      <span>🟩 空き</span><span>🟥 予約済み</span><span>🟨 商談中</span>
+    </div>
+    <div class="slotbar" id="mSlots"></div>
     <label>開始時刻</label>
     <select id="mStart"></select>
     <label>終了時刻</label>
     <select id="mEnd"></select>
     <div class="muted" id="mPreview" style="margin-top:8px"></div>
+    <div class="warn-note hidden" id="mWarn"></div>
     <div class="row" style="margin-top:16px">
       <button class="btn ghost sm" onclick="closeModal()">キャンセル</button>
       <button class="btn" onclick="addToCart()">カートに追加</button>
@@ -217,6 +230,7 @@ async function loadCalendar() {
   setStep(1);
   const { body } = await api('/api/spaces/' + S.space.id + '/slots?month=' + S.month);
   S.slots = body.days || [];
+  S.today = body.today;
   document.getElementById('calMonth').textContent = S.month.replace('-', '年') + '月';
   document.getElementById('calDows').innerHTML = ['日','月','火','水','木','金','土']
     .map(d => '<div class="dow">' + d + '</div>').join('');
@@ -226,16 +240,26 @@ async function loadCalendar() {
   for (let i = 0; i < offset; i++) html += '<div class="empty"></div>';
   for (const d of S.slots) {
     const dayNum = Number(d.date.slice(8, 10));
-    const symClass = d.status === 'available' ? 'ok' : d.status === 'limited' ? 'limited' : 'full';
-    const sym = d.status === 'closed' ? '−' : d.symbol;
     const cls = ['day'];
     if (d.dayType === 'weekend') cls.push('weekend');
-    if (d.status === 'closed') cls.push('closed');
     if (d.isSeasonal) cls.push('seasonal');
-    if (d.bookable) cls.push('bookable');
+    // 記号の出し分け: 休業=− / 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△
+    let symHtml = '';
+    if (d.status === 'closed') {
+      cls.push('closed');
+      symHtml = '<div class="sym">−</div>';
+    } else if (d.past || (!d.bookable && d.status !== 'full')) {
+      cls.push('inactive'); // 今日より前 or 受付期間外 → 記号を出さない
+    } else if (d.status === 'full') {
+      symHtml = '<div class="sym full">✕</div>';
+    } else if (d.bookable) {
+      cls.push('bookable');
+      const symClass = d.status === 'available' ? 'ok' : 'limited';
+      symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
+    }
     const onclick = d.bookable ? ' onclick="openModal(\'' + d.date + '\')"' : '';
     html += '<div class="' + cls.join(' ') + '"' + onclick + '>' +
-      '<div>' + dayNum + '</div><div class="sym ' + symClass + '">' + sym + '</div>' +
+      '<div>' + dayNum + '</div>' + symHtml +
       (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
   }
   document.getElementById('calGrid').innerHTML = html;
@@ -256,14 +280,40 @@ function times(open, close) {
   while (t <= end) { out.push(String(Math.floor(t/60)).padStart(2,'0') + ':' + String(t%60).padStart(2,'0')); t += 30; }
   return out;
 }
-function openModal(date) {
+const toMin = t => Number(t.slice(0,2)) * 60 + Number(t.slice(3,5));
+const overlap = (aS, aE, bS, bE) => toMin(aS) < toMin(bE) && toMin(bS) < toMin(aE);
+function slotKind(s, e) {
+  for (const b of (S.booked || [])) { if (overlap(s, e, b.startTime, b.endTime)) return b.kind; }
+  return null;
+}
+function rangeOverlapsBooked(s, e) {
+  return (S.booked || []).some(b => overlap(s, e, b.startTime, b.endTime));
+}
+function renderSlotBar() {
+  const ts = times(S.space.openTime, S.space.closeTime);
+  let html = '';
+  for (let i = 0; i < ts.length - 1; i++) {
+    const s = ts[i], e = ts[i + 1];
+    const k = slotKind(s, e);
+    const cls = k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
+    html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '">' + s + '</div>';
+  }
+  document.getElementById('mSlots').innerHTML = html;
+}
+async function openModal(date) {
   S.selectedDate = date;
   document.getElementById('modalDate').textContent = date + ' の時間を選択';
   const ts = times(S.space.openTime, S.space.closeTime);
   document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => '<option>' + t + '</option>').join('');
   document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => '<option>' + t + '</option>').join('');
   document.getElementById('mPreview').textContent = '';
+  document.getElementById('mWarn').classList.add('hidden');
   document.getElementById('modal').classList.add('show');
+  S.booked = [];
+  renderSlotBar();
+  const { body } = await api('/api/spaces/' + S.space.id + '/day?date=' + date);
+  S.booked = body.booked || [];
+  renderSlotBar();
   previewModal();
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
@@ -272,19 +322,34 @@ document.getElementById('mEnd').addEventListener('change', previewModal);
 
 async function previewModal() {
   const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
-  if (!start || !end || start >= end) { document.getElementById('mPreview').textContent = '終了は開始より後にしてください'; return; }
+  const warn = document.getElementById('mWarn');
+  const prev = document.getElementById('mPreview');
+  if (!start || !end || start >= end) { prev.textContent = '終了は開始より後にしてください'; warn.classList.add('hidden'); return; }
+
+  // 予約済みと重なる場合の事前警告
+  if (rangeOverlapsBooked(start, end)) {
+    warn.textContent = '⚠️ 選択した時間帯に「予約済み」の時間が含まれています。時間をずらしてください。';
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
+
   const { body } = await api('/api/bookings/quote', { method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ spaceId: S.space.id, items: [{ date: S.selectedDate, startTime: start, endTime: end }] }) });
   if (body.total != null) {
     const d = body.days[0];
-    document.getElementById('mPreview').textContent =
-      '概算 ' + yen(body.total) + '（' + (d.billingMode === 'day' ? '1日料金' : d.billableHours + '時間分') + '）';
+    const actual = (toMin(end) - toMin(start)) / 60;
+    let note = '';
+    if (d.billingMode === 'day') note = '（営業時間まるごと＝1日料金が適用されます）';
+    else if (d.billableHours > actual) note = '（ご利用' + actual + '時間ですが、料金は' + d.billableHours + '時間分です。1時間単位の切り上げ／最低利用時間のため）';
+    prev.innerHTML = '概算 <strong>' + yen(body.total) + '</strong>' + (note ? '<br><span style="color:#b45309">' + note + '</span>' : '');
   }
 }
 
 function addToCart() {
   const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   if (start >= end) { alert('終了は開始より後にしてください'); return; }
+  if (rangeOverlapsBooked(start, end)) { alert('選択した時間帯には既に予約が入っています。時間をずらしてください。'); return; }
   if (S.cart.some(c => c.date === S.selectedDate)) { alert('その日は既にカートにあります'); return; }
   S.cart.push({ date: S.selectedDate, startTime: start, endTime: end });
   S.cart.sort((a, b) => a.date.localeCompare(b.date));

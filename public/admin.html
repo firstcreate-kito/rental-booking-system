@@ -218,7 +218,14 @@ async function createBooking(kind) {
   }
   const url = p ? '/api/admin/bookings' : '/api/admin/bookings/tentative';
   const { ok, body } = await api(url, jsonBody(payload));
-  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || JSON.stringify(body.details || body); return; }
+  if (!ok) {
+    msg.className = 'msg bad';
+    // 競合など詳細メッセージを分かりやすく表示
+    msg.textContent = (body.details && body.details.length)
+      ? body.details.map(d => d.message).join(' / ')
+      : (body.error || '登録に失敗しました');
+    return;
+  }
   msg.className = 'msg ok';
   msg.textContent = (p ? '代理予約' : '商談中') + 'を登録しました（予約番号 ' + body.bookingNumber + '・' + yen(body.total) + '）';
   showTab('list'); loadBookings();

@@ -1033,12 +1033,13 @@ function showLoginView() {
   document.getElementById('loginView').classList.remove('hidden');
 }
 async function initAuth() {
-  const { ok, body } = await api('/api/admin/needs-setup');
-  // 本番ではデモ管理者のヒントを表示しない
-  if (!ok || body.appEnv !== 'development') {
+  // 本番（localhost 以外）ではデモ管理者のヒントを表示しない
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (!isLocal) {
     const hint = document.getElementById('loginHint');
     if (hint) hint.classList.add('hidden');
   }
+  const { ok, body } = await api('/api/admin/needs-setup');
   if (ok && body.needsSetup) {
     document.getElementById('setupView').classList.remove('hidden');
   } else {

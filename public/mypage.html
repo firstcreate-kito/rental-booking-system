@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ALBE マイページ</title>
+<style>
+  :root { --brand:#1f6feb; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --ok:#16a34a; --warn:#f59e0b; --bad:#dc2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  header .who { font-size:12px; color:var(--muted); }
+  main { max-width:860px; margin:0 auto; padding:20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .btn { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
+  .btn.sm { padding:5px 10px; font-size:12px; }
+  .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .btn.danger { background:#fff; color:var(--bad); border:1px solid var(--bad); }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; font-size:13px; }
+  .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  .tablewrap { overflow-x:auto; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
+  .pill.confirmed { background:#dcfce7; color:#166534; }
+  .pill.cancelled { background:#fee2e2; color:#991b1b; }
+  .pill.completed { background:#e0e7ff; color:#3730a3; }
+  .pill.active { background:#dcfce7; color:#166534; }
+  .pill.exhausted,.pill.expired { background:#f3f4f6; color:#6b7280; }
+  .muted { color:var(--muted); font-size:12px; }
+  .hidden { display:none; }
+  .big { font-size:28px; font-weight:700; color:var(--brand); }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  .coupon { border:1px dashed #c7ddff; border-radius:10px; padding:12px; margin-bottom:10px; background:#f0f6ff; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media(max-width:560px){ .grid2{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>レンタルスペースALBE マイページ</h1>
+  <div class="who" id="who"></div>
+</header>
+<main>
+  <!-- ログイン -->
+  <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
+    <h2>ログイン</h2>
+    <div class="muted">デモ会員 → <code>demo-member@albe.test</code> / <code>demopass123</code></div>
+    <label>メールアドレス</label><input id="l_email" type="email" />
+    <label>パスワード</label><input id="l_pass" type="password" />
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" onclick="login()">ログイン</button></div>
+    <div class="msg bad" id="loginMsg"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button id="tab-bookings" class="active" onclick="showTab('bookings')">予約履歴</button>
+      <button id="tab-points" onclick="showTab('points')">ポイント</button>
+      <button id="tab-coupons" onclick="showTab('coupons')">クーポン</button>
+      <button id="tab-favorites" onclick="showTab('favorites')">お気に入り</button>
+      <button id="tab-profile" onclick="showTab('profile')">アカウント設定</button>
+      <button class="btn ghost sm" style="margin-left:auto" onclick="logout()">ログアウト</button>
+    </div>
+
+    <section id="view-bookings" class="card">
+      <h2>予約履歴</h2>
+      <div class="tablewrap"><table>
+        <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
+        <tbody id="bkBody"></tbody>
+      </table></div>
+      <div class="muted" id="bkEmpty"></div>
+    </section>
+
+    <section id="view-points" class="card hidden">
+      <h2>ポイント</h2>
+      <div>保有ポイント：<span class="big" id="ptBal">-</span> P</div>
+      <div class="tablewrap" style="margin-top:12px"><table>
+        <thead><tr><th>日時</th><th>種別</th><th>増減</th><th>残高</th><th>内容</th></tr></thead>
+        <tbody id="ptBody"></tbody>
+      </table></div>
+    </section>
+
+    <section id="view-coupons" class="card hidden">
+      <h2>保有クーポン</h2>
+      <div id="cpList"></div>
+      <div class="muted" id="cpEmpty"></div>
+    </section>
+
+    <section id="view-favorites" class="card hidden">
+      <h2>お気に入りスペース</h2>
+      <div id="favList"></div>
+      <div class="muted" id="favEmpty"></div>
+    </section>
+
+    <section id="view-profile" class="card hidden">
+      <h2>基本情報</h2>
+      <div class="grid2">
+        <div><label>お名前</label><input id="pf_name" /></div>
+        <div><label>電話番号</label><input id="pf_phone" /></div>
+        <div><label>会社名</label><input id="pf_company" /></div>
+        <div><label>郵便番号</label><input id="pf_postal" /></div>
+        <div style="grid-column:1/-1"><label>住所</label><input id="pf_address" /></div>
+        <div><label>適格請求書番号</label><input id="pf_invoice" /></div>
+        <div><label>メール（変更不可）</label><input id="pf_email" disabled /></div>
+      </div>
+      <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="saveProfile()">保存</button></div>
+      <div class="msg" id="pfMsg"></div>
+      <hr style="margin:18px 0;border:none;border-top:1px solid var(--line)" />
+      <h2>パスワード変更</h2>
+      <div class="grid2">
+        <div><label>現在のパスワード</label><input id="pw_cur" type="password" /></div>
+        <div><label>新しいパスワード（8文字以上）</label><input id="pw_new" type="password" /></div>
+      </div>
+      <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn ghost" onclick="changePassword()">変更</button></div>
+      <div class="msg" id="pwMsg"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const M = { token:null, member:null };
+const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+async function api(path, opts) {
+  const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
+  if (M.token) o.headers['Authorization'] = 'Bearer ' + M.token;
+  const r = await fetch(path, o); const j = await r.json().catch(()=>({}));
+  return { ok:r.ok, status:r.status, body:j };
+}
+const jsonBody = (obj, method) => ({ method: method||'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
+const statusLabel = s => ({confirmed:'本予約',cancelled:'キャンセル',completed:'完了',active:'有効',exhausted:'消化済',expired:'期限切れ'}[s]||s);
+
+async function login() {
+  const email = document.getElementById('l_email').value.trim();
+  const password = document.getElementById('l_pass').value;
+  const msg = document.getElementById('loginMsg');
+  const { ok, body } = await api('/api/auth/login', jsonBody({ email, password }));
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  M.token = body.token; M.member = body.customer;
+  document.getElementById('who').textContent = (body.customer.contactName||body.customer.email) + ' さん';
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadAll();
+}
+async function logout() { await api('/api/auth/logout', jsonBody({})); location.reload(); }
+
+function showTab(t) {
+  ['bookings','points','coupons','favorites','profile'].forEach(x => {
+    document.getElementById('view-'+x).classList.toggle('hidden', x!==t);
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+  });
+}
+
+async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadFavorites(); loadProfile(); }
+
+async function loadBookings() {
+  const { body } = await api('/api/mypage/bookings');
+  const rows = body.bookings || [];
+  document.getElementById('bkEmpty').textContent = rows.length ? '' : 'まだ予約はありません';
+  document.getElementById('bkBody').innerHTML = rows.map(b => {
+    const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
+    return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
+      '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td></tr>';
+  }).join('');
+}
+async function loadPoints() {
+  const { body } = await api('/api/mypage/points');
+  document.getElementById('ptBal').textContent = body.balance ?? 0;
+  document.getElementById('ptBody').innerHTML = (body.log||[]).map(l =>
+    '<tr><td>' + l.created_at + '</td><td>' + l.type + '</td><td>' + (l.type.includes('use')||l.type.includes('remove') ? '-' : '+') + l.amount +
+    '</td><td>' + l.balance_after + '</td><td>' + (l.description||'') + '</td></tr>').join('');
+}
+async function loadCoupons() {
+  const { body } = await api('/api/mypage/coupons');
+  const rows = body.coupons || [];
+  document.getElementById('cpEmpty').textContent = rows.length ? '' : '保有クーポンはありません';
+  document.getElementById('cpList').innerHTML = rows.map(c => {
+    const off = c.discount_type === 'percent' ? (c.discount_value + '% OFF') : (yen(c.discount_value) + ' 引き');
+    const pct = c.total_hours ? Math.round(c.remaining_hours / c.total_hours * 100) : 0;
+    return '<div class="coupon"><div class="row"><strong>' + c.name + '（' + c.code + '）</strong>' +
+      '<span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></div>' +
+      '<div>' + off + '　残り ' + c.remaining_hours + ' / ' + c.total_hours + ' 時間（' + pct + '%）</div>' +
+      '<div class="muted">対象: ' + (c.spaces||'—') + '</div>' +
+      '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + c.valid_until + '</div></div>';
+  }).join('');
+}
+async function loadFavorites() {
+  const { body } = await api('/api/mypage/favorites');
+  const rows = body.favorites || [];
+  document.getElementById('favEmpty').textContent = rows.length ? '' : 'お気に入りはありません';
+  document.getElementById('favList').innerHTML = rows.map(f =>
+    '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><span>' + f.space_name + '</span>' +
+    '<button class="btn danger sm" onclick="removeFav(\'' + f.space_id + '\')">削除</button></div>').join('');
+}
+async function removeFav(spaceId) {
+  await api('/api/mypage/favorites', jsonBody({ spaceId, action:'remove' }));
+  loadFavorites();
+}
+async function loadProfile() {
+  const { body } = await api('/api/mypage/profile');
+  const p = body.profile || {};
+  document.getElementById('pf_name').value = p.contact_name || '';
+  document.getElementById('pf_phone').value = p.phone || '';
+  document.getElementById('pf_company').value = p.company_name || '';
+  document.getElementById('pf_postal').value = p.postal_code || '';
+  document.getElementById('pf_address').value = p.address || '';
+  document.getElementById('pf_invoice').value = p.invoice_number || '';
+  document.getElementById('pf_email').value = p.email || '';
+}
+async function saveProfile() {
+  const msg = document.getElementById('pfMsg');
+  const { ok, body } = await api('/api/mypage/profile', jsonBody({
+    contactName: document.getElementById('pf_name').value.trim(),
+    phone: document.getElementById('pf_phone').value.trim(),
+    companyName: document.getElementById('pf_company').value.trim(),
+    postalCode: document.getElementById('pf_postal').value.trim(),
+    address: document.getElementById('pf_address').value.trim(),
+    invoiceNumber: document.getElementById('pf_invoice').value.trim(),
+  }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? '保存しました' : (body.error || '保存に失敗しました');
+}
+async function changePassword() {
+  const msg = document.getElementById('pwMsg');
+  const currentPassword = document.getElementById('pw_cur').value;
+  const newPassword = document.getElementById('pw_new').value;
+  const { ok, body } = await api('/api/mypage/password', jsonBody({ currentPassword, newPassword }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? 'パスワードを変更しました' : (body.error || '変更に失敗しました');
+  if (ok) { document.getElementById('pw_cur').value=''; document.getElementById('pw_new').value=''; }
+}
+</script>
+</body>
+</html>

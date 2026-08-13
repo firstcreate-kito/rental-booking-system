@@ -77,7 +77,7 @@
 <body>
 <header>
   <h1>レンタルスペースALBE 予約</h1>
-  <div class="sub">デモ環境（開発用）</div>
+  <div class="sub" id="devBadge">デモ環境（開発用）</div>
 </header>
 <main>
   <div class="steps" id="steps"></div>
@@ -135,7 +135,7 @@
     <div class="card" id="loginBox" style="background:#f0f6ff;border-color:#c7ddff">
       <div id="loginForm">
         <strong>会員の方（クーポン・ポイントを使う）</strong>
-        <div class="muted" style="margin:4px 0">デモ会員 → メール: <code>demo-member@albe.test</code> ／ パスワード: <code>demopass123</code></div>
+        <div class="muted demo-hint" style="margin:4px 0">デモ会員 → メール: <code>demo-member@albe.test</code> ／ パスワード: <code>demopass123</code></div>
         <label>メールアドレス</label>
         <input id="l_email" type="email" />
         <label>パスワード</label>
@@ -218,6 +218,11 @@
 
 <script>
 const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1 };
+// 本番（localhost 以外）では開発用の表示・デモ会員ヒントを隠す
+if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
+  const dev = document.getElementById('devBadge'); if (dev) dev.style.display = 'none';
+  document.querySelectorAll('.demo-hint').forEach(el => el.style.display = 'none');
+}
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 const api = async (path, opts) => {
   const r = await fetch(path, opts);

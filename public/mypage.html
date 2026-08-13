@@ -53,7 +53,7 @@
   <!-- ログイン -->
   <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
     <h2>ログイン</h2>
-    <div class="muted">デモ会員 → <code>demo-member@albe.test</code> / <code>demopass123</code></div>
+    <div class="muted demo-hint">デモ会員 → <code>demo-member@albe.test</code> / <code>demopass123</code></div>
     <label>メールアドレス</label><input id="l_email" type="email" />
     <label>パスワード</label><input id="l_pass" type="password" />
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" onclick="login()">ログイン</button></div>
@@ -127,6 +127,10 @@
 
 <script>
 const M = { token:null, member:null };
+// 本番（localhost 以外）ではデモ会員ヒントを隠す
+if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
+  document.querySelectorAll('.demo-hint').forEach(el => el.style.display = 'none');
+}
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({}, o.headers || {});

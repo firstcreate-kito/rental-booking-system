@@ -417,7 +417,7 @@
             <h2>ポイント操作</h2>
             <div>現在の残高：<span class="big" id="csPts" style="font-size:22px">-</span> P</div>
             <div class="grid" style="margin-top:8px">
-              <div><label>ポイント数</label><input id="pt_amount" type="number" /></div>
+              <div><label>ポイント数</label><input id="pt_amount" type="number" min="1" step="1" inputmode="numeric" autocomplete="off" /></div>
               <div><label>操作</label><select id="pt_type"><option value="add">付与</option><option value="remove">取消</option></select></div>
             </div>
             <label>理由（任意）</label><input id="pt_desc" placeholder="例）お詫び / キャンペーン" />
@@ -835,6 +835,9 @@ async function selectCustomer(id) {
     return '<tr><td>' + c.code + '</td><td>' + c.name + '</td><td>' + off + '</td><td>' + c.remaining_hours + '/' + c.total_hours + 'h</td><td>' + until + '</td><td><span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></td></tr>';
   }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
   document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = '';
+  // 自動入力などによる値の残留を防ぐため毎回クリア
+  document.getElementById('pt_amount').value = '';
+  document.getElementById('pt_desc').value = '';
   document.getElementById('csDetail').classList.remove('hidden');
 }
 async function submitPoints() {
@@ -842,6 +845,12 @@ async function submitPoints() {
   const amount = Number(document.getElementById('pt_amount').value);
   const type = document.getElementById('pt_type').value;
   const description = document.getElementById('pt_desc').value.trim();
+  if (!Number.isInteger(amount) || amount < 1) {
+    msg.className='msg bad'; msg.textContent = 'ポイント数は1以上の整数を入力してください';
+    return;
+  }
+  const label = type === 'add' ? '付与' : '取消';
+  if (!confirm(amount + 'P を「' + label + '」します。よろしいですか？')) return;
   const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/points', jsonBody({ amount, type, description }));
   if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '失敗'; return; }
   msg.className='msg ok'; msg.textContent = '実行しました。残高 ' + body.balanceAfter + 'P';

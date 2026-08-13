@@ -89,7 +89,7 @@
   <!-- STEP 1: カレンダー -->
   <section id="view-calendar" class="card hidden">
     <div class="row" style="margin-bottom:10px">
-      <button class="btn ghost sm" onclick="backToSpaces()">← スペース選択へ</button>
+      <button class="btn ghost sm" id="backToSpacesBtn" onclick="backToSpaces()">← スペース選択へ</button>
       <strong id="calSpaceName"></strong>
     </div>
     <div class="cal-head">
@@ -243,6 +243,13 @@ async function loadSpaces() {
       '<div class="rate">' + rate + '　営業 ' + s.openTime + '–' + s.closeTime + '</div>' +
       '<div class="rate">最低利用 ' + s.minHours + '時間' + (s.dayRateHours ? '／1日料金あり' : '') + '</div></div>';
   }).join('');
+  // 部屋ごとの固有URL: ?space=<id> があればその部屋へ直接入る（公式サイト埋め込み用）
+  const wanted = new URLSearchParams(location.search).get('space');
+  if (wanted && S.spaces.some(s => s.id === wanted)) {
+    S.deepLinked = true;
+    selectSpace(wanted);
+    return;
+  }
   show('view-spaces');
 }
 
@@ -296,7 +303,12 @@ async function loadCalendar() {
   document.getElementById('calGrid').innerHTML = html;
   showCalendar();
 }
-function showCalendar() { show('view-calendar'); setStep(1); if (S.cart.length) renderCart(); }
+function showCalendar() {
+  show('view-calendar'); setStep(1);
+  // 部屋直リンク時は「スペース選択へ」を隠す（単一部屋の埋め込み想定）
+  document.getElementById('backToSpacesBtn').style.display = S.deepLinked ? 'none' : '';
+  if (S.cart.length) renderCart();
+}
 
 function changeMonth(delta) {
   const [y, m] = S.month.split('-').map(Number);

@@ -146,12 +146,18 @@
     <section id="view-proxy" class="card hidden">
       <h2>代理予約（本予約として登録）</h2>
       <div class="grid">
-        <div><label>スペース *</label><select id="p_space"></select></div>
-        <div><label>日付 *</label><input id="p_date" type="date" /></div>
-        <div><label>開始 *</label><input id="p_start" placeholder="10:00" /></div>
-        <div><label>終了 *</label><input id="p_end" placeholder="18:00" /></div>
+        <div><label>スペース *</label><select id="p_space" onchange="onAdminSpaceChange('p')"></select></div>
+        <div><label>日付 *</label><input id="p_date" type="date" onchange="recalcProxyPrice()" /></div>
+        <div><label>開始 *</label><select id="p_start" onchange="onAdminStartChange('p')"></select></div>
+        <div><label>終了 *</label><select id="p_end" onchange="recalcProxyPrice()"></select></div>
       </div>
       <label>イベント名 *</label><input id="p_event" />
+      <div class="row" style="gap:12px;align-items:flex-end;margin-top:6px">
+        <div><label>自動計算料金（税込）</label><div id="p_autoPrice" class="muted" style="font-size:15px;padding:6px 0">—</div></div>
+        <div style="flex:1"><label>請求金額（税込・変更可）</label><input id="p_amount" type="number" min="0" placeholder="自動計算額" oninput="proxyPriceEdited=true" /></div>
+        <button type="button" class="btn ghost sm" onclick="resetProxyPrice()">自動計算に戻す</button>
+      </div>
+      <div class="muted" style="font-size:12px">※代理予約はここで金額を優遇（割引）できます。空欄なら自動計算額で登録します。</div>
       <label>既存のお客様を検索（任意）</label>
       <div class="row" style="gap:8px">
         <input id="p_cs_q" placeholder="名前・メール・電話・会社名で部分検索" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();custLookup('p');}" />
@@ -175,10 +181,10 @@
       <h2>商談中（仮予約）の作成</h2>
       <div class="muted">お客様のカレンダーに「商談中」と表示され、オンライン予約はできなくなります（お問い合わせ誘導）。</div>
       <div class="grid" style="margin-top:8px">
-        <div><label>スペース *</label><select id="t_space"></select></div>
+        <div><label>スペース *</label><select id="t_space" onchange="onAdminSpaceChange('t')"></select></div>
         <div><label>日付 *</label><input id="t_date" type="date" /></div>
-        <div><label>開始 *</label><input id="t_start" placeholder="10:00" /></div>
-        <div><label>終了 *</label><input id="t_end" placeholder="18:00" /></div>
+        <div><label>開始 *</label><select id="t_start" onchange="onAdminStartChange('t')"></select></div>
+        <div><label>終了 *</label><select id="t_end"></select></div>
       </div>
       <label>案件名 *</label><input id="t_event" placeholder="例）○○社 商談中" />
       <label>既存のお客様を検索（任意）</label>
@@ -542,6 +548,55 @@ async function loadSpaces() {
   document.getElementById('f_space').innerHTML = '<option value="">すべて</option>' + opts;
   document.getElementById('p_space').innerHTML = opts;
   document.getElementById('t_space').innerHTML = opts;
+  buildAdminTimeOptions('p'); buildAdminTimeOptions('t');
+}
+
+// --- 代理予約／商談中：時刻ドロップダウン（#33）＋料金の自動計算・手動変更（#30）---
+const hm2min = t => Number(t.slice(0,2)) * 60 + Number(t.slice(3,5));
+function adminTimes(open, close) {
+  const out = []; let t = hm2min(open); const end = hm2min(close);
+  while (t <= end) { out.push(String(Math.floor(t/60)).padStart(2,'0') + ':' + String(t%60).padStart(2,'0')); t += 30; }
+  return out;
+}
+function buildAdminTimeOptions(pre) {
+  if (!A.spaces.length) return;
+  const sp = A.spaces.find(s => s.id === document.getElementById(pre + '_space').value) || A.spaces[0];
+  const ts = adminTimes(sp.openTime || '08:00', sp.closeTime || '22:00');
+  const stSel = document.getElementById(pre + '_start'), enSel = document.getElementById(pre + '_end');
+  stSel.innerHTML = ts.slice(0, -1).map(t => '<option>' + t + '</option>').join('');
+  enSel.innerHTML = ts.slice(1).map(t => '<option>' + t + '</option>').join('');
+  stSel.value = ts[0];
+  setAdminDefaultEnd(pre);
+}
+function setAdminDefaultEnd(pre) {
+  const stSel = document.getElementById(pre + '_start'), enSel = document.getElementById(pre + '_end');
+  const target = hm2min(stSel.value) + 60;
+  let chosen = null, last = null;
+  for (const o of enSel.options) { if (hm2min(o.value) <= hm2min(stSel.value)) continue; last = o.value; if (hm2min(o.value) >= target) { chosen = o.value; break; } }
+  enSel.value = chosen || last || stSel.value;
+}
+function onAdminSpaceChange(pre) { buildAdminTimeOptions(pre); if (pre === 'p') recalcProxyPrice(); }
+function onAdminStartChange(pre) { setAdminDefaultEnd(pre); if (pre === 'p') recalcProxyPrice(); }
+
+// 代理予約の料金：自動計算して表示。優遇（割引）はp_amountで手動上書き可（#30）
+let proxyPriceEdited = false;
+let proxyAutoTotal = null;
+async function recalcProxyPrice() {
+  const spaceId = document.getElementById('p_space').value;
+  const date = document.getElementById('p_date').value;
+  const startTime = document.getElementById('p_start').value;
+  const endTime = document.getElementById('p_end').value;
+  const auto = document.getElementById('p_autoPrice');
+  if (!spaceId || !date || !startTime || !endTime || startTime >= endTime) { auto.textContent = '—'; proxyAutoTotal = null; return; }
+  const { ok, body } = await api('/api/bookings/quote', jsonBody({ spaceId, items: [{ date, startTime, endTime }] }));
+  if (!ok || body.total == null) { auto.textContent = '（計算できません）'; proxyAutoTotal = null; return; }
+  proxyAutoTotal = body.spaceFee != null ? body.spaceFee : body.total;
+  auto.textContent = yen(proxyAutoTotal);
+  if (!proxyPriceEdited) document.getElementById('p_amount').value = proxyAutoTotal;
+}
+function resetProxyPrice() {
+  proxyPriceEdited = false;
+  if (proxyAutoTotal != null) document.getElementById('p_amount').value = proxyAutoTotal;
 }
 
 function showTab(t) {
@@ -554,6 +609,8 @@ function showTab(t) {
   if (t === 'options') loadOptionsAdmin();
   if (t === 'pricing') loadPricingMgmt();
   if (t === 'customers') initCustomers();
+  if (t === 'proxy') { buildAdminTimeOptions('p'); proxyPriceEdited = false; recalcProxyPrice(); }
+  if (t === 'tent') { buildAdminTimeOptions('t'); }
 }
 
 let bookingView = 'active';
@@ -660,7 +717,13 @@ async function createBooking(kind) {
   const phone = document.getElementById(pre + '_phone').value.trim();
   if (pickedCust[pre]) payload.customer = { id: pickedCust[pre], contactName: name, email, phone };
   else if (email && name && phone) payload.customer = { contactName: name, email, phone };
-  if (!p) payload.note = document.getElementById('t_note').value.trim();
+  if (p) {
+    // 代理予約：請求金額（手動上書き可）。空欄なら自動計算額で登録
+    const amt = document.getElementById('p_amount').value.trim();
+    if (amt !== '' && Number.isFinite(Number(amt)) && Number(amt) >= 0) payload.overrideTotal = Number(amt);
+  } else {
+    payload.note = document.getElementById('t_note').value.trim();
+  }
   const url = p ? '/api/admin/bookings' : '/api/admin/bookings/tentative';
   const { ok, body } = await api(url, jsonBody(payload));
   if (!ok) {
@@ -674,6 +737,7 @@ async function createBooking(kind) {
   msg.className = 'msg ok';
   msg.textContent = (p ? '代理予約' : '商談中') + 'を登録しました（予約番号 ' + body.bookingNumber + '・' + yen(body.total) + '）';
   pickedCust[pre] = null;
+  if (p) proxyPriceEdited = false;
   document.getElementById(pre + '_cs_results').classList.add('hidden');
   document.getElementById(pre + '_pickInfo').textContent = '';
   showTab('list'); loadBookings();

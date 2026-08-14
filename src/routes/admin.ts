@@ -237,6 +237,7 @@ interface AdminBookingBody {
   items: AdminBookingItem[];
   customer?: { id?: string; contactName?: string; email?: string; phone?: string; companyName?: string };
   note?: string;
+  overrideTotal?: number; // 代理予約の料金を手動指定（優遇・割引用 #30）。単一日程のみ
 }
 
 /**
@@ -368,6 +369,19 @@ async function prepareAdminBooking(
     holidays: holidayMap,
     seasonalRules,
   });
+
+  // 代理予約（本予約）の料金を手動で上書き（優遇・割引 #30）。単一日程のみ対応。
+  if (
+    status === 'confirmed' &&
+    typeof body.overrideTotal === 'number' &&
+    Number.isFinite(body.overrideTotal) &&
+    body.overrideTotal >= 0 &&
+    group.days.length === 1
+  ) {
+    const ov = Math.round(body.overrideTotal);
+    group.days[0].price = ov;
+    group.spaceTotal = ov;
+  }
 
   // 顧客（任意）
   let customerId: string | null = null;

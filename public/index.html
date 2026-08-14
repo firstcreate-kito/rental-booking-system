@@ -363,11 +363,23 @@ function buildTimeOptions() {
   };
   document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => opt(t, false)).join('');
   document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => opt(t, true)).join('');
-  const st = document.getElementById('mStart'), en = document.getElementById('mEnd');
+  const st = document.getElementById('mStart');
   // 開始: 先頭の有効な枠（当日は現在時刻に最も近い次の枠）を自動選択
   for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }
-  // 終了: 開始より後で最初の有効な枠を自動選択（＝1コマ後）
-  for (const o of en.options) { if (!o.disabled && o.value > st.value) { en.value = o.value; break; } }
+  // 終了: 開始の1時間後を既定にする（30分単位の勘違い防止）
+  setDefaultEnd();
+}
+// 終了時刻を「開始＋1時間」に設定（営業終了を超える場合は入る範囲で最も遅い有効枠）
+function setDefaultEnd() {
+  const st = document.getElementById('mStart'), en = document.getElementById('mEnd');
+  const target = toMin(st.value) + 60;
+  let chosen = null, lastValid = null;
+  for (const o of en.options) {
+    if (o.disabled || toMin(o.value) <= toMin(st.value)) continue;
+    lastValid = o.value;
+    if (toMin(o.value) >= target) { chosen = o.value; break; }
+  }
+  en.value = chosen || lastValid || st.value;
 }
 async function openModal(date) {
   S.selectedDate = date;
@@ -388,7 +400,7 @@ async function openModal(date) {
   previewModal();
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
-document.getElementById('mStart').addEventListener('change', previewModal);
+document.getElementById('mStart').addEventListener('change', () => { setDefaultEnd(); previewModal(); });
 document.getElementById('mEnd').addEventListener('change', previewModal);
 
 async function previewModal() {

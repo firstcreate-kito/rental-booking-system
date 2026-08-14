@@ -424,28 +424,43 @@ app.post('/', async (c) => {
   const groupId = crypto.randomUUID();
   const bookingIds = body.items.map(() => crypto.randomUUID());
   let bookingNumber = '';
-  let inserted = false;
-  for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+
+  // ------------------------------------------------------------------
+  // ダブルブッキング防御（#26）— 第1段階：予約枠を「重複が無ければ」原子的に確保
+  //   各日の予約行を条件付きINSERT（WHERE NOT EXISTS 重複）で入れる。
+  //   D1（SQLite）は書き込みを直列化するため、数秒差の同時予約でも
+  //   後続のINSERTは先着の行を見て0件挿入となり、二重予約を防ぐ。
+  //   追加のAPI通信は無く、既存インデックス idx_bookings_space_date を使うため高速。
+  //   ※特典（クーポン/チケット/ポイント）消費は枠の確保後（第2段階）にのみ行う。
+  // ------------------------------------------------------------------
+  let reserved = false;
+  let slotConflict = false;
+  for (let attempt = 0; attempt < 5 && !reserved && !slotConflict; attempt++) {
     const seq = await peekNextBookingSeq(db, ymd);
     bookingNumber = `${ymd}-${String(seq).padStart(3, '0')}`;
-    const stmts: D1PreparedStatement[] = [];
-    stmts.push(
+    const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
           `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, status, source, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
         )
         .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, now),
-    );
+    ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
       const day = group.days[i];
-      stmts.push(
+      reserveStmts.push(
         db
           .prepare(
             `INSERT INTO bookings
              (id, group_id, space_id, date, start_time, end_time, billable_hours, billing_mode, is_residence, rate, price, status, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web')`,
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web'
+             WHERE NOT EXISTS (
+               SELECT 1 FROM bookings b
+               WHERE b.space_id = ? AND b.date = ?
+                 AND b.status IN ('confirmed','tentative')
+                 AND ? < b.end_time AND b.start_time < ?
+             )`,
           )
           .bind(
             bookingIds[i],
@@ -459,94 +474,122 @@ app.post('/', async (c) => {
             day.isResidence ? 1 : 0,
             day.rate,
             day.price,
+            space.id,
+            item.date,
+            item.startTime,
+            item.endTime,
           ),
       );
     }
-    // オプション選択（グループ単位）
-    for (const sel of optionSelections) {
-      stmts.push(
-        db
-          .prepare(
-            `INSERT INTO booking_option_selections (id, group_id, option_id, quantity, subtotal)
-             VALUES (?, ?, ?, ?, ?)`,
-          )
-          .bind(crypto.randomUUID(), groupId, sel.optionId, sel.quantity, sel.subtotal),
-      );
-    }
-    // 追加質問の回答（#22）
-    for (const a of answerRows) {
-      stmts.push(
-        db
-          .prepare('INSERT INTO booking_answers (id, group_id, question_id, label, answer, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .bind(crypto.randomUUID(), groupId, a.questionId, a.label, a.answer, now),
-      );
-    }
-    // クーポン消費（会員）
-    if (couponId && primary.kind === 'coupon' && totals.couponHoursConsumed > 0) {
-      stmts.push(
-        db
-          .prepare(
-            `UPDATE discount_coupons
-             SET remaining_hours = remaining_hours - ?,
-                 status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
-             WHERE id = ?`,
-          )
-          .bind(totals.couponHoursConsumed, totals.couponHoursConsumed, couponId),
-      );
-      stmts.push(
-        db
-          .prepare(
-            `INSERT INTO coupon_usage (id, coupon_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(crypto.randomUUID(), couponId, bookingIds[0], totals.couponHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
-      );
-    }
-    // チケット消費（会員）#24
-    if (usedTicketId && primary.kind === 'ticket' && totals.ticketHoursConsumed > 0) {
-      stmts.push(
-        db
-          .prepare(
-            `UPDATE tickets
-             SET remaining_hours = remaining_hours - ?,
-                 status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
-             WHERE id = ?`,
-          )
-          .bind(totals.ticketHoursConsumed, totals.ticketHoursConsumed, usedTicketId),
-      );
-      stmts.push(
-        db
-          .prepare(
-            `INSERT INTO ticket_usage (id, ticket_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(crypto.randomUUID(), usedTicketId, bookingIds[0], totals.ticketHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
-      );
-    }
-    // ポイント消費（会員）
-    if (primary.kind === 'points' && totals.pointsUsed > 0) {
-      const balanceAfter = primary.pointBalance - totals.pointsUsed;
-      stmts.push(
-        db.prepare('UPDATE customers SET point_balance = point_balance - ? WHERE id = ?').bind(totals.pointsUsed, customerId),
-      );
-      stmts.push(
-        db
-          .prepare(
-            `INSERT INTO point_log (id, customer_id, type, amount, balance_after, group_id, description, created_at)
-             VALUES (?, ?, 'use', ?, ?, ?, '予約でのポイント利用', ?)`,
-          )
-          .bind(crypto.randomUUID(), customerId, totals.pointsUsed, balanceAfter, groupId, now),
-      );
-    }
     try {
-      await db.batch(stmts);
-      inserted = true;
+      await db.batch(reserveStmts);
     } catch (err) {
       const msg = (err as Error).message ?? '';
-      if (msg.includes('UNIQUE') && attempt < 4) continue; // 採番衝突 → リトライ
+      if (msg.includes('UNIQUE') && attempt < 4) continue; // 予約番号の採番衝突 → リトライ
       throw err;
     }
+    // 全日程の枠が確保できたか（条件付きINSERTで弾かれた日が無いか）を確認
+    const cntRow = await db.prepare('SELECT COUNT(*) AS n FROM bookings WHERE group_id = ?').bind(groupId).first<{ n: number }>();
+    if ((cntRow?.n ?? 0) === body.items.length) {
+      reserved = true;
+    } else {
+      // 直前に別の予約が同じ時間帯を確保 → 競合。確保途中の行を取り消す（特典未消費）。
+      await db.batch([
+        db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(groupId),
+        db.prepare('DELETE FROM booking_groups WHERE id = ?').bind(groupId),
+      ]);
+      slotConflict = true;
+    }
   }
+  if (slotConflict) {
+    return c.json(
+      { error: 'たった今、選択された時間帯に別のご予約が入りました。お手数ですが時間帯を選び直してください。', code: 'CONFLICT' },
+      409,
+    );
+  }
+  if (!reserved) {
+    return c.json({ error: '予約番号の採番に失敗しました。もう一度お試しください。' }, 500);
+  }
+
+  // ------------------------------------------------------------------
+  // 第2段階：確保できた枠に対して、オプション・追加質問・特典消費を反映
+  // ------------------------------------------------------------------
+  const stmts: D1PreparedStatement[] = [];
+  for (const sel of optionSelections) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO booking_option_selections (id, group_id, option_id, quantity, subtotal)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), groupId, sel.optionId, sel.quantity, sel.subtotal),
+    );
+  }
+  for (const a of answerRows) {
+    stmts.push(
+      db
+        .prepare('INSERT INTO booking_answers (id, group_id, question_id, label, answer, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), groupId, a.questionId, a.label, a.answer, now),
+    );
+  }
+  // クーポン消費（会員）
+  if (couponId && primary.kind === 'coupon' && totals.couponHoursConsumed > 0) {
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE discount_coupons
+           SET remaining_hours = remaining_hours - ?,
+               status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
+           WHERE id = ?`,
+        )
+        .bind(totals.couponHoursConsumed, totals.couponHoursConsumed, couponId),
+    );
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO coupon_usage (id, coupon_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), couponId, bookingIds[0], totals.couponHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
+    );
+  }
+  // チケット消費（会員）#24
+  if (usedTicketId && primary.kind === 'ticket' && totals.ticketHoursConsumed > 0) {
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE tickets
+           SET remaining_hours = remaining_hours - ?,
+               status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
+           WHERE id = ?`,
+        )
+        .bind(totals.ticketHoursConsumed, totals.ticketHoursConsumed, usedTicketId),
+    );
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO ticket_usage (id, ticket_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), usedTicketId, bookingIds[0], totals.ticketHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
+    );
+  }
+  // ポイント消費（会員）
+  if (primary.kind === 'points' && totals.pointsUsed > 0) {
+    const balanceAfter = primary.pointBalance - totals.pointsUsed;
+    stmts.push(
+      db.prepare('UPDATE customers SET point_balance = point_balance - ? WHERE id = ?').bind(totals.pointsUsed, customerId),
+    );
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO point_log (id, customer_id, type, amount, balance_after, group_id, description, created_at)
+           VALUES (?, ?, 'use', ?, ?, ?, '予約でのポイント利用', ?)`,
+        )
+        .bind(crypto.randomUUID(), customerId, totals.pointsUsed, balanceAfter, groupId, now),
+    );
+  }
+  if (stmts.length) await db.batch(stmts);
 
   // Googleカレンダー（予約台帳の正）へイベント書き込み＋イベントID保存
   const gcalResult = await writeBookingToCalendar(c.env, space.google_calendar_id, {

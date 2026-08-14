@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { AppBindings, Env } from '../types';
+import type { AppBindings } from '../types';
 import {
   getSpaceById,
   getCustomerProfile,
@@ -49,14 +49,7 @@ import {
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail } from '../lib/email';
-import {
-  gcalConfigured,
-  freeBusy,
-  insertEvent,
-  deleteEvent,
-  conflictsWithBusy,
-  toJstRfc3339,
-} from '../lib/gcal';
+import { checkCalendarConflict, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 
 const app = new Hono<AppBindings>();
 
@@ -87,84 +80,6 @@ function toCampaignCandidates(
   }));
 }
 
-interface DayItem {
-  date: string;
-  startTime: string;
-  endTime: string;
-}
-
-/**
- * Google カレンダー（予約台帳の正）を照会し、いずれかのコマが埋まっていれば
- * その旨を返す。連携未設定・カレンダーID未設定なら null（チェックなし）。
- */
-async function checkCalendarConflict(
-  env: Env,
-  calendarId: string | null,
-  items: readonly DayItem[],
-): Promise<{ conflict?: string; error?: string }> {
-  if (!gcalConfigured(env) || !calendarId) return {};
-  try {
-    for (const it of items) {
-      const startISO = toJstRfc3339(it.date, it.startTime);
-      const endISO = toJstRfc3339(it.date, it.endTime);
-      const busy = await freeBusy(env, calendarId, startISO, endISO);
-      if (conflictsWithBusy(startISO, endISO, busy)) {
-        return { conflict: `${it.date} ${it.startTime}-${it.endTime}` };
-      }
-    }
-    return {};
-  } catch (err) {
-    // 照会に失敗（認証/権限/カレンダーID等）しても予約は止めない。
-    // 実際の重複はローカルDBチェックでも防いでおり、書き込み側で警告を出す。
-    return { error: (err as Error).message };
-  }
-}
-
-/**
- * 予約成立後、各コマを Google カレンダーにイベントとして書き込み、
- * bookings.google_event_id に保存する。失敗しても予約は成立させ、警告文を返す。
- */
-async function writeBookingToCalendar(
-  env: Env,
-  calendarId: string | null,
-  args: { bookingNumber: string; eventName: string; customerName: string; items: readonly DayItem[]; bookingIds: readonly string[] },
-): Promise<{ warning?: string }> {
-  if (!gcalConfigured(env) || !calendarId) return {};
-  try {
-    const updates: D1PreparedStatement[] = [];
-    for (let i = 0; i < args.items.length; i++) {
-      const it = args.items[i];
-      const ev = await insertEvent(env, calendarId, {
-        summary: `${args.eventName}（${args.customerName}）`,
-        description: `予約番号: ${args.bookingNumber}\nお客様: ${args.customerName}\n（レンタルスペースALBE 予約システム）`,
-        startISO: toJstRfc3339(it.date, it.startTime),
-        endISO: toJstRfc3339(it.date, it.endTime),
-      });
-      updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, args.bookingIds[i]));
-    }
-    if (updates.length) await env.DB.batch(updates);
-    return {};
-  } catch (err) {
-    return { warning: `Googleカレンダーへの書き込みに失敗しました（予約は成立しています）: ${(err as Error).message}` };
-  }
-}
-
-/** 予約グループのイベントを Google カレンダーから削除（キャンセル時） */
-async function deleteBookingFromCalendar(
-  env: Env,
-  calendarId: string | null,
-  eventIds: readonly (string | null)[],
-): Promise<void> {
-  if (!gcalConfigured(env) || !calendarId) return;
-  for (const id of eventIds) {
-    if (!id) continue;
-    try {
-      await deleteEvent(env, calendarId, id);
-    } catch {
-      // 削除失敗は握りつぶす（照合バッチで拾う想定）
-    }
-  }
-}
 
 interface CreateBookingBody {
   spaceId: string;

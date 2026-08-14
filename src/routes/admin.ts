@@ -62,6 +62,7 @@ import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/cale
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail } from '../lib/email';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
+import { checkCalendarConflict, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -384,6 +385,15 @@ async function prepareAdminBooking(
     }
   }
 
+  // 本予約はGoogleカレンダー（台帳の正）を確定直前に照会。埋まっていれば拒否。
+  // 商談中はカレンダーに書き込まない（サイネージに出さない運用のため）ので照会もしない。
+  if (status === 'confirmed') {
+    const calCheck = await checkCalendarConflict(c.env, space.google_calendar_id, body.items);
+    if (calCheck.conflict) {
+      return { error: c.json({ error: `${calCheck.conflict} はGoogleカレンダー上でたった今埋まりました。別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' }, 409) };
+    }
+  }
+
   const inserted = await insertBookingGroup(db, {
     space,
     eventName: body.eventName,
@@ -394,6 +404,20 @@ async function prepareAdminBooking(
     status,
     note: body.note ?? null,
   });
+
+  // 本予約はGoogleカレンダーへ書き込み（各コマ）。商談中は書き込まない。
+  let calendarWarning: string | null = null;
+  if (status === 'confirmed' && gcalConfigured(c.env) && space.google_calendar_id) {
+    const rows = await getBookingsByGroup(db, inserted.groupId);
+    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
+      bookingNumber: inserted.bookingNumber,
+      eventName: body.eventName,
+      customerName: body.customer?.contactName ?? 'お客様',
+      items: rows.map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
+      bookingIds: rows.map((r) => r.id),
+    });
+    calendarWarning = res.warning ?? null;
+  }
 
   // 本予約（confirmed）でお客様のメールが分かる場合のみ、予約確認メールを送る。
   // 商談中（tentative）は社内の仮押さえのため送らない。
@@ -418,6 +442,7 @@ async function prepareAdminBooking(
         status,
         total: group.spaceTotal,
         days: group.days.map((d) => ({ date: d.date, billingMode: d.billingMode, price: d.price })),
+        calendarWarning,
       },
       201,
     ),
@@ -456,12 +481,34 @@ app.post('/bookings/:number/confirm', async (c) => {
     if (conflict) return c.json({ error: `${b.date} は既に確定予約と競合しています` }, 409);
   }
 
+  // 本予約化の直前にGoogleカレンダー（台帳の正）を照会。埋まっていれば拒否。
+  const confirmSpace = await getSpaceById(db, g.space_id);
+  const items = bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time }));
+  const calCheck = await checkCalendarConflict(c.env, confirmSpace?.google_calendar_id ?? null, items);
+  if (calCheck.conflict) {
+    return c.json({ error: `${calCheck.conflict} はGoogleカレンダー上で埋まっています。本予約化できません。`, code: 'CALENDAR_CONFLICT' }, 409);
+  }
+
   const stmts: D1PreparedStatement[] = [
     db.prepare("UPDATE booking_groups SET status = 'confirmed' WHERE id = ?").bind(g.id),
     db.prepare("UPDATE bookings SET status = 'confirmed' WHERE group_id = ? AND status = 'tentative'").bind(g.id),
   ];
   await db.batch(stmts);
-  return c.json({ bookingNumber: number, status: 'confirmed' });
+
+  // 本予約化 → Googleカレンダーへ書き込み（商談中の間は書き込んでいないため、ここで作成）
+  let calendarWarning: string | null = null;
+  if (gcalConfigured(c.env) && confirmSpace?.google_calendar_id) {
+    const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+    const res = await writeBookingToCalendar(c.env, confirmSpace.google_calendar_id, {
+      bookingNumber: number,
+      eventName: g.event_name,
+      customerName: cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様'),
+      items,
+      bookingIds: bookings.map((b) => b.id),
+    });
+    calendarWarning = res.warning ?? null;
+  }
+  return c.json({ bookingNumber: number, status: 'confirmed', calendarWarning });
 });
 
 /** 予約グループのキャンセル料を日別に計算（キャンセルはしない） */
@@ -521,6 +568,10 @@ app.post('/bookings/:number/cancel', async (c) => {
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
   await db.batch(stmts);
+
+  // Googleカレンダー（台帳の正）からイベント削除
+  const cancelSpace = await getSpaceById(db, g.space_id);
+  await deleteBookingFromCalendar(c.env, cancelSpace?.google_calendar_id ?? null, bookings.map((b) => b.google_event_id));
 
   // キャンセル確認メール（お客様宛）
   if (g.customer_id) {

@@ -1524,6 +1524,7 @@ async function cancelBooking(number) {
 let rsNumber = null;
 let rsStatus = null;
 let rsOriginal = [];
+let rsTicketPaid = false;
 async function openReschedule(number) {
   rsNumber = number;
   rsStatus = null;
@@ -1536,10 +1537,14 @@ async function openReschedule(number) {
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
   rsStatus = body.status;
+  rsTicketPaid = !!body.ticketPaid;
   rsOriginal = (body.items || []).map(it => ({ date: it.date, startTime: it.startTime, endTime: it.endTime }));
   document.getElementById('rsInfo').textContent =
     body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）';
-  document.getElementById('rsSlots').innerHTML = (body.items || []).map((it, i) =>
+  const tnote = rsTicketPaid
+    ? '<div style="margin-bottom:8px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px">🎫 <strong>チケット払いの予約です。</strong>利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合はキャンセル→取り直しをお願いします。</div>'
+    : '';
+  document.getElementById('rsSlots').innerHTML = tnote + (body.items || []).map((it, i) =>
     '<div class="grid" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">' +
       '<div><label>日付</label><input type="date" class="rs-date" value="' + it.date + '" /></div>' +
       '<div><label>開始</label><input class="rs-start" value="' + it.startTime + '" placeholder="10:00" /></div>' +
@@ -1588,6 +1593,18 @@ async function submitReschedule() {
     const oid = el.getAttribute('data-oid');
     const q = el.type === 'checkbox' ? (el.checked ? 1 : 0) : Math.floor(Number(el.value) || 0);
     if (q > 0) options.push({ optionId: oid, quantity: q });
+  }
+  // チケット払いは利用時間（合計時間数）を変更できない（日程・開始時刻の移動のみ）
+  if (rsTicketPaid) {
+    const dur = arr => arr.reduce((s, it) => {
+      const [sh, sm] = it.startTime.split(':').map(Number);
+      const [eh, em] = it.endTime.split(':').map(Number);
+      return s + ((eh * 60 + em) - (sh * 60 + sm));
+    }, 0);
+    if (dur(items) !== dur(rsOriginal)) {
+      document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">チケット払いの予約は、利用時間（合計時間数）を変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合はキャンセル→取り直しをお願いします。</span>';
+      return;
+    }
   }
   // 変更内容の確認（誤操作による重複メール送信を防止）
   const changeLines = items.map((it, i) => {

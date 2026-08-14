@@ -862,6 +862,15 @@ app.post('/:number/reschedule', async (c) => {
   let ticketRecalc: { usageId: string; ticketId: string; newRemaining: number; newHours: number; coveredYen: number } | null = null;
   let newTotal: number;
   if (ticketUsage) {
+    // チケット予約は「合計の利用時間数」を変更できない（日程・開始時刻の移動のみ）#24
+    const oldHours = oldRows.reduce((s, r) => s + r.billable_hours, 0);
+    const newHoursTotal = newGroup.days.reduce((s, d) => s + d.billableHours, 0);
+    if (newHoursTotal !== oldHours) {
+      return c.json(
+        { error: 'チケットでご予約の場合、利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合は、一度キャンセルして取り直してください。', code: 'TICKET_DURATION_FIXED' },
+        400,
+      );
+    }
     const restored = ticketUsage.remainingHours + ticketUsage.oldHours;
     const cov = coveredAmountForHours(
       newGroup.days.map((d) => ({ billableHours: d.billableHours, price: d.price })),

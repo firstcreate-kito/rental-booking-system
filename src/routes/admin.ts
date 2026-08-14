@@ -682,6 +682,7 @@ app.get('/bookings/:number', async (c) => {
   const spaceOpts = await getSpaceOptions(db, g.space_id);
   const currentOptionsTotal = (optSel ?? []).reduce((s, o) => s + o.subtotal, 0);
   const answers = await getBookingAnswers(db, g.id);
+  const ticketPaid = !!(await getTicketUsageForGroup(db, g.id)); // チケット払いか（日時変更で時間数変更不可）#24
   return c.json({
     bookingNumber: g.booking_number,
     status: g.status,
@@ -689,6 +690,7 @@ app.get('/bookings/:number', async (c) => {
     spaceName: space?.name ?? '',
     totalAmount: g.total_amount,
     spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
+    ticketPaid,
     answers, // 追加質問の回答（#22）
     items: rows.map((r) => ({
       date: r.date,
@@ -816,6 +818,15 @@ app.post('/bookings/:number/reschedule', async (c) => {
   let ticketRecalc: { usageId: string; ticketId: string; newRemaining: number; newHours: number; coveredYen: number } | null = null;
   let newSpaceFee: number;
   if (ticketUsage) {
+    // チケット予約は「合計の利用時間数」を変更できない（日程・開始時刻の移動のみ）#24
+    const oldHours = oldRows.reduce((s, r) => s + r.billable_hours, 0);
+    const newHours = newGroup.days.reduce((s, d) => s + d.billableHours, 0);
+    if (newHours !== oldHours) {
+      return c.json(
+        { error: 'チケットでご予約の場合、利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合は、一度キャンセルして取り直してください。', code: 'TICKET_DURATION_FIXED' },
+        400,
+      );
+    }
     const restored = ticketUsage.remainingHours + ticketUsage.oldHours; // 旧消費を一旦戻した残時間
     const cov = coveredAmountForHours(
       newGroup.days.map((d) => ({ billableHours: d.billableHours, price: d.price })),

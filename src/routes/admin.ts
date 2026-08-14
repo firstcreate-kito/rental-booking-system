@@ -684,12 +684,16 @@ app.post('/bookings/:number/reschedule', async (c) => {
     return c.json({ error: `${calCheck.conflict} はGoogleカレンダー上で埋まっています。別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' }, 409);
   }
 
+  const keepStatus = g.status === 'tentative' ? 'tentative' : 'confirmed';
+  const isTentative = keepStatus === 'tentative';
+
   const dayInputs: DayBookingInput[] = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime, isResidence: i.isResidence }));
   const newGroup = computeGroupSpacePrice(toPricingConfig(space), dayInputs, { holidays: holidayMap, seasonalRules });
-  const newTotal = newGroup.spaceTotal;
-  const adjustment = computeAdjustment(g.total_amount, newTotal);
+  // 商談中（仮予約）は金額が未確定のため再計算・差額計算は行わず、日時のみ移動する。
+  // 本予約（代理予約含む）は通常どおり料金を再計算し差額を返す。
+  const newTotal = isTentative ? g.total_amount : newGroup.spaceTotal;
+  const adjustment = isTentative ? null : computeAdjustment(g.total_amount, newTotal);
 
-  const keepStatus = g.status === 'tentative' ? 'tentative' : 'confirmed';
   const newBookingIds = body.items.map(() => crypto.randomUUID());
   const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id)];
   for (let i = 0; i < body.items.length; i++) {
@@ -705,7 +709,12 @@ app.post('/bookings/:number/reschedule', async (c) => {
         .bind(newBookingIds[i], g.id, space.id, item.date, item.startTime, item.endTime, day.billableHours, day.billingMode, day.isResidence ? 1 : 0, day.rate, day.price, keepStatus, g.source),
     );
   }
-  stmts.push(db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id));
+  // 商談中は total_amount を据え置き（reschedule_count のみ更新）
+  stmts.push(
+    isTentative
+      ? db.prepare('UPDATE booking_groups SET reschedule_count = reschedule_count + 1 WHERE id = ?').bind(g.id)
+      : db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id),
+  );
   await db.batch(stmts);
 
   // Googleカレンダー同期：旧イベント削除→新日時で作成

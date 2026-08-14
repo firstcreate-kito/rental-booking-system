@@ -1075,13 +1075,16 @@ async function cancelBooking(number) {
 
 // --- 日時変更（管理者） ---
 let rsNumber = null;
+let rsStatus = null;
 async function openReschedule(number) {
   rsNumber = number;
+  rsStatus = null;
   document.getElementById('rsMsg').textContent = '';
   document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
   document.getElementById('rsOverlay').style.display = 'flex';
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
+  rsStatus = body.status;
   document.getElementById('rsInfo').textContent =
     body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）';
   document.getElementById('rsSlots').innerHTML = (body.items || []).map((it, i) =>
@@ -1113,10 +1116,15 @@ async function submitReschedule() {
   const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody({ items }));
   btn.disabled = false;
   if (!ok) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">' + (body.error || '変更に失敗しました') + '</span>'; return; }
-  let note = '日時を変更しました。新しい合計 ' + yen(body.newTotal);
-  const adj = body.adjustment;
-  if (adj && adj.type === 'surcharge') note += '（追加請求 +' + yen(adj.amount) + '）';
-  else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';
+  let note;
+  if (rsStatus === 'tentative') {
+    note = '商談中予約の日時を変更しました。（金額は据え置きです）';
+  } else {
+    note = '日時を変更しました。新しい合計 ' + yen(body.newTotal);
+    const adj = body.adjustment;
+    if (adj && adj.type === 'surcharge') note += '（追加請求 +' + yen(adj.amount) + '）';
+    else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';
+  }
   if (body.calendarWarning) note += '\n⚠ ' + body.calendarWarning;
   alert(note);
   closeReschedule();

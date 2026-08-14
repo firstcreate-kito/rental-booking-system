@@ -468,10 +468,13 @@
 
     <!-- チケット販売（商品マスタ） -->
     <section id="view-tickets" class="card hidden">
-      <h2>チケット（回数券）販売管理</h2>
-      <div class="muted">お客様に販売する<strong>チケット商品</strong>を登録します。対象スペース・利用可能時間・販売料金・有効日数を設定でき、顧客への発行時にここから選べます。内容は任意で変更・追加・削除できます。</div>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">チケット（回数券）販売管理</h2>
+        <button class="btn sm" onclick="newTicketProduct()">＋ 新規チケットを追加</button>
+      </div>
+      <div class="muted" style="margin-top:6px">お客様に販売する<strong>チケット商品</strong>を登録します。対象スペース・利用可能時間・販売料金・有効日数を設定でき、顧客への発行時にここから選べます。各行の右側の「編集」「削除」ボタンで内容の変更・削除ができます。</div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>チケット名</th><th>対象スペース</th><th>時間</th><th>販売料金</th><th>有効日数</th><th>状態</th><th></th></tr></thead><tbody id="tpBody"></tbody></table>
+        <table><thead><tr><th>チケット名</th><th>対象スペース</th><th>時間</th><th>販売料金</th><th>有効日数</th><th>状態</th><th style="white-space:nowrap">操作</th></tr></thead><tbody id="tpBody"></tbody></table>
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)" />
       <h2 id="tpFormTitle" style="font-size:14px">チケット商品を追加</h2>
@@ -1295,12 +1298,18 @@ async function loadTicketProducts() {
   document.getElementById('tpBody').innerHTML = ticketProducts.map(p => {
     const spaces = (p.space_ids || []).map(spName).join(' / ') || '—';
     const pub = p.is_active ? '<span class="pill confirmed">販売中</span>' : '<span class="pill cancelled">非公開</span>';
-    return '<tr><td>' + p.name + '</td><td>' + spaces + '</td><td>' + p.total_hours + 'h</td><td>' + yen(p.price) +
-      '</td><td>' + p.validity_days + '日</td><td>' + pub + '</td><td>' +
+    return '<tr><td>' + p.name + '</td><td style="white-space:normal;min-width:140px">' + spaces + '</td><td>' + p.total_hours + 'h</td><td>' + yen(p.price) +
+      '</td><td>' + p.validity_days + '日</td><td>' + pub + '</td><td style="white-space:nowrap">' +
       '<button class="btn ghost sm" onclick="editTicketProduct(\'' + p.id + '\')">編集</button> ' +
       '<button class="btn ghost sm" onclick="delTicketProduct(\'' + p.id + '\')">削除</button></td></tr>';
   }).join('') || '<tr><td colspan="7" class="muted">登録なし</td></tr>';
   renderTpSpaceChecks([]);
+}
+// 「＋ 新規チケットを追加」：フォームを初期化してスクロール表示
+function newTicketProduct() {
+  resetTicketProductForm();
+  document.getElementById('tpFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('tp_name').focus({ preventScroll: true });
 }
 function renderTpSpaceChecks(selected) {
   const set = new Set(selected || []);

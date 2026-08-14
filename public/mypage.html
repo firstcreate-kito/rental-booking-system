@@ -100,6 +100,7 @@
       <button id="tab-bookings" class="active" onclick="showTab('bookings')">予約履歴</button>
       <button id="tab-points" onclick="showTab('points')">ポイント</button>
       <button id="tab-coupons" onclick="showTab('coupons')">クーポン</button>
+      <button id="tab-tickets" onclick="showTab('tickets')">チケット</button>
       <button id="tab-favorites" onclick="showTab('favorites')">お気に入り</button>
       <button id="tab-profile" onclick="showTab('profile')">アカウント設定</button>
       <button class="btn ghost sm" style="margin-left:auto" onclick="logout()">ログアウト</button>
@@ -134,6 +135,13 @@
       <h2>保有クーポン</h2>
       <div id="cpList"></div>
       <div class="muted" id="cpEmpty"></div>
+    </section>
+
+    <section id="view-tickets" class="card hidden">
+      <h2>保有チケット（回数券）</h2>
+      <div class="muted" style="margin-bottom:8px">予約時に選択すると、利用時間分がスペース料金に充当されます。</div>
+      <div id="tkList"></div>
+      <div class="muted" id="tkEmpty"></div>
     </section>
 
     <section id="view-favorites" class="card hidden">
@@ -248,13 +256,13 @@ async function submitRegister() {
 async function logout() { await api('/api/auth/logout', jsonBody({})); location.reload(); }
 
 function showTab(t) {
-  ['bookings','points','coupons','favorites','profile'].forEach(x => {
+  ['bookings','points','coupons','tickets','favorites','profile'].forEach(x => {
     document.getElementById('view-'+x).classList.toggle('hidden', x!==t);
     document.getElementById('tab-'+x).classList.toggle('active', x===t);
   });
 }
 
-async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadFavorites(); loadProfile(); }
+async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadTickets(); loadFavorites(); loadProfile(); }
 
 function bookingRow(b) {
   const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
@@ -305,6 +313,19 @@ async function loadCoupons() {
       '<div>' + off + '　残り ' + c.remaining_hours + ' / ' + c.total_hours + ' 時間（' + pct + '%）</div>' +
       '<div class="muted">対象: ' + (c.spaces||'—') + '</div>' +
       '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + (c.valid_until ? c.valid_until : '無期限') + '</div></div>';
+  }).join('');
+}
+async function loadTickets() {
+  const { body } = await api('/api/mypage/tickets');
+  const rows = body.tickets || [];
+  document.getElementById('tkEmpty').textContent = rows.length ? '' : '保有チケットはありません';
+  document.getElementById('tkList').innerHTML = rows.map(t => {
+    const pct = t.total_hours ? Math.round(t.remaining_hours / t.total_hours * 100) : 0;
+    return '<div class="coupon"><div class="row"><strong>' + t.name + '</strong>' +
+      '<span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></div>' +
+      '<div>残り ' + t.remaining_hours + ' / ' + t.total_hours + ' 時間（' + pct + '%）</div>' +
+      '<div class="muted">対象: ' + (t.spaces || '全スペース') + '</div>' +
+      '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div></div>';
   }).join('');
 }
 async function loadFavorites() {

@@ -13,9 +13,11 @@ import {
   addFavorite,
   removeFavorite,
   getSpaceById,
+  getMemberTickets,
+  getUsableTicketsForSpace,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
-import { nowJST } from '../lib/clock';
+import { nowJST, todayJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
 
@@ -74,6 +76,20 @@ app.get('/points', async (c) => {
 app.get('/coupons', async (c) => {
   const coupons = await getMemberCoupons(c.env.DB, c.get('customer').id);
   return c.json({ coupons });
+});
+
+/** GET /api/mypage/tickets 保有チケット一覧 */
+app.get('/tickets', async (c) => {
+  const tickets = await getMemberTickets(c.env.DB, c.get('customer').id);
+  return c.json({ tickets });
+});
+
+/** GET /api/mypage/usable-tickets?spaceId=xxx 指定スペースで使えるチケット */
+app.get('/usable-tickets', async (c) => {
+  const spaceId = c.req.query('spaceId');
+  if (!spaceId) return c.json({ tickets: [] });
+  const tickets = await getUsableTicketsForSpace(c.env.DB, c.get('customer').id, spaceId, todayJST());
+  return c.json({ tickets });
 });
 
 /** GET /api/mypage/favorites お気に入り一覧 */

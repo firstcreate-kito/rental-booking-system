@@ -155,11 +155,15 @@
           <span><strong id="memberName"></strong> さんでログイン中</span>
           <button class="btn ghost sm" onclick="memberLogout()">ログアウト</button>
         </div>
+        <div id="ticketRow" class="hidden">
+          <label>チケット（回数券）利用</label>
+          <select id="d_ticket" onchange="onTicketChange()"><option value="">使わない</option></select>
+        </div>
         <label>クーポンコード</label>
         <input id="d_coupon" placeholder="例）WELCOME20" oninput="onCouponInput()" />
         <label>ポイント利用（保有: <span id="ptBal">0</span>P）</label>
         <input id="d_points" type="number" min="0" placeholder="0" oninput="onPointsInput()" />
-        <div class="muted">※ クーポンとポイントは併用できません</div>
+        <div class="muted">※ チケット・クーポン・ポイントは併用できません</div>
         <div class="warn-note" id="discountMsg" style="color:#166534"></div>
       </div>
     </div>
@@ -617,6 +621,7 @@ async function goCustomer() {
   setStep(4);
   show('view-customer');
   await renderQuestions();
+  await loadUsableTickets();
   await recomputeSummary();
 }
 
@@ -653,20 +658,38 @@ async function memberLogin() {
     if (!document.getElementById('f_email').value) document.getElementById('f_email').value = pr.body.profile.email || '';
     if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = pr.body.profile.phone || '';
   }
+  await loadUsableTickets();
   recomputeSummary();
 }
 function memberLogout() {
   S.token = null; S.member = null;
   document.getElementById('loginForm').classList.remove('hidden');
   document.getElementById('memberBox').classList.add('hidden');
+  document.getElementById('ticketRow').classList.add('hidden');
+  clearTicketSel();
   recomputeSummary();
 }
-function onCouponInput() { if (document.getElementById('d_coupon').value.trim()) document.getElementById('d_points').value = ''; recomputeSummary(); }
-function onPointsInput() { if (Number(document.getElementById('d_points').value) > 0) document.getElementById('d_coupon').value = ''; recomputeSummary(); }
+function clearTicketSel() { const t = document.getElementById('d_ticket'); if (t) t.value = ''; }
+function onCouponInput() { if (document.getElementById('d_coupon').value.trim()) { document.getElementById('d_points').value = ''; clearTicketSel(); } recomputeSummary(); }
+function onPointsInput() { if (Number(document.getElementById('d_points').value) > 0) { document.getElementById('d_coupon').value = ''; clearTicketSel(); } recomputeSummary(); }
+function onTicketChange() { if (document.getElementById('d_ticket').value) { document.getElementById('d_coupon').value = ''; document.getElementById('d_points').value = ''; } recomputeSummary(); }
+// 選択中スペースで使えるチケットを読み込み（会員のみ）
+async function loadUsableTickets() {
+  const row = document.getElementById('ticketRow'), sel = document.getElementById('d_ticket');
+  if (!S.token || !S.space) { row.classList.add('hidden'); return; }
+  const { ok, body } = await api('/api/mypage/usable-tickets?spaceId=' + encodeURIComponent(S.space.id), { headers: authHeaders() });
+  const rows = (ok && body.tickets) ? body.tickets : [];
+  if (!rows.length) { row.classList.add('hidden'); sel.innerHTML = '<option value="">使わない</option>'; return; }
+  sel.innerHTML = '<option value="">使わない</option>' + rows.map(t =>
+    '<option value="' + t.id + '">' + t.name + '（残' + t.remaining_hours + 'h・〜' + t.valid_until + '）</option>').join('');
+  row.classList.remove('hidden');
+}
 function discountPayload() {
   if (!S.token) return {};
+  const ticket = document.getElementById('d_ticket') ? document.getElementById('d_ticket').value : '';
   const coupon = document.getElementById('d_coupon').value.trim();
   const points = Number(document.getElementById('d_points').value) || 0;
+  if (ticket) return { ticketId: ticket };
   if (coupon) return { couponCode: coupon };
   if (points > 0) return { pointsToUse: points };
   return {};
@@ -709,6 +732,7 @@ async function recomputeSummary() {
   if (dmsg) {
     if (body.discountError) { dmsg.style.color = '#b91c1c'; dmsg.textContent = '⚠️ ' + body.discountError; }
     else if (body.primaryKind === 'coupon') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ クーポン適用 -' + yen(body.primaryDiscount) + '（' + body.couponHoursConsumed + '時間消費）'; }
+    else if (body.primaryKind === 'ticket') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ チケット適用 -' + yen(body.primaryDiscount) + '（' + body.ticketHoursConsumed + '時間消費）'; }
     else if (body.primaryKind === 'points') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ ポイント利用 -' + yen(body.pointsUsed); }
     else dmsg.textContent = '';
   }

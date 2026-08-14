@@ -33,6 +33,8 @@ import {
   getCustomerProfile,
   getPointBalanceAndLog,
   getMemberCoupons,
+  getMemberTickets,
+  issueTicket,
   type SpaceInput,
   type OptionInput,
   getHolidays,
@@ -976,11 +978,12 @@ app.get('/customers/:id', async (c) => {
   const id = c.req.param('id');
   const profile = await getCustomerProfile(c.env.DB, id);
   if (!profile) return c.json({ error: 'customer not found' }, 404);
-  const [points, coupons] = await Promise.all([
+  const [points, coupons, tickets] = await Promise.all([
     getPointBalanceAndLog(c.env.DB, id),
     getMemberCoupons(c.env.DB, id),
+    getMemberTickets(c.env.DB, id),
   ]);
-  return c.json({ profile, points, coupons });
+  return c.json({ profile, points, coupons, tickets });
 });
 
 /** POST /api/admin/customers 新規顧客の手動登録（owner/manager） */
@@ -1053,6 +1056,31 @@ app.post('/coupons', requireRole('owner', 'manager'), async (c) => {
     if ((err as Error).message?.includes('UNIQUE')) return c.json({ error: 'このクーポンコードは既に使われています' }, 409);
     throw err;
   }
+});
+
+/** POST /api/admin/customers/:id/tickets チケット発行（owner/manager）#24 */
+app.post('/customers/:id/tickets', requireRole('owner', 'manager'), async (c) => {
+  const customerId = c.req.param('id');
+  const profile = await getCustomerProfile(c.env.DB, customerId);
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const b = body as Record<string, unknown>;
+  const name = String(b.name ?? '').trim();
+  const totalHours = Number(b.totalHours ?? 0);
+  const validFrom = String(b.validFrom ?? '').trim() || todayJST();
+  const validUntil = String(b.validUntil ?? '').trim();
+  const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  if (!name) return c.json({ error: 'チケット名は必須です' }, 400);
+  if (!Number.isInteger(totalHours) || totalHours <= 0) return c.json({ error: '時間数は1以上の整数で入力してください' }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) return c.json({ error: '有効開始日は YYYY-MM-DD で入力してください' }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) return c.json({ error: '有効終了日は YYYY-MM-DD で入力してください' }, 400);
+  if (validUntil < validFrom) return c.json({ error: '有効終了日は開始日以降にしてください' }, 400);
+  const id = await issueTicket(
+    c.env.DB,
+    { customerId, name, totalHours, validFrom, validUntil, spaceIds },
+    nowJST(),
+  );
+  return c.json({ id }, 201);
 });
 
 /** POST /api/admin/customers/:id/points ポイント手動付与/取消（owner/manager） */

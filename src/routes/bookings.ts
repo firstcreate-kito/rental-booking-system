@@ -14,6 +14,8 @@ import {
   getBookingGroupByNumber,
   getBookingsByGroup,
   getSpaceQuestions,
+  getTicketForCustomer,
+  getTicketSpaceIds,
   getCancelPolicies,
   getOptionsByIds,
   isOptionAvailableForSpace,
@@ -98,6 +100,8 @@ interface CreateBookingBody {
   couponCode?: string;
   /** 会員のみ: 使用ポイント（クーポンとは併用不可） */
   pointsToUse?: number;
+  /** 会員のみ: 使用するチケット（回数券）ID（#24） */
+  ticketId?: string;
   /** スペース別の追加質問への回答（#22） */
   answers?: Array<{ questionId: string; answer?: string }>;
 }
@@ -140,7 +144,18 @@ async function resolvePrimaryDiscount(
   today: string,
   couponCode: string | undefined,
   pointsToUse: number | undefined,
-): Promise<{ primary: PrimaryDiscount; couponId?: string; error?: string }> {
+  ticketId?: string | undefined,
+): Promise<{ primary: PrimaryDiscount; couponId?: string; ticketId?: string; error?: string }> {
+  if (ticketId) {
+    const ticket = await getTicketForCustomer(db, ticketId, customerId);
+    if (!ticket) return { primary: { kind: 'none' }, error: 'チケットが見つかりません' };
+    if (ticket.status !== 'active') return { primary: { kind: 'none' }, error: 'このチケットは利用できません' };
+    if (today < ticket.valid_from || today > ticket.valid_until) return { primary: { kind: 'none' }, error: 'チケットの有効期限外です' };
+    if (ticket.remaining_hours <= 0) return { primary: { kind: 'none' }, error: 'チケットの残時間がありません' };
+    const tspaces = await getTicketSpaceIds(db, ticket.id);
+    if (tspaces.length > 0 && !tspaces.includes(spaceId)) return { primary: { kind: 'none' }, error: 'このチケットは対象スペース外です' };
+    return { primary: { kind: 'ticket', remainingHours: ticket.remaining_hours }, ticketId: ticket.id };
+  }
   if (couponCode) {
     const coupon = await getCouponByCodeForCustomer(db, couponCode, customerId);
     if (!coupon) return { primary: { kind: 'none' }, error: 'クーポンが見つかりません' };
@@ -309,14 +324,16 @@ app.post('/', async (c) => {
     }
   }
 
-  // 割引の主役を解決（会員のみ。クーポン/ポイント）
+  // 割引の主役を解決（会員のみ。クーポン/チケット/ポイントのいずれか1つ）
   let primary: PrimaryDiscount = { kind: 'none' };
   let couponId: string | undefined;
-  if (member && (body.couponCode || body.pointsToUse)) {
-    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse);
+  let usedTicketId: string | undefined;
+  if (member && (body.couponCode || body.pointsToUse || body.ticketId)) {
+    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse, body.ticketId);
     if (resolved.error) return c.json({ error: resolved.error }, 400);
     primary = resolved.primary;
     couponId = resolved.couponId;
+    usedTicketId = resolved.ticketId;
   }
 
   const pointRate = Number(settings.get('point_rate') ?? '1');
@@ -454,6 +471,27 @@ app.post('/', async (c) => {
           .bind(crypto.randomUUID(), couponId, bookingIds[0], totals.couponHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
       );
     }
+    // チケット消費（会員）#24
+    if (usedTicketId && primary.kind === 'ticket' && totals.ticketHoursConsumed > 0) {
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE tickets
+             SET remaining_hours = remaining_hours - ?,
+                 status = CASE WHEN remaining_hours - ? <= 0 THEN 'exhausted' ELSE status END
+             WHERE id = ?`,
+          )
+          .bind(totals.ticketHoursConsumed, totals.ticketHoursConsumed, usedTicketId),
+      );
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO ticket_usage (id, ticket_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), usedTicketId, bookingIds[0], totals.ticketHoursConsumed, totals.spaceFee, totals.spaceFee - totals.primaryDiscount, now),
+      );
+    }
     // ポイント消費（会員）
     if (primary.kind === 'points' && totals.pointsUsed > 0) {
       const balanceAfter = primary.pointBalance - totals.pointsUsed;
@@ -540,7 +578,7 @@ app.post('/', async (c) => {
  */
 app.post('/quote', async (c) => {
   const db = c.env.DB;
-  let body: { spaceId?: string; items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>; options?: Array<{ optionId: string; quantity?: number }>; couponCode?: string; pointsToUse?: number };
+  let body: { spaceId?: string; items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>; options?: Array<{ optionId: string; quantity?: number }>; couponCode?: string; pointsToUse?: number; ticketId?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -606,8 +644,8 @@ app.post('/quote', async (c) => {
   // 割引の主役を解決（会員のみ）
   let primary: PrimaryDiscount = { kind: 'none' };
   let discountError: string | undefined;
-  if (member && (body.couponCode || body.pointsToUse)) {
-    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse);
+  if (member && (body.couponCode || body.pointsToUse || body.ticketId)) {
+    const resolved = await resolvePrimaryDiscount(db, member.id, space.id, today, body.couponCode, body.pointsToUse, body.ticketId);
     if (resolved.error) discountError = resolved.error;
     else primary = resolved.primary;
   }
@@ -628,6 +666,7 @@ app.post('/quote', async (c) => {
     primaryKind: totals.primaryKind,
     primaryDiscount: totals.primaryDiscount,
     couponHoursConsumed: totals.couponHoursConsumed,
+    ticketHoursConsumed: totals.ticketHoursConsumed,
     pointsUsed: totals.pointsUsed,
     campaignDiscount: totals.campaignDiscount,
     campaignName: totals.campaignDiscount > 0 ? resolvedCampaign?.name ?? null : null,

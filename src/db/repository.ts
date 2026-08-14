@@ -1408,3 +1408,76 @@ export async function insertBookingAnswers(
     ),
   );
 }
+
+// --- チケット（回数券）#24 ---
+export interface TicketRow {
+  id: string;
+  customer_id: string;
+  name: string;
+  total_hours: number;
+  remaining_hours: number;
+  valid_from: string;
+  valid_until: string;
+  status: string;
+}
+
+/** 管理者がチケットを発行して顧客に紐付ける */
+export async function issueTicket(
+  db: D1Database,
+  t: { customerId: string; name: string; totalHours: number; validFrom: string; validUntil: string; spaceIds: string[] },
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO tickets (id, customer_id, product_id, name, total_hours, remaining_hours, valid_from, valid_until, status, purchased_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'active', ?)`,
+    )
+    .bind(id, t.customerId, t.name, t.totalHours, t.totalHours, t.validFrom, t.validUntil, now)
+    .run();
+  if (t.spaceIds.length) {
+    await db.batch(
+      t.spaceIds.map((sid) => db.prepare('INSERT OR IGNORE INTO ticket_spaces (ticket_id, space_id) VALUES (?, ?)').bind(id, sid)),
+    );
+  }
+  return id;
+}
+
+/** 会員の保有チケット一覧（マイページ用） */
+export async function getMemberTickets(db: D1Database, customerId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT t.id, t.name, t.total_hours, t.remaining_hours, t.valid_from, t.valid_until, t.status,
+              (SELECT GROUP_CONCAT(s.name, ' / ') FROM ticket_spaces ts JOIN spaces s ON s.id = ts.space_id WHERE ts.ticket_id = t.id) AS spaces
+       FROM tickets t WHERE t.customer_id = ? ORDER BY t.purchased_at DESC`,
+    )
+    .bind(customerId)
+    .all();
+  return results ?? [];
+}
+
+/** 予約に使える有効チケット（対象スペース・期限・残時間で絞り込み） */
+export async function getUsableTicketsForSpace(db: D1Database, customerId: string, spaceId: string, today: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT t.id, t.name, t.remaining_hours, t.valid_until
+       FROM tickets t
+       WHERE t.customer_id = ? AND t.status = 'active' AND t.remaining_hours > 0
+         AND t.valid_from <= ? AND t.valid_until >= ?
+         AND (NOT EXISTS (SELECT 1 FROM ticket_spaces ts WHERE ts.ticket_id = t.id)
+              OR EXISTS (SELECT 1 FROM ticket_spaces ts WHERE ts.ticket_id = t.id AND ts.space_id = ?))
+       ORDER BY t.valid_until`,
+    )
+    .bind(customerId, today, today, spaceId)
+    .all<{ id: string; name: string; remaining_hours: number; valid_until: string }>();
+  return results ?? [];
+}
+
+export async function getTicketForCustomer(db: D1Database, ticketId: string, customerId: string): Promise<TicketRow | null> {
+  return db.prepare('SELECT * FROM tickets WHERE id = ? AND customer_id = ?').bind(ticketId, customerId).first<TicketRow>();
+}
+
+export async function getTicketSpaceIds(db: D1Database, ticketId: string): Promise<string[]> {
+  const { results } = await db.prepare('SELECT space_id FROM ticket_spaces WHERE ticket_id = ?').bind(ticketId).all<{ space_id: string }>();
+  return (results ?? []).map((r) => r.space_id);
+}

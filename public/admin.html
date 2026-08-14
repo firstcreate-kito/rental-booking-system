@@ -541,10 +541,32 @@
             <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="submitCoupon()">発行</button></div>
             <div class="msg" id="cpMsg"></div>
           </div>
+
+          <!-- チケット（回数券）発行 -->
+          <div class="card" style="margin:0">
+            <h2>チケット（回数券）発行</h2>
+            <div class="muted" style="font-size:12px;margin-top:-4px;margin-bottom:6px">利用可能時間分をスペース料金に充当できる回数券です。予約時に会員が選択して消費します。</div>
+            <div class="grid">
+              <div><label>チケット名 *</label><input id="tk_name" placeholder="例）10時間回数券" /></div>
+              <div><label>利用可能時間 *</label><input id="tk_hours" type="number" min="1" step="1" placeholder="10" /></div>
+            </div>
+            <div class="grid">
+              <div><label>有効開始（任意）</label><input id="tk_from" type="date" /></div>
+              <div><label>有効終了 *</label><input id="tk_until" type="date" /></div>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:-2px">未入力の場合：開始＝発行日</div>
+            <label>対象スペース（未選択＝全スペース可）</label>
+            <div id="tk_spaces" class="row" style="gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:120px;overflow:auto"></div>
+            <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="submitTicket()">発行</button></div>
+            <div class="msg" id="tkMsg"></div>
+          </div>
         </div>
 
         <h2 style="margin-top:16px">保有クーポン</h2>
         <div class="tablewrap"><table><thead><tr><th>コード</th><th>名称</th><th>割引</th><th>残/総</th><th>期限</th><th>状態</th></tr></thead><tbody id="csCoupons"></tbody></table></div>
+
+        <h2 style="margin-top:16px">保有チケット（回数券）</h2>
+        <div class="tablewrap"><table><thead><tr><th>名称</th><th>対象スペース</th><th>残/総</th><th>有効期間</th><th>状態</th></tr></thead><tbody id="csTickets"></tbody></table></div>
       </div>
     </section>
   </div>
@@ -767,7 +789,7 @@ async function loadBookings() {
       '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
   }).join('');
 }
-function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了' }[s] || s; }
+function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了', active:'有効', exhausted:'使い切り', expired:'期限切れ' }[s] || s; }
 async function testEmail() {
   const to = prompt('テストメールの送信先アドレスを入力してください。\n※onboarding@resend.dev を使用中は、Resend登録アドレス宛のみ届きます。', (A.admin && A.admin.email) || '');
   if (!to) return;
@@ -1065,6 +1087,8 @@ async function initCustomers() {
   if (A.spaces.length === 0) await loadSpaces();
   document.getElementById('cp_spaces').innerHTML = A.spaces.map(s =>
     '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="cp-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+  document.getElementById('tk_spaces').innerHTML = A.spaces.map(s =>
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="tk-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
   if (!document.getElementById('csBody').innerHTML) searchCustomers();
 }
 async function searchCustomers() {
@@ -1111,7 +1135,10 @@ async function selectCustomer(id) {
     const until = c.valid_until ? c.valid_until : '無期限';
     return '<tr><td>' + c.code + '</td><td>' + c.name + '</td><td>' + off + '</td><td>' + c.remaining_hours + '/' + c.total_hours + 'h</td><td>' + until + '</td><td><span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></td></tr>';
   }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
-  document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = '';
+  document.getElementById('csTickets').innerHTML = (body.tickets||[]).map(t => {
+    return '<tr><td>' + t.name + '</td><td>' + (t.spaces || '全スペース') + '</td><td>' + t.remaining_hours + '/' + t.total_hours + 'h</td><td>' + t.valid_from + '〜' + t.valid_until + '</td><td><span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">なし</td></tr>';
+  document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = ''; document.getElementById('tkMsg').textContent = '';
   // 自動入力などによる値の残留を防ぐため毎回クリア
   document.getElementById('pt_amount').value = '';
   document.getElementById('pt_desc').value = '';
@@ -1151,6 +1178,25 @@ async function submitCoupon() {
   if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '発行に失敗しました'; return; }
   msg.className='msg ok'; msg.textContent = 'クーポンを発行しました（コード：' + body.code + '）';
   document.getElementById('cp_name').value='';
+  selectCustomer(selectedCustomer); // 一覧更新
+}
+async function submitTicket() {
+  const msg = document.getElementById('tkMsg');
+  const spaceIds = Array.from(document.querySelectorAll('.tk-space:checked')).map(el => el.value);
+  const payload = {
+    name: document.getElementById('tk_name').value.trim(),
+    totalHours: Number(document.getElementById('tk_hours').value),
+    validFrom: document.getElementById('tk_from').value,
+    validUntil: document.getElementById('tk_until').value,
+    spaceIds,
+  };
+  if (!payload.name) { msg.className='msg bad'; msg.textContent='チケット名を入力してください'; return; }
+  if (!payload.validUntil) { msg.className='msg bad'; msg.textContent='有効終了日を入力してください'; return; }
+  const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/tickets', jsonBody(payload));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '発行に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent = 'チケットを発行しました';
+  document.getElementById('tk_name').value=''; document.getElementById('tk_hours').value='';
+  document.querySelectorAll('.tk-space:checked').forEach(el => el.checked = false);
   selectCustomer(selectedCustomer); // 一覧更新
 }
 

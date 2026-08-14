@@ -174,7 +174,7 @@
       <div class="row"><span class="muted">スペース料金（通常）</span><span id="sum_space">-</span></div>
       <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:#b45309">-</span></div>
       <div class="row"><span class="muted">オプション</span><span id="sum_opt">-</span></div>
-      <div class="row hidden" id="sum_disc_row"><span class="muted">割引</span><span id="sum_disc" style="color:#166534">-</span></div>
+      <div class="row hidden" id="sum_disc_row"><span class="muted" id="sum_disc_label">割引</span><span id="sum_disc" style="color:#166534">-</span></div>
       <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
       <div class="muted" id="sum_points"></div>
     </div>
@@ -427,7 +427,8 @@ async function previewModal() {
     else if (d.billableHours > actual) note = '（ご利用' + actual + '時間ですが、料金は' + d.billableHours + '時間分です。1時間単位の切り上げ／最低利用時間のため）';
     let seasonalNote = '';
     if (d.seasonalSurcharge > 0) {
-      seasonalNote = '<br><span style="color:#b45309">内訳：通常 ' + yen(d.basePrice) + ' ＋ 季節料金 ' + yen(d.seasonalSurcharge) + '（+' + d.seasonalPct + '%）</span>';
+      const snm = d.seasonalName ? '〔' + d.seasonalName + '〕' : '';
+      seasonalNote = '<br><span style="color:#b45309">内訳：通常 ' + yen(d.basePrice) + ' ＋ 季節料金' + snm + ' ' + yen(d.seasonalSurcharge) + '（+' + d.seasonalPct + '%）</span>';
     }
     prev.innerHTML = '概算 <strong>' + yen(body.total) + '</strong>' + (note ? '<br><span style="color:#b45309">' + note + '</span>' : '') + seasonalNote;
   }
@@ -531,8 +532,11 @@ async function recomputeSummary() {
   if (seasonalTotal > 0) {
     seRow.classList.remove('hidden');
     document.getElementById('sum_seasonal').textContent = '+' + yen(seasonalTotal);
+    // 名称（＋割増率）を表示：ーアジア競技大会料金（+20%）
+    const names = [...new Set(days.filter(d => d.seasonalPct > 0 && d.seasonalName).map(d => d.seasonalName))];
     const pcts = [...new Set(days.filter(d => d.seasonalPct > 0).map(d => d.seasonalPct))];
-    document.getElementById('sum_seasonal_note').textContent = pcts.length ? '（+' + pcts.join('%・+') + '%）' : '';
+    const pctStr = pcts.length ? '（+' + pcts.join('%・+') + '%）' : '';
+    document.getElementById('sum_seasonal_note').textContent = names.length ? ('ー' + names.join('・') + pctStr) : pctStr;
   } else {
     seRow.classList.add('hidden');
   }
@@ -542,8 +546,13 @@ async function recomputeSummary() {
   // 割引行
   const discRow = document.getElementById('sum_disc_row'), disc = document.getElementById('sum_disc');
   const discAmt = (body.primaryDiscount || 0) + (body.campaignDiscount || 0);
-  if (discAmt > 0) { discRow.classList.remove('hidden'); disc.textContent = '-' + yen(discAmt); }
-  else discRow.classList.add('hidden');
+  if (discAmt > 0) {
+    discRow.classList.remove('hidden');
+    disc.textContent = '-' + yen(discAmt);
+    // キャンペーン割引はキャンペーン名を併記：割引ーオープン記念料金
+    document.getElementById('sum_disc_label').textContent =
+      (body.campaignDiscount > 0 && body.campaignName) ? ('割引ー' + body.campaignName) : '割引';
+  } else discRow.classList.add('hidden');
   // 割引メッセージ
   const dmsg = document.getElementById('discountMsg');
   if (dmsg) {

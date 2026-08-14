@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyDiscounts, resolveCampaign, type DiscountableDay, type CampaignCandidate } from '../src/lib/discounts';
+import { applyDiscounts, resolveCampaign, seasonalCampaignConflict, type DiscountableDay, type CampaignCandidate, type SeasonalPeriod } from '../src/lib/discounts';
 
 // 名駅フリースペース想定: 平日 4840/h, 土日祝 7260/h
 const weekdayDay = (hours: number): DiscountableDay => ({ billableHours: hours, price: hours * 4840 });
@@ -185,5 +185,53 @@ describe('resolveCampaign - 適用判定', () => {
       'space-a',
     );
     expect(r?.name).toBe('A');
+  });
+
+  it('季節料金（割増）期間の日が1日でもあればキャンペーンは不適用（季節料金優先）', () => {
+    const r = resolveCampaign(
+      [cp({})],
+      [{ date: '2026-09-10', dayType: 'weekday', price: 10000, seasonalPct: 20 }],
+      'space-a',
+    );
+    expect(r).toBeNull();
+  });
+
+  it('複数日で一部でも季節料金日があればキャンペーン不適用', () => {
+    const days = [
+      { date: '2026-09-10', dayType: 'weekday' as const, price: 10000, seasonalPct: 0 },
+      { date: '2026-09-11', dayType: 'weekday' as const, price: 10000, seasonalPct: 20 },
+    ];
+    expect(resolveCampaign([cp({})], days, 'space-a')).toBeNull();
+  });
+});
+
+describe('seasonalCampaignConflict - 季節料金とキャンペーンの重複判定', () => {
+  const seasonal = (over: Partial<SeasonalPeriod>): SeasonalPeriod => ({
+    name: 'アジア大会', startDate: '2026-09-12', endDate: '2026-10-11', spaceIds: ['space-a'], isActive: true, ...over,
+  });
+
+  it('期間・スペースが重なれば衝突', () => {
+    const c = seasonalCampaignConflict([seasonal({})], { startDate: '2026-10-01', endDate: '2026-10-11', spaceId: 'space-a' });
+    expect(c?.name).toBe('アジア大会');
+  });
+  it('期間が重ならなければ衝突なし', () => {
+    const c = seasonalCampaignConflict([seasonal({})], { startDate: '2026-11-01', endDate: '2026-11-30', spaceId: 'space-a' });
+    expect(c).toBeNull();
+  });
+  it('スペースが異なれば衝突なし', () => {
+    const c = seasonalCampaignConflict([seasonal({ spaceIds: ['space-b'] })], { startDate: '2026-10-01', endDate: '2026-10-11', spaceId: 'space-a' });
+    expect(c).toBeNull();
+  });
+  it('キャンペーンが全スペース対象(null)なら重なる', () => {
+    const c = seasonalCampaignConflict([seasonal({ spaceIds: ['space-b'] })], { startDate: '2026-10-01', endDate: '2026-10-11', spaceId: null });
+    expect(c?.name).toBe('アジア大会');
+  });
+  it('季節料金が全スペース対象(空配列)なら重なる', () => {
+    const c = seasonalCampaignConflict([seasonal({ spaceIds: [] })], { startDate: '2026-10-01', endDate: '2026-10-11', spaceId: 'space-z' });
+    expect(c?.name).toBe('アジア大会');
+  });
+  it('無効(is_active=false)な季節料金は衝突しない', () => {
+    const c = seasonalCampaignConflict([seasonal({ isActive: false })], { startDate: '2026-10-01', endDate: '2026-10-11', spaceId: 'space-a' });
+    expect(c).toBeNull();
   });
 });

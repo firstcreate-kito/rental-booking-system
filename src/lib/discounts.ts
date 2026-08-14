@@ -39,12 +39,14 @@ export interface CampaignDay {
   date: string;
   dayType: 'weekday' | 'weekend';
   price: number;
+  seasonalPct?: number; // >0 の日は季節料金（割増）期間。キャンペーンは適用不可（季節料金優先）
 }
 
 /**
  * 予約に適用できるキャンペーンを1つ解決する。
  * - 予約の全日程が「期間内」かつ「曜日区分が対象」かつ「対象スペース」であること。
  *   （複数日で一部でも対象外があれば、そのキャンペーンは不適用）
+ * - 季節料金（割増）期間に該当する日が1日でもあれば、キャンペーンは適用しない（季節料金優先）。
  * - 対象が複数ある場合はスペース料金に対する割引額が最大のものを選ぶ。
  */
 export function resolveCampaign(
@@ -54,6 +56,8 @@ export function resolveCampaign(
 ): { rule: CampaignRule; name: string } | null {
   const spaceFee = days.reduce((s, d) => s + d.price, 0);
   if (spaceFee <= 0 || days.length === 0) return null;
+  // 季節料金（割増）が1日でも掛かっていればキャンペーンは不適用（季節料金優先）
+  if (days.some((d) => (d.seasonalPct ?? 0) > 0)) return null;
   let best: { rule: CampaignRule; name: string; discount: number } | null = null;
   for (const cp of campaigns) {
     if (cp.spaceId && cp.spaceId !== spaceId) continue;
@@ -229,4 +233,35 @@ export function applyDiscounts(input: DiscountInput): DiscountResult {
     total,
     pointsEarned,
   } satisfies DiscountResult;
+}
+
+/** 季節料金（割増）期間（重複チェック用） */
+export interface SeasonalPeriod {
+  name: string;
+  startDate: string;
+  endDate: string;
+  spaceIds: readonly string[]; // 空配列 = 全スペース対象
+  isActive: boolean;
+}
+
+/**
+ * キャンペーン（割引）が、有効な季節料金（割増）期間と重複するかを判定する。
+ * 季節料金が優先のため、重複するキャンペーンは登録させない（管理画面バリデーション用）。
+ * - 期間が重なる かつ 対象スペースが重なる（どちらかが全スペース対象なら重なるとみなす）
+ * - 有効(isActive)な季節料金のみ対象
+ * 返り値: 最初に見つかった衝突する季節料金（無ければ null）
+ */
+export function seasonalCampaignConflict(
+  seasonals: readonly SeasonalPeriod[],
+  campaign: { startDate: string; endDate: string; spaceId: string | null },
+): SeasonalPeriod | null {
+  for (const s of seasonals) {
+    if (!s.isActive) continue;
+    const dateOverlap = campaign.startDate <= s.endDate && s.startDate <= campaign.endDate;
+    if (!dateOverlap) continue;
+    const spaceOverlap =
+      campaign.spaceId === null || s.spaceIds.length === 0 || s.spaceIds.includes(campaign.spaceId);
+    if (spaceOverlap) return s;
+  }
+  return null;
 }

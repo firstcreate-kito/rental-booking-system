@@ -44,6 +44,7 @@ export interface DayBookingInput {
 
 /** 季節料金ルール */
 export interface SeasonalRule {
+  name?: string; // 表示用の名称（例：アジア競技大会料金）
   startDate: string; // 'YYYY-MM-DD'
   endDate: string; // 'YYYY-MM-DD'
   surchargePct: number; // 30 = +30%
@@ -65,6 +66,7 @@ export interface DayPriceResult {
   isResidence: boolean;
   basePrice: number; // 季節料金加算前
   seasonalPct: number; // 適用された季節割増率（0なら非該当）
+  seasonalName: string | null; // 適用された季節料金の名称（非該当なら null）
   seasonalSurcharge: number; // 季節料金加算額
   price: number; // この日の最終スペース料金
 }
@@ -80,11 +82,21 @@ export class PricingError extends Error {
 
 /** 'YYYY-MM-DD' が季節料金期間に該当するか（最初に一致したルールを採用） */
 export function findSeasonalPct(dateISO: string, rules?: readonly SeasonalRule[]): number {
-  if (!rules) return 0;
+  return findSeasonalMatch(dateISO, rules)?.surchargePct ?? 0;
+}
+
+/** 'YYYY-MM-DD' に該当する季節料金ルール（名称込み）を返す。非該当なら null */
+export function findSeasonalMatch(
+  dateISO: string,
+  rules?: readonly SeasonalRule[],
+): { surchargePct: number; name: string | null } | null {
+  if (!rules) return null;
   for (const r of rules) {
-    if (dateISO >= r.startDate && dateISO <= r.endDate) return r.surchargePct;
+    if (dateISO >= r.startDate && dateISO <= r.endDate) {
+      return { surchargePct: r.surchargePct, name: r.name ?? null };
+    }
   }
-  return 0;
+  return null;
 }
 
 /**
@@ -148,7 +160,9 @@ export function computeDayPrice(
   const basePrice = billableHours * rate;
 
   // 季節料金（該当日の金額に加算）
-  const seasonalPct = findSeasonalPct(booking.date, ctx.seasonalRules);
+  const seasonalMatch = findSeasonalMatch(booking.date, ctx.seasonalRules);
+  const seasonalPct = seasonalMatch?.surchargePct ?? 0;
+  const seasonalName = seasonalPct > 0 ? seasonalMatch?.name ?? null : null;
   const seasonalSurcharge = seasonalPct > 0 ? Math.round((basePrice * seasonalPct) / 100) : 0;
   const price = basePrice + seasonalSurcharge;
 
@@ -161,6 +175,7 @@ export function computeDayPrice(
     isResidence,
     basePrice,
     seasonalPct,
+    seasonalName,
     seasonalSurcharge,
     price,
   };

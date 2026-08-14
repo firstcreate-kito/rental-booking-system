@@ -210,6 +210,7 @@ app.post('/', async (c) => {
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({
+    name: r.name,
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
@@ -265,7 +266,7 @@ app.post('/', async (c) => {
   // 該当するキャンペーンを解決（予約の全日程が対象の場合のみ適用）
   const resolvedCampaign = resolveCampaign(
     toCampaignCandidates(campaignRows),
-    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price })),
+    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price, seasonalPct: d.seasonalPct })),
     space.id,
   );
 
@@ -543,7 +544,7 @@ app.post('/quote', async (c) => {
     getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
-  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ name: r.name, startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
 
   // 検証（エラーは warnings として返す。見積り自体は算出）
   const valSpace = toValidationSpace(space);
@@ -593,7 +594,7 @@ app.post('/quote', async (c) => {
   // 該当するキャンペーンを解決（予約の全日程が対象の場合のみ適用）
   const resolvedCampaign = resolveCampaign(
     toCampaignCandidates(campaignRows),
-    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price })),
+    group.days.map((d) => ({ date: d.date, dayType: getDayType(d.date, holidayMap), price: d.price, seasonalPct: d.seasonalPct })),
     space.id,
   );
 
@@ -613,7 +614,7 @@ app.post('/quote', async (c) => {
     pointsEarned: totals.pointsEarned,
     isMember: !!member,
     discountError,
-    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, basePrice: d.basePrice, seasonalPct: d.seasonalPct, seasonalSurcharge: d.seasonalSurcharge, price: d.price, isResidence: d.isResidence })),
+    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, basePrice: d.basePrice, seasonalPct: d.seasonalPct, seasonalName: d.seasonalName, seasonalSurcharge: d.seasonalSurcharge, price: d.price, isResidence: d.isResidence })),
     optionLines,
     warnings,
   });
@@ -741,6 +742,7 @@ app.post('/:number/reschedule', async (c) => {
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({
+    name: r.name,
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,

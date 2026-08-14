@@ -165,6 +165,7 @@ export async function getSpaceClosures(
 }
 
 export interface SeasonalRuleRow {
+  name: string;
   start_date: string;
   end_date: string;
   surcharge_pct: number;
@@ -172,7 +173,7 @@ export interface SeasonalRuleRow {
 
 export async function getActiveSeasonalRules(db: D1Database): Promise<SeasonalRuleRow[]> {
   const { results } = await db
-    .prepare('SELECT start_date, end_date, surcharge_pct FROM seasonal_pricing WHERE is_active = 1')
+    .prepare('SELECT name, start_date, end_date, surcharge_pct FROM seasonal_pricing WHERE is_active = 1')
     .all<SeasonalRuleRow>();
   return results ?? [];
 }
@@ -187,7 +188,7 @@ export async function getActiveSeasonalRulesForSpace(
 ): Promise<SeasonalRuleRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT sp.start_date, sp.end_date, sp.surcharge_pct
+      `SELECT sp.name, sp.start_date, sp.end_date, sp.surcharge_pct
        FROM seasonal_pricing sp
        WHERE sp.is_active = 1
          AND (

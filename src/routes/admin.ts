@@ -70,6 +70,7 @@ import {
   type SeasonalRule,
   type DayBookingInput,
 } from '../lib/pricing';
+import { seasonalCampaignConflict, type SeasonalPeriod } from '../lib/discounts';
 import {
   validateBookingItem,
   intervalsOverlap,
@@ -1161,11 +1162,33 @@ app.get('/campaigns', async (c) => {
   return c.json({ campaigns });
 });
 
+/**
+ * キャンペーンが有効な季節料金（割増）期間と重複していないか確認する。
+ * 季節料金が優先のため、重複するキャンペーンは登録できない。
+ */
+async function checkCampaignSeasonalConflict(db: D1Database, input: CampaignInput): Promise<string | null> {
+  const seasonals = await getSeasonalAll(db);
+  const periods: SeasonalPeriod[] = seasonals.map((s) => ({
+    name: s.name,
+    startDate: s.start_date,
+    endDate: s.end_date,
+    spaceIds: s.space_ids,
+    isActive: !!s.is_active,
+  }));
+  const conflict = seasonalCampaignConflict(periods, { startDate: input.startDate, endDate: input.endDate, spaceId: input.spaceId });
+  if (conflict) {
+    return `この期間・スペースには季節料金（割増）「${conflict.name}」（${conflict.startDate}〜${conflict.endDate}）が設定されています。季節料金が優先のため、重複するキャンペーン（割引）は登録できません。期間・対象スペースを見直してください。`;
+  }
+  return null;
+}
+
 /** POST /api/admin/campaigns キャンペーンを追加 */
 app.post('/campaigns', requireRole('owner', 'manager'), async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const { input, error } = parseCampaignInput(b);
   if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const conflict = await checkCampaignSeasonalConflict(c.env.DB, input);
+  if (conflict) return c.json({ error: conflict }, 409);
   const id = await insertCampaign(c.env.DB, input);
   return c.json({ id }, 201);
 });
@@ -1175,6 +1198,8 @@ app.put('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const { input, error } = parseCampaignInput(b);
   if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const conflict = await checkCampaignSeasonalConflict(c.env.DB, input);
+  if (conflict) return c.json({ error: conflict }, 409);
   await updateCampaign(c.env.DB, c.req.param('id'), input);
   return c.json({ ok: true });
 });

@@ -3,7 +3,7 @@
  * 予約台帳の正は Google カレンダー（#25/#27）。
  */
 import type { Env } from '../types';
-import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, conflictsWithBusy, toJstRfc3339 } from './gcal';
+import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
 
 const TENTATIVE_PREFIX = '【商談中】';
 
@@ -35,6 +35,36 @@ export async function checkCalendarConflict(
       const busy = await freeBusy(env, calendarId, startISO, endISO);
       if (conflictsWithBusy(startISO, endISO, busy)) {
         return { conflict: `${it.date} ${it.startTime}-${it.endTime}` };
+      }
+    }
+    return {};
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+/**
+ * 変更（reschedule）用の衝突チェック。自分自身のイベント（excludeEventIds）は
+ * 除外して、外部予約とだけ重ならないか確認する（変更先が旧枠と重なっても誤検知しない）。
+ */
+export async function checkCalendarConflictExcluding(
+  env: Env,
+  calendarId: string | null,
+  items: readonly DayItem[],
+  excludeEventIds: readonly (string | null)[],
+): Promise<{ conflict?: string; error?: string }> {
+  if (!gcalConfigured(env) || !calendarId) return {};
+  const exclude = new Set(excludeEventIds.filter((x): x is string => !!x));
+  try {
+    for (const it of items) {
+      const startISO = toJstRfc3339(it.date, it.startTime);
+      const endISO = toJstRfc3339(it.date, it.endTime);
+      const events = await listEvents(env, calendarId, startISO, endISO);
+      for (const ev of events) {
+        if (exclude.has(ev.id)) continue;
+        if (rangesOverlap(startISO, endISO, ev.start, ev.end)) {
+          return { conflict: `${it.date} ${it.startTime}-${it.endTime}` };
+        }
       }
     }
     return {};

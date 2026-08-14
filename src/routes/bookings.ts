@@ -49,7 +49,7 @@ import {
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail } from '../lib/email';
-import { checkCalendarConflict, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 
 const app = new Hono<AppBindings>();
 
@@ -769,6 +769,18 @@ app.post('/:number/reschedule', async (c) => {
   }
   if (errors.length > 0) return c.json({ error: 'validation failed', details: errors }, 409);
 
+  // 変更先の枠が Google カレンダー上で空いているか（自分自身のイベントは除外）
+  const oldRows = await getBookingsByGroup(db, g.id);
+  const calCheck = await checkCalendarConflictExcluding(
+    c.env,
+    space.google_calendar_id,
+    body.items,
+    oldRows.map((r) => r.google_event_id),
+  );
+  if (calCheck.conflict) {
+    return c.json({ error: `${calCheck.conflict} はGoogleカレンダー上で埋まっています。別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' }, 409);
+  }
+
   // 新料金
   const dayInputs: DayBookingInput[] = body.items.map((i) => ({
     date: i.date,
@@ -785,6 +797,7 @@ app.post('/:number/reschedule', async (c) => {
 
   // 日程を差し替え（旧bookingsを削除→新規挿入）+ グループ更新 + 差額記録
   const now = nowJST();
+  const newBookingIds = body.items.map(() => crypto.randomUUID());
   const stmts: D1PreparedStatement[] = [];
   stmts.push(db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id));
   for (let i = 0; i < body.items.length; i++) {
@@ -798,7 +811,7 @@ app.post('/:number/reschedule', async (c) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
         )
         .bind(
-          crypto.randomUUID(),
+          newBookingIds[i],
           g.id,
           space.id,
           item.date,
@@ -830,11 +843,28 @@ app.post('/:number/reschedule', async (c) => {
   }
   await db.batch(stmts);
 
+  // Googleカレンダー同期：旧イベントを削除し、新しい日時でイベントを作り直す
+  let calendarWarning: string | null = null;
+  if (space.google_calendar_id) {
+    await deleteBookingFromCalendar(c.env, space.google_calendar_id, oldRows.map((r) => r.google_event_id));
+    const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
+      bookingNumber: number,
+      eventName: g.event_name,
+      customerName: cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様'),
+      items: body.items,
+      bookingIds: newBookingIds,
+      tentative: g.status === 'tentative',
+    });
+    calendarWarning = res.warning ?? null;
+  }
+
   return c.json({
     bookingNumber: number,
     newTotal,
     adjustment,
     days: newGroup.days.map((d) => ({ date: d.date, billingMode: d.billingMode, price: d.price })),
+    calendarWarning,
   });
 });
 

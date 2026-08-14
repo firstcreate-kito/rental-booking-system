@@ -209,11 +209,14 @@ app.post('/test-email', requireRole('owner', 'manager'), async (c) => {
 
 /** GET /api/admin/bookings 予約一覧（?from=&to=&spaceId=&status=） */
 app.get('/bookings', async (c) => {
+  const viewQ = c.req.query('view');
+  const view = viewQ === 'archive' ? 'archive' : viewQ === 'active' ? 'active' : undefined;
   const rows = await listBookingsForAdmin(c.env.DB, {
     from: c.req.query('from'),
     to: c.req.query('to'),
     spaceId: c.req.query('spaceId'),
     status: c.req.query('status'),
+    view,
   });
   return c.json({ bookings: rows });
 });

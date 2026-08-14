@@ -97,6 +97,13 @@
         <tbody id="bkBody"></tbody>
       </table></div>
       <div class="muted" id="bkEmpty"></div>
+      <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
+        <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
+        <div id="bkArchiveList" class="hidden tablewrap"><table>
+          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
+          <tbody id="bkArchiveBody"></tbody>
+        </table></div>
+      </div>
     </section>
 
     <section id="view-points" class="card hidden">
@@ -212,15 +219,35 @@ function showTab(t) {
 
 async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadFavorites(); loadProfile(); }
 
+function bookingRow(b) {
+  const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
+  return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
+    '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td></tr>';
+}
+function toggleArchive() {
+  const list = document.getElementById('bkArchiveList');
+  const hidden = list.classList.toggle('hidden');
+  document.getElementById('bkArchiveToggle').textContent =
+    (hidden ? '▸ キャンセル済みを表示' : '▾ キャンセル済みを隠す') + '（' + (window._bkCancelledCount || 0) + '件）';
+}
 async function loadBookings() {
   const { body } = await api('/api/mypage/bookings');
   const rows = body.bookings || [];
-  document.getElementById('bkEmpty').textContent = rows.length ? '' : 'まだ予約はありません';
-  document.getElementById('bkBody').innerHTML = rows.map(b => {
-    const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
-    return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
-      '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td></tr>';
-  }).join('');
+  // アクティブ（キャンセル以外）とキャンセル済み（アーカイブ）に分離
+  const active = rows.filter(b => b.status !== 'cancelled');
+  const cancelled = rows.filter(b => b.status === 'cancelled');
+  document.getElementById('bkEmpty').textContent = active.length ? '' : 'まだ予約はありません';
+  document.getElementById('bkBody').innerHTML = active.map(bookingRow).join('');
+  window._bkCancelledCount = cancelled.length;
+  const wrap = document.getElementById('bkArchiveWrap');
+  if (cancelled.length) {
+    wrap.classList.remove('hidden');
+    document.getElementById('bkArchiveBody').innerHTML = cancelled.map(bookingRow).join('');
+    document.getElementById('bkArchiveList').classList.add('hidden');
+    document.getElementById('bkArchiveToggle').textContent = '▸ キャンセル済みを表示（' + cancelled.length + '件）';
+  } else {
+    wrap.classList.add('hidden');
+  }
 }
 async function loadPoints() {
   const { body } = await api('/api/mypage/points');

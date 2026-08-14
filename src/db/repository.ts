@@ -841,7 +841,7 @@ export async function deleteAdminSession(db: D1Database, token: string): Promise
 /** 管理者向け予約一覧（フィルタ: 期間・スペース・ステータス） */
 export async function listBookingsForAdmin(
   db: D1Database,
-  filters: { from?: string; to?: string; spaceId?: string; status?: string },
+  filters: { from?: string; to?: string; spaceId?: string; status?: string; view?: 'active' | 'archive' },
 ) {
   const conds: string[] = [];
   const binds: unknown[] = [];
@@ -858,8 +858,15 @@ export async function listBookingsForAdmin(
     binds.push(filters.spaceId);
   }
   if (filters.status) {
+    // 明示的なステータス指定が最優先（後方互換）
     conds.push('b.status = ?');
     binds.push(filters.status);
+  } else if (filters.view === 'archive') {
+    // アーカイブ（キャンセル済み）のみ
+    conds.push("b.status = 'cancelled'");
+  } else if (filters.view === 'active') {
+    // アクティブ（初期表示）：キャンセル済みは除外
+    conds.push("b.status != 'cancelled'");
   }
   const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
   const { results } = await db

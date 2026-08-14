@@ -98,15 +98,18 @@
         <h2 style="margin:0">予約一覧</h2>
         <button class="btn ghost sm" onclick="testEmail()">📧 メール送信テスト</button>
       </div>
+      <div class="row" style="gap:8px;margin:8px 0 4px">
+        <button id="bv-active" class="btn sm" onclick="setBookingView('active')">予約中</button>
+        <button id="bv-archive" class="btn ghost sm" onclick="setBookingView('archive')">キャンセル済み（アーカイブ）</button>
+      </div>
       <div class="grid">
         <div><label>開始日</label><input id="f_from" type="date" /></div>
         <div><label>終了日</label><input id="f_to" type="date" /></div>
         <div><label>スペース</label><select id="f_space"><option value="">すべて</option></select></div>
-        <div><label>状態</label><select id="f_status">
+        <div id="f_status_wrap"><label>状態</label><select id="f_status">
           <option value="">すべて</option>
           <option value="confirmed">本予約</option>
           <option value="tentative">商談中</option>
-          <option value="cancelled">キャンセル</option>
         </select></div>
       </div>
       <div class="row" style="margin-top:12px;justify-content:flex-end">
@@ -530,19 +533,38 @@ function showTab(t) {
   if (t === 'customers') initCustomers();
 }
 
+let bookingView = 'active';
+function setBookingView(v) {
+  bookingView = v;
+  document.getElementById('bv-active').className = 'btn sm' + (v === 'active' ? '' : ' ghost');
+  document.getElementById('bv-archive').className = 'btn sm' + (v === 'archive' ? '' : ' ghost');
+  // アーカイブ表示では状態フィルタは不要（すべてキャンセル済み）
+  document.getElementById('f_status_wrap').style.display = v === 'archive' ? 'none' : '';
+  loadBookings();
+}
+// JSTの本日日付（YYYY-MM-DD）。過去日判定に使用。
+function todayJstYmd() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
 async function loadBookings() {
   const q = new URLSearchParams();
   const from = document.getElementById('f_from').value, to = document.getElementById('f_to').value;
   const sp = document.getElementById('f_space').value, st = document.getElementById('f_status').value;
   if (from) q.set('from', from); if (to) q.set('to', to);
-  if (sp) q.set('spaceId', sp); if (st) q.set('status', st);
+  if (sp) q.set('spaceId', sp);
+  q.set('view', bookingView);
+  if (bookingView === 'active' && st) q.set('status', st);
   const { body } = await api('/api/admin/bookings?' + q.toString());
   const rows = body.bookings || [];
   document.getElementById('listEmpty').textContent = rows.length ? '' : '該当する予約はありません';
+  const today = todayJstYmd();
   document.getElementById('listBody').innerHTML = rows.map(b => {
     const cust = [b.company_name, b.contact_name].filter(Boolean).join(' / ') || '—';
     let actions = '';
-    if (b.status === 'tentative') {
+    const isPast = b.date < today; // 過去日の予約は操作不可
+    if (isPast) {
+      actions = '<span class="muted" style="font-size:12px">終了</span>';
+    } else if (b.status === 'tentative') {
       actions = '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button> ' +
         '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">日時変更</button> ' +
         '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>';

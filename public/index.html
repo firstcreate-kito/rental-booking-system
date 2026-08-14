@@ -54,7 +54,10 @@
   .slot.st-booked { background: #fdecec; border-color: #f5b5b5; color: #b91c1c; text-decoration: line-through; }
   .slot.st-tent { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
   .slot.st-past { background: #f1f3f5; border-color: #e2e5ea; color: #c0c4cc; text-decoration: line-through; }
+  .slot.sel { background: #dbeafe !important; border-color: #60a5fa !important; color: #1e3a8a !important; text-decoration: none !important; }
+  .slot.sel-start { background: #2563eb !important; border-color: #2563eb !important; color: #fff !important; font-weight: 700; }
   .slotlegend { font-size: 10px; color: var(--muted); display: flex; gap: 12px; margin-bottom: 6px; }
+  .pickhint { font-size: 12px; color: #1e40af; margin: 2px 0 6px; }
   .warn-note { color: #b45309; font-size: 12px; margin-top: 6px; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.mini td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
@@ -204,6 +207,10 @@
       <span>🟩 空き</span><span>🟥 予約済み</span><span>🟨 商談中</span>
     </div>
     <div class="slotbar" id="mSlots"></div>
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div class="pickhint" id="mPickHint"></div>
+      <button type="button" class="btn ghost sm" onclick="clearPick()" style="font-size:11px;padding:3px 8px">選び直す</button>
+    </div>
     <label>開始時刻</label>
     <select id="mStart"></select>
     <label>終了時刻</label>
@@ -225,7 +232,7 @@
 </div>
 
 <script>
-const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1 };
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done' };
 // 本番（localhost 以外）では開発用の表示・デモ会員ヒントを隠す
 if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
   const dev = document.getElementById('devBadge'); if (dev) dev.style.display = 'none';
@@ -385,29 +392,64 @@ function rangeOverlapKind(s, e) {
   }
   return kind;
 }
+const addMin = (t, m) => { const x = toMin(t) + m; return String(Math.floor(x/60)).padStart(2,'0') + ':' + String(x%60).padStart(2,'0'); };
 function renderSlotBar() {
   const ts = times(S.space.openTime, S.space.closeTime);
   let html = '';
   const cut = S.pastCutoffMin; // 当日の現在時刻（分）。当日でなければ -1
+  const selStart = document.getElementById('mStart').value;
+  const selEnd = document.getElementById('mEnd').value;
+  const showSel = S.pickState !== 'start' && selStart && selEnd;
   for (let i = 0; i < ts.length - 1; i++) {
     const s = ts[i], e = ts[i + 1];
     const isPast = cut >= 0 && toMin(s) < cut;
     const k = slotKind(s, e);
-    const cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
-    // 過去枠以外はクリックで開始時刻に反映（終了は開始+1時間）
+    let cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
+    // 選択中の範囲をハイライト（開始は濃い青、範囲内は薄い青）
+    if (showSel && toMin(s) >= toMin(selStart) && toMin(s) < toMin(selEnd)) {
+      cls += (s === selStart) ? ' sel sel-start' : ' sel';
+    }
+    // 過去枠以外は2タップで範囲選択（1回目=開始 / 2回目=終了）
     const click = isPast ? '' : ' onclick="pickSlot(\'' + s + '\')" style="cursor:pointer"';
     html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '"' + click + '>' + s + '</div>';
   }
   document.getElementById('mSlots').innerHTML = html;
 }
-// 時間枠をクリックしたら開始時刻に設定し、終了は開始+1時間に（#20）
+function updatePickHint() {
+  const h = document.getElementById('mPickHint');
+  if (!h) return;
+  if (S.pickState === 'start') h.textContent = '① 開始の枠をクリックしてください';
+  else if (S.pickState === 'end') h.textContent = '② 終了の枠をクリック（同じ枠をもう一度で30分）';
+  else h.textContent = '選択中：' + document.getElementById('mStart').value + '〜' + document.getElementById('mEnd').value + '（「選び直す」で再選択）';
+}
+// 2タップ範囲選択：1回目クリックで開始、2回目で終了（#20）
 function pickSlot(t) {
-  const st = document.getElementById('mStart');
-  const opt = [...st.options].find(o => o.value === t && !o.disabled);
-  if (!opt) return; // 選択不可（受付時間外等）は無視
-  st.value = t;
-  setDefaultEnd();
-  previewModal();
+  const stSel = document.getElementById('mStart'), enSel = document.getElementById('mEnd');
+  const canStart = [...stSel.options].some(o => o.value === t && !o.disabled);
+  if (S.pickState === 'end' && toMin(t) >= toMin(stSel.value)) {
+    // 2回目：クリックした枠を含めて終了（終了＝クリック枠 + 30分）
+    const endT = addMin(t, 30);
+    const enOpt = [...enSel.options].find(o => o.value === endT && !o.disabled);
+    if (!enOpt) return; // 営業時間を超える等は無視
+    enSel.value = endT;
+    S.pickState = 'done';
+  } else {
+    // 1回目（または選択済み・開始より前をクリック）→ 開始をセットし直す
+    if (!canStart) return;
+    stSel.value = t;
+    const prov = addMin(t, 30);
+    const enOpt = [...enSel.options].find(o => o.value === prov && !o.disabled);
+    if (enOpt) enSel.value = prov; // 暫定で30分。次のクリックで終了を延ばす
+    S.pickState = 'end';
+  }
+  renderSlotBar(); updatePickHint(); previewModal();
+}
+// 選び直す：選択をリセットして再度「開始→終了」を選べるようにする
+function clearPick() {
+  S.pickState = 'start';
+  renderSlotBar(); updatePickHint();
+  document.getElementById('mPreview').textContent = '開始の枠をクリックしてください';
+  document.getElementById('mWarn').classList.add('hidden');
 }
 function buildTimeOptions() {
   const ts = times(S.space.openTime, S.space.closeTime);
@@ -424,6 +466,7 @@ function buildTimeOptions() {
   for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }
   // 終了: 開始の1時間後を既定にする（30分単位の勘違い防止）
   setDefaultEnd();
+  S.pickState = 'done'; // 初期表示は既定の1時間を選択済み状態にする
 }
 // 終了時刻を「開始＋1時間」に設定（営業終了を超える場合は入る範囲で最も遅い有効枠）
 function setDefaultEnd() {
@@ -454,16 +497,18 @@ async function openModal(date) {
   if (body.today === date && body.nowTime) S.pastCutoffMin = toMin(body.nowTime);
   buildTimeOptions();
   renderSlotBar();
+  updatePickHint();
   previewModal();
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
-document.getElementById('mStart').addEventListener('change', () => { setDefaultEnd(); previewModal(); });
-document.getElementById('mEnd').addEventListener('change', previewModal);
+document.getElementById('mStart').addEventListener('change', () => { setDefaultEnd(); S.pickState = 'done'; renderSlotBar(); updatePickHint(); previewModal(); });
+document.getElementById('mEnd').addEventListener('change', () => { S.pickState = 'done'; renderSlotBar(); updatePickHint(); previewModal(); });
 
 async function previewModal() {
-  const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   const warn = document.getElementById('mWarn');
   const prev = document.getElementById('mPreview');
+  if (S.pickState === 'start') { prev.textContent = '開始の枠をクリックしてください'; warn.classList.add('hidden'); return; }
+  const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   if (!start || !end || start >= end) { prev.textContent = '終了は開始より後にしてください'; warn.classList.add('hidden'); return; }
 
   // 予約済み／商談中と重なる場合の事前警告
@@ -501,6 +546,7 @@ async function previewModal() {
 }
 
 function addToCart() {
+  if (S.pickState === 'start') { alert('開始と終了の枠を選んでください'); return; }
   const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   if (start >= end) { alert('終了は開始より後にしてください'); return; }
   if (rangeOverlapsBooked(start, end)) { alert('選択した時間帯には既に予約が入っています。時間をずらしてください。'); return; }
@@ -530,12 +576,27 @@ async function goOptions() {
     : S.options.map(o => {
       const price = o.priceType === 'free' ? '無料' : o.priceType === 'per_unit' ? (yen(o.unitPrice) + '/' + (o.unitLabel||'個')) : yen(o.unitPrice);
       const stock = o.remaining != null ? '（残' + o.remaining + '）' : '';
+      // 在庫上限＝ 残数 と 予約あたり上限(maxQty) の小さい方（どちらも未設定なら無制限）
+      const caps = [];
+      if (o.maxQty != null) caps.push(o.maxQty);
+      if (o.remaining != null) caps.push(o.remaining);
+      const cap = caps.length ? Math.min(...caps) : null;
+      const soldOut = cap === 0;
       const ctrl = o.type === 'toggle'
-        ? '<input type="checkbox" onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
-        : '<input class="qty" type="number" min="0" value="0" onchange="setOpt(\'' + o.id + '\', this.value)">';
-      return '<div class="opt"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + '</div></div><div>' + ctrl + '</div></div>';
+        ? '<input type="checkbox"' + (soldOut ? ' disabled' : '') + ' onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
+        : '<input class="qty" type="number" min="0" value="0"' + (cap != null ? ' max="' + cap + '"' : '') + (soldOut ? ' disabled' : '') + ' oninput="clampQty(this,' + (cap == null ? 'null' : cap) + ',\'' + o.id + '\')">';
+      const soldOutTag = soldOut ? ' <span style="color:var(--bad);font-size:11px">在庫なし</span>' : '';
+      return '<div class="opt"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + soldOutTag + '</div></div><div>' + ctrl + '</div></div>';
     }).join('');
   show('view-options');
+}
+// 数量を在庫上限の範囲に丸めて反映（上限超えの入力を防ぐ）
+function clampQty(el, cap, id) {
+  let q = Math.floor(Number(el.value) || 0);
+  if (q < 0) q = 0;
+  if (cap != null && q > cap) q = cap;
+  el.value = q;
+  setOpt(id, q);
 }
 function setOpt(id, v) { const q = Number(v); if (q > 0) S.optQty[id] = q; else delete S.optQty[id]; }
 

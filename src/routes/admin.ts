@@ -55,6 +55,8 @@ import {
   getBookingsByGroup,
   getCancelPolicies,
   peekNextBookingSeq,
+  getSystemSetting,
+  setSystemSetting,
   type SpaceRow,
 } from '../db/repository';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
@@ -1208,6 +1210,27 @@ app.put('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
 app.delete('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
   await deleteCampaign(c.env.DB, c.req.param('id'));
   return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// サイト設定（お問い合わせURL 等）
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/settings 主要なサイト設定を返す */
+app.get('/settings', async (c) => {
+  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '';
+  return c.json({ contactUrl });
+});
+
+/** PUT /api/admin/settings/contact-url お問い合わせURLを更新 */
+app.put('/settings/contact-url', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+  const url = String(b.url ?? '').trim();
+  if (url && !/^https?:\/\/.+/i.test(url)) {
+    return c.json({ error: 'URLは http:// または https:// で始まる形式で入力してください' }, 400);
+  }
+  await setSystemSetting(c.env.DB, 'contact_url', url);
+  return c.json({ ok: true, contactUrl: url });
 });
 
 export default app;

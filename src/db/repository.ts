@@ -409,6 +409,20 @@ export async function getSystemSettings(db: D1Database): Promise<Map<string, str
   return map;
 }
 
+/** 単一の system_setting を取得（未設定なら null） */
+export async function getSystemSetting(db: D1Database, key: string): Promise<string | null> {
+  const row = await db.prepare('SELECT value FROM system_settings WHERE key = ?').bind(key).first<{ value: string }>();
+  return row ? row.value : null;
+}
+
+/** system_setting を upsert */
+export async function setSystemSetting(db: D1Database, key: string, value: string): Promise<void> {
+  await db
+    .prepare('INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .bind(key, value)
+    .run();
+}
+
 /** ブラックリストに該当するか（email/phone） */
 export async function isBlacklisted(
   db: D1Database,

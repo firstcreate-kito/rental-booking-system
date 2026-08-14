@@ -247,6 +247,16 @@
 
     <!-- カレンダー管理 -->
     <section id="view-calendar" class="card hidden">
+      <h2>お問い合わせリンク（商談中枠に表示）</h2>
+      <div class="muted">予約カレンダーで「商談中」の枠をお客様が選んだとき、下部に表示されるお問い合わせリンクの遷移先URLです（空欄なら文言のみ表示）。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
+        <div style="flex:1"><label>お問い合わせURL</label><input id="cfg_contact_url" placeholder="https://space-albe.com/contact" /></div>
+        <button class="btn sm" onclick="saveContactUrl()">保存</button>
+      </div>
+      <div class="msg" id="cfgMsg"></div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
+
       <h2>祝日・全体休業日</h2>
       <div class="muted">全スペース共通。祝日/独自休日は「土日祝料金」、休業は「予約不可」になります。</div>
       <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
@@ -1021,7 +1031,18 @@ async function loadCalendarMgmt() {
   // スペースのドロップダウン
   if (A.spaces.length === 0) await loadSpaces();
   document.getElementById('cl_space').innerHTML = A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
-  loadHolidays(); loadClosures();
+  loadHolidays(); loadClosures(); loadContactUrl();
+}
+async function loadContactUrl() {
+  const { body } = await api('/api/admin/settings');
+  document.getElementById('cfg_contact_url').value = body.contactUrl || '';
+}
+async function saveContactUrl() {
+  const msg = document.getElementById('cfgMsg');
+  const url = document.getElementById('cfg_contact_url').value.trim();
+  const { ok, body } = await api('/api/admin/settings/contact-url', jsonBody({ url }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? '保存しました' : (body.error || '保存に失敗しました');
 }
 async function loadHolidays() {
   const { body } = await api('/api/admin/holidays');

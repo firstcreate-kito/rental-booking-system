@@ -9,6 +9,7 @@ import {
   getSpaceBookingsInRange,
   getSpaceBookingsOnDate,
   getSystemSettings,
+  getSystemSetting,
   getSpaceOptions,
   getDailyOptionUsage,
   type SpaceRow,
@@ -132,6 +133,8 @@ app.get('/:id/day', async (c) => {
     }
   }
 
+  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '';
+
   return c.json({
     spaceId: id,
     date,
@@ -141,6 +144,7 @@ app.get('/:id/day', async (c) => {
     booked,
     today: todayJST(),
     nowTime: nowJST().slice(11, 16), // 当日の過去枠グレーアウト用（JST HH:MM）
+    contactUrl, // 商談中枠のお問い合わせ誘導リンク（#28）
   });
 });
 

@@ -86,7 +86,8 @@ INSERT OR REPLACE INTO system_settings (key, value) VALUES
   ('availability_threshold',        '50'),     -- カレンダー○/△の閾値(%)
   ('reminder_time',                 '18:00'),  -- 前日リマインダー送信時刻
   ('point_rate',                    '1'),      -- ポイント付与率(%)
-  ('default_cancel_policy',         '1');       -- 共通キャンセルポリシー使用フラグ
+  ('default_cancel_policy',         '1'),       -- 共通キャンセルポリシー使用フラグ
+  ('contact_url',                   '');        -- お問い合わせリンク先URL（商談中枠に表示）
 
 -- -----------------------------------------------------------------------------
 -- signage_tokens（サイネージ認証）※開発用の固定トークン。本番はランダム発行に差し替え

@@ -340,6 +340,16 @@ function slotKind(s, e) {
 function rangeOverlapsBooked(s, e) {
   return (S.booked || []).some(b => overlap(s, e, b.startTime, b.endTime));
 }
+// 選択範囲が重なる予約の種別を返す。'booked'（確定・予約不可）優先、次に'tentative'（商談中）
+function rangeOverlapKind(s, e) {
+  let kind = null;
+  for (const b of (S.booked || [])) {
+    if (!overlap(s, e, b.startTime, b.endTime)) continue;
+    if (b.kind === 'tentative') { kind = kind || 'tentative'; }
+    else { return 'booked'; }
+  }
+  return kind;
+}
 function renderSlotBar() {
   const ts = times(S.space.openTime, S.space.closeTime);
   let html = '';
@@ -393,6 +403,7 @@ async function openModal(date) {
   renderSlotBar();
   const { body } = await api('/api/spaces/' + S.space.id + '/day?date=' + date);
   S.booked = body.booked || [];
+  S.contactUrl = body.contactUrl || '';
   // 当日予約：現在時刻より前の枠を無効化
   if (body.today === date && body.nowTime) S.pastCutoffMin = toMin(body.nowTime);
   buildTimeOptions();
@@ -409,9 +420,18 @@ async function previewModal() {
   const prev = document.getElementById('mPreview');
   if (!start || !end || start >= end) { prev.textContent = '終了は開始より後にしてください'; warn.classList.add('hidden'); return; }
 
-  // 予約済みと重なる場合の事前警告
-  if (rangeOverlapsBooked(start, end)) {
-    warn.textContent = '⚠️ 選択した時間帯に「予約済み」の時間が含まれています。時間をずらしてください。';
+  // 予約済み／商談中と重なる場合の事前警告
+  const ovKind = rangeOverlapKind(start, end);
+  if (ovKind === 'booked') {
+    warn.innerHTML = '⚠️ 選択した時間帯に「予約済み」の時間が含まれています。時間をずらしてください。';
+    warn.classList.remove('hidden');
+  } else if (ovKind === 'tentative') {
+    // 商談中：予約はできないため、お問い合わせへ誘導（#28）
+    let html = '🟡 選択した時間帯は現在「商談中」の枠です。ご予約をご希望の場合は、お手数ですがお問い合わせください。';
+    if (S.contactUrl) {
+      html += '<div style="margin-top:6px"><a href="' + S.contactUrl + '" target="_blank" rel="noopener" style="color:#92400e;font-weight:600">お問い合わせはこちら →</a></div>';
+    }
+    warn.innerHTML = html;
     warn.classList.remove('hidden');
   } else {
     warn.classList.add('hidden');

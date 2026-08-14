@@ -57,8 +57,12 @@ import {
   peekNextBookingSeq,
   getSystemSetting,
   setSystemSetting,
+  getSpaceOptions,
+  isOptionAvailableForSpace,
+  getDailyOptionUsage,
   type SpaceRow,
 } from '../db/repository';
+import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
@@ -643,7 +647,8 @@ app.post('/bookings/:number/release', async (c) => {
 });
 
 /**
- * GET /api/admin/bookings/:number 予約グループの明細（日時変更モーダル用）
+ * GET /api/admin/bookings/:number 予約グループの明細（予約内容変更モーダル用）
+ * 現在のオプション選択と、そのスペースで選べるオプション一覧も返す。
  */
 app.get('/bookings/:number', async (c) => {
   const db = c.env.DB;
@@ -652,18 +657,38 @@ app.get('/bookings/:number', async (c) => {
   if (!g) return c.json({ error: 'booking not found' }, 404);
   const space = await getSpaceById(db, g.space_id);
   const rows = await getBookingsByGroup(db, g.id);
+  const { results: optSel } = await db
+    .prepare('SELECT option_id, quantity, subtotal FROM booking_option_selections WHERE group_id = ?')
+    .bind(g.id)
+    .all<{ option_id: string; quantity: number; subtotal: number }>();
+  const spaceOpts = await getSpaceOptions(db, g.space_id);
+  const currentOptionsTotal = (optSel ?? []).reduce((s, o) => s + o.subtotal, 0);
   return c.json({
     bookingNumber: g.booking_number,
     status: g.status,
     eventName: g.event_name,
     spaceName: space?.name ?? '',
     totalAmount: g.total_amount,
+    spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
     items: rows.map((r) => ({
       date: r.date,
       startTime: r.start_time,
       endTime: r.end_time,
       isResidence: !!r.is_residence,
     })),
+    options: (optSel ?? []).map((o) => ({ optionId: o.option_id, quantity: o.quantity })),
+    availableOptions: spaceOpts
+      .filter((o) => o.is_active)
+      .map((o) => ({
+        id: o.id,
+        name: o.name,
+        type: o.type,
+        priceType: o.price_type,
+        unitPrice: o.unit_price,
+        unitLabel: o.unit_label,
+        maxQty: o.max_qty,
+        stockTotal: o.stock_total,
+      })),
   });
 });
 
@@ -675,7 +700,10 @@ app.get('/bookings/:number', async (c) => {
 app.post('/bookings/:number/reschedule', async (c) => {
   const db = c.env.DB;
   const number = c.req.param('number');
-  const body = (await c.req.json().catch(() => ({}))) as { items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }> };
+  const body = (await c.req.json().catch(() => ({}))) as {
+    items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>;
+    options?: Array<{ optionId: string; quantity?: number }>;
+  };
   if (!Array.isArray(body.items) || body.items.length === 0) return c.json({ error: 'items は必須です' }, 400);
 
   const g = await getBookingGroupByNumber(db, number);
@@ -716,9 +744,52 @@ app.post('/bookings/:number/reschedule', async (c) => {
 
   const dayInputs: DayBookingInput[] = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime, isResidence: i.isResidence }));
   const newGroup = computeGroupSpacePrice(toPricingConfig(space), dayInputs, { holidays: holidayMap, seasonalRules });
-  // 商談中（仮予約）は金額が未確定のため再計算・差額計算は行わず、日時のみ移動する。
-  // 本予約（代理予約含む）は通常どおり料金を再計算し差額を返す。
-  const newTotal = isTentative ? g.total_amount : newGroup.spaceTotal;
+
+  // オプションの検証・在庫確認（新しい日程の各日で、自グループを除いた在庫を確認）
+  const reqOptions = Array.isArray(body.options) ? body.options : undefined;
+  let newOptionsTotal = 0;
+  const newSelections: Array<{ optionId: string; quantity: number; subtotal: number }> = [];
+  if (reqOptions && reqOptions.length > 0) {
+    const optMap = await getOptionsByIds(db, reqOptions.map((o) => o.optionId));
+    const newDatesForStock = [...new Set(body.items.map((i) => i.date))];
+    for (const req of reqOptions) {
+      const opt = optMap.get(req.optionId);
+      if (!opt || !opt.is_active) return c.json({ error: `オプションが見つかりません: ${req.optionId}` }, 400);
+      if (!(await isOptionAvailableForSpace(db, space.id, opt.id))) {
+        return c.json({ error: `${opt.name} はこのスペースで利用できません` }, 400);
+      }
+      const norm = normalizeQuantity(
+        { id: opt.id, type: opt.type, priceType: opt.price_type, unitPrice: opt.unit_price, maxQty: opt.max_qty, stockTotal: opt.stock_total },
+        req.quantity ?? 1,
+      );
+      if (norm.error) return c.json({ error: `${opt.name}: ${norm.error}` }, 400);
+      if (norm.quantity <= 0) continue;
+      for (const date of newDatesForStock) {
+        const used = await getDailyOptionUsage(db, opt.id, date, g.id); // 自グループ除外
+        if (!hasStock(opt.stock_total, used, norm.quantity)) {
+          return c.json({ error: `${opt.name} は ${date} の在庫が不足しています（残${Math.max(0, (opt.stock_total ?? 0) - used)}）` }, 409);
+        }
+      }
+      const subtotal = optionSubtotal(opt.price_type, opt.unit_price, norm.quantity);
+      newSelections.push({ optionId: opt.id, quantity: norm.quantity, subtotal });
+      newOptionsTotal += subtotal;
+    }
+  }
+  // options を省略した場合は既存のオプションを維持（合計はそのまま）
+  const optionsProvided = reqOptions !== undefined;
+  const curOptRow = await db
+    .prepare('SELECT COALESCE(SUM(subtotal),0) AS t FROM booking_option_selections WHERE group_id = ?')
+    .bind(g.id)
+    .first<{ t: number }>();
+  const currentOptionsTotal = curOptRow?.t ?? 0;
+  const optionsTotalFinal = optionsProvided ? newOptionsTotal : currentOptionsTotal;
+
+  // 合計＝スペース料金＋オプション料金。
+  // 商談中（仮予約）はスペース料金を据え置き（既存のスペース分を維持）。
+  // 本予約（代理予約含む）はスペース料金を再計算し、差額を返す。
+  const existingSpaceFee = g.total_amount - currentOptionsTotal;
+  const newSpaceFee = isTentative ? existingSpaceFee : newGroup.spaceTotal;
+  const newTotal = newSpaceFee + optionsTotalFinal;
   const adjustment = isTentative ? null : computeAdjustment(g.total_amount, newTotal);
 
   const newBookingIds = body.items.map(() => crypto.randomUUID());
@@ -736,12 +807,18 @@ app.post('/bookings/:number/reschedule', async (c) => {
         .bind(newBookingIds[i], g.id, space.id, item.date, item.startTime, item.endTime, day.billableHours, day.billingMode, day.isResidence ? 1 : 0, day.rate, day.price, keepStatus, g.source),
     );
   }
-  // 商談中は total_amount を据え置き（reschedule_count のみ更新）
-  stmts.push(
-    isTentative
-      ? db.prepare('UPDATE booking_groups SET reschedule_count = reschedule_count + 1 WHERE id = ?').bind(g.id)
-      : db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id),
-  );
+  stmts.push(db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id));
+  // オプションが指定されていれば置き換え（未指定なら既存を維持）
+  if (optionsProvided) {
+    stmts.push(db.prepare('DELETE FROM booking_option_selections WHERE group_id = ?').bind(g.id));
+    for (const sel of newSelections) {
+      stmts.push(
+        db
+          .prepare('INSERT INTO booking_option_selections (id, group_id, option_id, quantity, subtotal) VALUES (?, ?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), g.id, sel.optionId, sel.quantity, sel.subtotal),
+      );
+    }
+  }
   await db.batch(stmts);
 
   const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;

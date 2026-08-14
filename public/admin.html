@@ -128,12 +128,15 @@
     <div id="rsOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
       <div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
-          <h2 style="margin:0">日時変更</h2>
+          <h2 style="margin:0">予約内容変更</h2>
           <button class="btn ghost sm" onclick="closeReschedule()">✕</button>
         </div>
         <div class="muted" id="rsInfo" style="margin:6px 0 10px"></div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">日時</div>
         <div id="rsSlots"></div>
-        <div class="muted" style="font-size:12px;margin-top:8px">※管理者操作のため受付締切・受付開始日の制約は無視されます。休業日・他予約・Googleカレンダーとの重複はチェックされます。</div>
+        <div style="font-weight:600;font-size:13px;margin:12px 0 4px">オプション</div>
+        <div id="rsOptions" class="muted" style="font-size:13px">—</div>
+        <div class="muted" style="font-size:12px;margin-top:8px">※管理者操作のため受付締切・受付開始日の制約は無視されます。休業日・他予約・Googleカレンダーとの重複・オプション在庫はチェックされます。</div>
         <div class="msg" id="rsMsg"></div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost" onclick="closeReschedule()">キャンセル</button>
@@ -646,10 +649,10 @@ async function loadBookings() {
       actions = '<span class="muted" style="font-size:12px">終了</span>';
     } else if (b.status === 'tentative') {
       actions = '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button> ' +
-        '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">日時変更</button> ' +
+        '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>';
     } else if (b.status === 'confirmed') {
-      actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">日時変更</button> ' +
+      actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
     }
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
@@ -1193,7 +1196,7 @@ async function cancelBooking(number) {
   loadBookings();
 }
 
-// --- 日時変更（管理者） ---
+// --- 予約内容変更（管理者：日時＋オプション） ---
 let rsNumber = null;
 let rsStatus = null;
 let rsOriginal = [];
@@ -1203,6 +1206,7 @@ async function openReschedule(number) {
   rsOriginal = [];
   document.getElementById('rsMsg').textContent = '';
   document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
+  document.getElementById('rsOptions').innerHTML = '';
   document.getElementById('rsOverlay').style.display = 'flex';
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
@@ -1217,6 +1221,19 @@ async function openReschedule(number) {
       '<div><label>終了</label><input class="rs-end" value="' + it.endTime + '" placeholder="18:00" /></div>' +
     '</div>'
   ).join('');
+  // オプション（現在の選択を反映、追加/削除・数量変更可）
+  const avail = body.availableOptions || [];
+  const curMap = {}; (body.options || []).forEach(o => curMap[o.optionId] = o.quantity);
+  document.getElementById('rsOptions').innerHTML = avail.length ? avail.map(o => {
+    const price = o.priceType === 'free' ? '無料' : o.priceType === 'per_unit' ? (yen(o.unitPrice) + '/' + (o.unitLabel || '個')) : yen(o.unitPrice);
+    const caps = []; if (o.maxQty != null) caps.push(o.maxQty); if (o.stockTotal != null) caps.push(o.stockTotal);
+    const cap = caps.length ? Math.min(...caps) : null;
+    const cur = curMap[o.id] || 0;
+    const ctrl = o.type === 'toggle'
+      ? '<input type="checkbox" class="rs-opt" data-oid="' + o.id + '"' + (cur > 0 ? ' checked' : '') + '>'
+      : '<input type="number" class="rs-opt" data-oid="' + o.id + '" min="0"' + (cap != null ? ' max="' + cap + '"' : '') + ' value="' + cur + '" style="width:64px" oninput="if(this.max&&Number(this.value)>Number(this.max))this.value=this.max">';
+    return '<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 0"><div>' + o.name + ' <span class="muted">' + price + (cap != null ? '（上限' + cap + '）' : '') + '</span></div><div>' + ctrl + '</div></div>';
+  }).join('') : '<div class="muted">このスペースに選べるオプションはありません</div>';
 }
 function closeReschedule() {
   document.getElementById('rsOverlay').style.display = 'none';
@@ -1233,6 +1250,13 @@ async function submitReschedule() {
     if (!date || !startTime || !endTime) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">すべての日付・時間を入力してください</span>'; return; }
     items.push({ date, startTime, endTime });
   }
+  // オプションの選択を収集（チェック/数量>0のもの）
+  const options = [];
+  for (const el of document.querySelectorAll('#rsOptions .rs-opt')) {
+    const oid = el.getAttribute('data-oid');
+    const q = el.type === 'checkbox' ? (el.checked ? 1 : 0) : Math.floor(Number(el.value) || 0);
+    if (q > 0) options.push({ optionId: oid, quantity: q });
+  }
   // 変更内容の確認（誤操作による重複メール送信を防止）
   const changeLines = items.map((it, i) => {
     const o = rsOriginal[i];
@@ -1240,21 +1264,19 @@ async function submitReschedule() {
     const after = it.date + ' ' + it.startTime + '–' + it.endTime;
     return '　' + before + '  →  ' + after;
   }).join('\n');
+  const optNote = options.length ? ('\nオプション：' + options.length + '件') : '\nオプション：なし';
   const mailNote = rsStatus === 'tentative'
-    ? '※商談中のため金額は据え置きです。'
+    ? '※商談中のためスペース料金は据え置きです（オプションは反映されます）。'
     : '※お客様（メール登録がある場合）と管理者へ変更通知メールが送信されます。';
-  if (!confirm('予約 ' + rsNumber + ' の日時を変更します。\n\n' + changeLines + '\n\n' + mailNote + '\n\nこの内容で変更・通知してもよろしいですか？')) return;
+  if (!confirm('予約 ' + rsNumber + ' の内容を変更します。\n\n【日時】\n' + changeLines + optNote + '\n\n' + mailNote + '\n\nこの内容で変更・通知してもよろしいですか？')) return;
   const btn = document.getElementById('rsSubmit');
   btn.disabled = true;
   document.getElementById('rsMsg').textContent = '保存中…';
-  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody({ items }));
+  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody({ items, options }));
   btn.disabled = false;
   if (!ok) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">' + (body.error || '変更に失敗しました') + '</span>'; return; }
-  let note;
-  if (rsStatus === 'tentative') {
-    note = '商談中予約の日時を変更しました。（金額は据え置きです）';
-  } else {
-    note = '日時を変更しました。新しい合計 ' + yen(body.newTotal);
+  let note = '予約内容を変更しました。新しい合計 ' + yen(body.newTotal);
+  if (rsStatus !== 'tentative') {
     const adj = body.adjustment;
     if (adj && adj.type === 'surcharge') note += '（追加請求 +' + yen(adj.amount) + '）';
     else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';

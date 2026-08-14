@@ -318,14 +318,21 @@ async function loadCoupons() {
 async function loadTickets() {
   const { body } = await api('/api/mypage/tickets');
   const rows = body.tickets || [];
+  const contactUrl = body.contactUrl || 'https://space-albe.com/contact/';
+  const LOW = 3;
   document.getElementById('tkEmpty').textContent = rows.length ? '' : '保有チケットはありません';
   document.getElementById('tkList').innerHTML = rows.map(t => {
     const pct = t.total_hours ? Math.round(t.remaining_hours / t.total_hours * 100) : 0;
+    const exhausted = t.status === 'exhausted' || t.remaining_hours <= 0;
+    const low = t.status === 'active' && t.remaining_hours > 0 && t.remaining_hours <= LOW;
+    let notice = '';
+    if (exhausted) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>使い切りました。</strong> <a href="' + contactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">追加購入について問い合わせる ▶</a></div>';
+    else if (low) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>残りわずかです。</strong> <a href="' + contactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">追加購入について問い合わせる ▶</a></div>';
     return '<div class="coupon"><div class="row"><strong>' + t.name + '</strong>' +
       '<span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></div>' +
       '<div>残り ' + t.remaining_hours + ' / ' + t.total_hours + ' 時間（' + pct + '%）</div>' +
       '<div class="muted">対象: ' + (t.spaces || '全スペース') + '</div>' +
-      '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div></div>';
+      '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div>' + notice + '</div>';
   }).join('');
 }
 async function loadFavorites() {

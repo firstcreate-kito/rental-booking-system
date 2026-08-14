@@ -11,6 +11,7 @@ import {
   getSystemSettings,
   getSystemSetting,
   getSpaceQuestions,
+  getTicketProductsForSpace,
   getSpaceOptions,
   getDailyOptionUsage,
   type SpaceRow,
@@ -76,6 +77,13 @@ app.get('/:id/questions', async (c) => {
       required: !!q.required,
     })),
   });
+});
+
+/** GET /api/spaces/:id/ticket-products このスペースで販売中のチケット商品（追加購入案内用）#24 */
+app.get('/:id/ticket-products', async (c) => {
+  const products = await getTicketProductsForSpace(c.env.DB, c.req.param('id'));
+  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
+  return c.json({ products, contactUrl });
 });
 
 /** GET /api/spaces/:id/options?date=YYYY-MM-DD オプション一覧（在庫情報含む） */

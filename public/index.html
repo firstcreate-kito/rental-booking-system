@@ -159,6 +159,7 @@
           <label>チケット（回数券）利用</label>
           <select id="d_ticket" onchange="onTicketChange()"><option value="">使わない</option></select>
         </div>
+        <div id="ticketBuyPrompt" class="hidden" style="margin:6px 0;padding:10px;border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;font-size:13px"></div>
         <label>クーポンコード</label>
         <input id="d_coupon" placeholder="例）WELCOME20" oninput="onCouponInput()" />
         <label>ポイント利用（保有: <span id="ptBal">0</span>P）</label>
@@ -238,7 +239,7 @@
 </div>
 
 <script>
-const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done' };
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done', usableTickets: [], ticketProducts: [], ticketContactUrl: '' };
 // 本番（localhost 以外）では開発用の表示・デモ会員ヒントを隠す
 if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
   const dev = document.getElementById('devBadge'); if (dev) dev.style.display = 'none';
@@ -666,6 +667,7 @@ function memberLogout() {
   document.getElementById('loginForm').classList.remove('hidden');
   document.getElementById('memberBox').classList.add('hidden');
   document.getElementById('ticketRow').classList.add('hidden');
+  document.getElementById('ticketBuyPrompt').classList.add('hidden');
   clearTicketSel();
   recomputeSummary();
 }
@@ -676,13 +678,41 @@ function onTicketChange() { if (document.getElementById('d_ticket').value) { doc
 // 選択中スペースで使えるチケットを読み込み（会員のみ）
 async function loadUsableTickets() {
   const row = document.getElementById('ticketRow'), sel = document.getElementById('d_ticket');
-  if (!S.token || !S.space) { row.classList.add('hidden'); return; }
+  S.usableTickets = [];
+  // このスペースで販売中のチケット（追加購入案内用）を取得
+  const prod = await api('/api/spaces/' + encodeURIComponent(S.space.id) + '/ticket-products');
+  S.ticketProducts = (prod.ok && prod.body.products) ? prod.body.products : [];
+  S.ticketContactUrl = (prod.ok && prod.body.contactUrl) ? prod.body.contactUrl : 'https://space-albe.com/contact/';
+  if (!S.token || !S.space) { row.classList.add('hidden'); document.getElementById('ticketBuyPrompt').classList.add('hidden'); return; }
   const { ok, body } = await api('/api/mypage/usable-tickets?spaceId=' + encodeURIComponent(S.space.id), { headers: authHeaders() });
   const rows = (ok && body.tickets) ? body.tickets : [];
+  S.usableTickets = rows;
   if (!rows.length) { row.classList.add('hidden'); sel.innerHTML = '<option value="">使わない</option>'; return; }
   sel.innerHTML = '<option value="">使わない</option>' + rows.map(t =>
     '<option value="' + t.id + '">' + t.name + '（残' + t.remaining_hours + 'h・〜' + t.valid_until + '）</option>').join('');
   row.classList.remove('hidden');
+}
+// 販売中チケットのご案内（追加購入導線）を組み立て
+function ticketCatalogHtml() {
+  if (!S.ticketProducts || !S.ticketProducts.length) return '';
+  const list = S.ticketProducts.map(p => '・' + p.name + '（' + p.total_hours + '時間 / ' + yen(p.price) + '）').join('<br>');
+  return '<div style="margin-top:6px">' + list + '</div>' +
+    '<div style="margin-top:6px"><a href="' + S.ticketContactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">▶ チケットの追加購入について問い合わせる</a></div>';
+}
+// チケット残数が少ない/使い切りのとき追加購入を促す
+function updateTicketBuyPrompt(remainingAfter, exhausted) {
+  const el = document.getElementById('ticketBuyPrompt');
+  if (!el) return;
+  const LOW = 3; // 残りこの時間以下で案内
+  if (exhausted) {
+    el.innerHTML = '<strong>チケットを使い切りました。</strong>引き続きお得にご利用いただくには追加購入がおすすめです。' + ticketCatalogHtml();
+    el.classList.remove('hidden');
+  } else if (remainingAfter != null && remainingAfter <= LOW) {
+    el.innerHTML = '<strong>チケットの残りが少なくなっています（残 ' + remainingAfter + ' 時間）。</strong>追加購入で続けてご利用いただけます。' + ticketCatalogHtml();
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
 }
 function discountPayload() {
   if (!S.token) return {};
@@ -735,6 +765,15 @@ async function recomputeSummary() {
     else if (body.primaryKind === 'ticket') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ チケット適用 -' + yen(body.primaryDiscount) + '（' + body.ticketHoursConsumed + '時間消費）'; }
     else if (body.primaryKind === 'points') { dmsg.style.color = '#166534'; dmsg.textContent = '✓ ポイント利用 -' + yen(body.pointsUsed); }
     else dmsg.textContent = '';
+  }
+  // チケット残数のご案内（残りわずか／使い切り→追加購入導線）
+  const tsel = document.getElementById('d_ticket');
+  if (body.primaryKind === 'ticket' && tsel && tsel.value) {
+    const t = (S.usableTickets || []).find(x => x.id === tsel.value);
+    const after = t ? (t.remaining_hours - (body.ticketHoursConsumed || 0)) : null;
+    updateTicketBuyPrompt(after, after != null && after <= 0);
+  } else {
+    updateTicketBuyPrompt(null, false);
   }
 }
 

@@ -35,6 +35,14 @@ import {
   getMemberCoupons,
   getMemberTickets,
   issueTicket,
+  updateIssuedTicket,
+  getIssuedTicket,
+  getTicketProducts,
+  getTicketProduct,
+  insertTicketProduct,
+  updateTicketProduct,
+  deleteTicketProduct,
+  type TicketProductInput,
   type SpaceInput,
   type OptionInput,
   getHolidays,
@@ -72,7 +80,7 @@ import {
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
-import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
+import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
@@ -1058,18 +1066,41 @@ app.post('/coupons', requireRole('owner', 'manager'), async (c) => {
   }
 });
 
-/** POST /api/admin/customers/:id/tickets チケット発行（owner/manager）#24 */
+/** POST /api/admin/customers/:id/tickets チケット発行（owner/manager）#24
+ * productId を渡すと販売中のチケット商品から発行（名称・時間・対象スペース・有効日数を継承）。
+ * 手動発行の場合は name/totalHours/validUntil/spaceIds を直接指定。
+ */
 app.post('/customers/:id/tickets', requireRole('owner', 'manager'), async (c) => {
   const customerId = c.req.param('id');
   const profile = await getCustomerProfile(c.env.DB, customerId);
   if (!profile) return c.json({ error: 'customer not found' }, 404);
   const body = await c.req.json().catch(() => ({}));
   const b = body as Record<string, unknown>;
-  const name = String(b.name ?? '').trim();
-  const totalHours = Number(b.totalHours ?? 0);
   const validFrom = String(b.validFrom ?? '').trim() || todayJST();
-  const validUntil = String(b.validUntil ?? '').trim();
-  const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  const productId = b.productId ? String(b.productId) : null;
+
+  let name: string;
+  let totalHours: number;
+  let validUntil: string;
+  let spaceIds: string[];
+
+  if (productId) {
+    const product = await getTicketProduct(c.env.DB, productId) as
+      | { name: string; total_hours: number; validity_days: number; space_ids: string[] }
+      | null;
+    if (!product) return c.json({ error: 'チケット商品が見つかりません' }, 404);
+    name = product.name;
+    totalHours = product.total_hours;
+    spaceIds = product.space_ids;
+    // 有効終了 = 発行日 + 有効日数（未指定時）。明示指定があれば優先。
+    validUntil = String(b.validUntil ?? '').trim() || addDaysJST(validFrom, product.validity_days);
+  } else {
+    name = String(b.name ?? '').trim();
+    totalHours = Number(b.totalHours ?? 0);
+    validUntil = String(b.validUntil ?? '').trim();
+    spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  }
+
   if (!name) return c.json({ error: 'チケット名は必須です' }, 400);
   if (!Number.isInteger(totalHours) || totalHours <= 0) return c.json({ error: '時間数は1以上の整数で入力してください' }, 400);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) return c.json({ error: '有効開始日は YYYY-MM-DD で入力してください' }, 400);
@@ -1077,10 +1108,99 @@ app.post('/customers/:id/tickets', requireRole('owner', 'manager'), async (c) =>
   if (validUntil < validFrom) return c.json({ error: '有効終了日は開始日以降にしてください' }, 400);
   const id = await issueTicket(
     c.env.DB,
-    { customerId, name, totalHours, validFrom, validUntil, spaceIds },
+    { customerId, name, totalHours, validFrom, validUntil, spaceIds, productId },
     nowJST(),
   );
   return c.json({ id }, 201);
+});
+
+/** PATCH /api/admin/tickets/:id 発行済みチケットの枚数(時間)・期限・状態を変更（owner/manager）#24 */
+app.patch('/tickets/:id', requireRole('owner', 'manager'), async (c) => {
+  const ticketId = c.req.param('id');
+  const existing = await getIssuedTicket(c.env.DB, ticketId) as { id: string; total_hours: number } | null;
+  if (!existing) return c.json({ error: 'ticket not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const b = body as Record<string, unknown>;
+  const patch: { totalHours?: number; remainingHours?: number; validUntil?: string; status?: string } = {};
+  if (b.totalHours != null && b.totalHours !== '') {
+    const v = Number(b.totalHours);
+    if (!Number.isInteger(v) || v <= 0) return c.json({ error: '総時間は1以上の整数で入力してください' }, 400);
+    patch.totalHours = v;
+  }
+  if (b.remainingHours != null && b.remainingHours !== '') {
+    const v = Number(b.remainingHours);
+    if (!Number.isInteger(v) || v < 0) return c.json({ error: '残時間は0以上の整数で入力してください' }, 400);
+    patch.remainingHours = v;
+  }
+  if (b.validUntil != null && b.validUntil !== '') {
+    const v = String(b.validUntil);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return c.json({ error: '有効終了日は YYYY-MM-DD で入力してください' }, 400);
+    patch.validUntil = v;
+  }
+  if (b.status != null && b.status !== '') {
+    const v = String(b.status);
+    if (!['active', 'exhausted', 'expired'].includes(v)) return c.json({ error: '状態が不正です' }, 400);
+    patch.status = v;
+  }
+  // 残時間が総時間を超えないように整合
+  const finalTotal = patch.totalHours ?? existing.total_hours;
+  if (patch.remainingHours != null && patch.remainingHours > finalTotal) {
+    return c.json({ error: '残時間は総時間以下にしてください' }, 400);
+  }
+  await updateIssuedTicket(c.env.DB, ticketId, patch);
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// チケット商品マスタ（販売中のチケット）#24 ※owner / manager
+// ---------------------------------------------------------------------------
+function parseTicketProductInput(b: Record<string, unknown>): { input?: TicketProductInput; spaceIds?: string[]; error?: string } {
+  const name = String(b.name ?? '').trim();
+  if (!name) return { error: 'チケット名は必須です' };
+  const totalHours = Number(b.totalHours ?? 0);
+  if (!Number.isInteger(totalHours) || totalHours <= 0) return { error: '利用可能時間は1以上の整数で入力してください' };
+  const price = Number(b.price ?? 0);
+  if (!Number.isInteger(price) || price < 0) return { error: '販売料金は0以上の整数で入力してください' };
+  const validityDays = Number(b.validityDays ?? 0);
+  if (!Number.isInteger(validityDays) || validityDays <= 0) return { error: '有効日数は1以上の整数で入力してください' };
+  const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  if (spaceIds.length === 0) return { error: '対象スペースを1つ以上選んでください' };
+  return {
+    input: { name, totalHours, price, validityDays, isActive: b.isActive !== false && b.isActive !== 0, sortOrder: Number(b.sortOrder ?? 0) || 0 },
+    spaceIds,
+  };
+}
+
+app.get('/ticket-products', async (c) => {
+  const products = await getTicketProducts(c.env.DB);
+  return c.json({ products });
+});
+
+app.post('/ticket-products', requireRole('owner', 'manager'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { input, spaceIds, error } = parseTicketProductInput(body as Record<string, unknown>);
+  if (error) return c.json({ error }, 400);
+  const id = await insertTicketProduct(c.env.DB, input!, spaceIds!);
+  return c.json({ id }, 201);
+});
+
+app.put('/ticket-products/:id', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await getTicketProduct(c.env.DB, id);
+  if (!existing) return c.json({ error: 'ticket product not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const { input, spaceIds, error } = parseTicketProductInput(body as Record<string, unknown>);
+  if (error) return c.json({ error }, 400);
+  await updateTicketProduct(c.env.DB, id, input!, spaceIds!);
+  return c.json({ ok: true });
+});
+
+app.delete('/ticket-products/:id', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await getTicketProduct(c.env.DB, id);
+  if (!existing) return c.json({ error: 'ticket product not found' }, 404);
+  const { deleted } = await deleteTicketProduct(c.env.DB, id);
+  return c.json({ ok: true, deleted });
 });
 
 /** POST /api/admin/customers/:id/points ポイント手動付与/取消（owner/manager） */

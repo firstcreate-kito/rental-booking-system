@@ -90,6 +90,7 @@
       <button id="tab-options" onclick="showTab('options')">オプション管理</button>
       <button id="tab-questions" onclick="showTab('questions')">追加質問</button>
       <button id="tab-pricing" onclick="showTab('pricing')">季節料金・キャンペーン</button>
+      <button id="tab-tickets" onclick="showTab('tickets')">チケット販売</button>
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
     </div>
 
@@ -465,6 +466,33 @@
       </div>
     </section>
 
+    <!-- チケット販売（商品マスタ） -->
+    <section id="view-tickets" class="card hidden">
+      <h2>チケット（回数券）販売管理</h2>
+      <div class="muted">お客様に販売する<strong>チケット商品</strong>を登録します。対象スペース・利用可能時間・販売料金・有効日数を設定でき、顧客への発行時にここから選べます。内容は任意で変更・追加・削除できます。</div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table><thead><tr><th>チケット名</th><th>対象スペース</th><th>時間</th><th>販売料金</th><th>有効日数</th><th>状態</th><th></th></tr></thead><tbody id="tpBody"></tbody></table>
+      </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)" />
+      <h2 id="tpFormTitle" style="font-size:14px">チケット商品を追加</h2>
+      <input type="hidden" id="tp_id" />
+      <div class="grid">
+        <div style="grid-column:1 / -1"><label>チケット名 *</label><input id="tp_name" placeholder="例）名駅防音室A・B共通チケット 6時間" /></div>
+        <div><label>利用可能時間（h）*</label><input id="tp_hours" type="number" min="1" placeholder="6" /></div>
+        <div><label>販売料金（円）*</label><input id="tp_price" type="number" min="0" placeholder="7700" /></div>
+        <div><label>有効日数 *</label><input id="tp_validity" type="number" min="1" value="180" /></div>
+        <div><label>並び順</label><input id="tp_sort" type="number" value="0" style="width:80px" /></div>
+        <div><label>状態</label><select id="tp_active"><option value="1">公開（販売中）</option><option value="0">非公開</option></select></div>
+      </div>
+      <label>対象スペース *</label>
+      <div id="tp_spaces" class="row" style="gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:140px;overflow:auto"></div>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <button class="btn sm" onclick="saveTicketProduct()">保存</button>
+        <button class="btn ghost sm" onclick="resetTicketProductForm()">クリア</button>
+      </div>
+      <div class="msg" id="tpMsg"></div>
+    </section>
+
     <!-- 顧客・特典 -->
     <section id="view-customers" class="card hidden">
       <h2>顧客管理・特典</h2>
@@ -546,17 +574,22 @@
           <div class="card" style="margin:0">
             <h2>チケット（回数券）発行</h2>
             <div class="muted" style="font-size:12px;margin-top:-4px;margin-bottom:6px">利用可能時間分をスペース料金に充当できる回数券です。予約時に会員が選択して消費します。</div>
-            <div class="grid">
-              <div><label>チケット名 *</label><input id="tk_name" placeholder="例）10時間回数券" /></div>
-              <div><label>利用可能時間 *</label><input id="tk_hours" type="number" min="1" step="1" placeholder="10" /></div>
+            <label>販売中のチケットから選ぶ</label>
+            <select id="tk_product" onchange="onTkProductChange()"><option value="">（手動で入力）</option></select>
+            <div class="muted" id="tk_prodInfo" style="font-size:12px;margin:4px 0"></div>
+            <div id="tk_manualFields">
+              <div class="grid">
+                <div><label>チケット名 *</label><input id="tk_name" placeholder="例）10時間回数券" /></div>
+                <div><label>利用可能時間 *</label><input id="tk_hours" type="number" min="1" step="1" placeholder="10" /></div>
+              </div>
+              <label>対象スペース（未選択＝全スペース可）</label>
+              <div id="tk_spaces" class="row" style="gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:120px;overflow:auto"></div>
             </div>
             <div class="grid">
               <div><label>有効開始（任意）</label><input id="tk_from" type="date" /></div>
-              <div><label>有効終了 *</label><input id="tk_until" type="date" /></div>
+              <div><label>有効終了 <span id="tk_untilReq">*</span></label><input id="tk_until" type="date" /></div>
             </div>
-            <div class="muted" style="font-size:12px;margin-top:-2px">未入力の場合：開始＝発行日</div>
-            <label>対象スペース（未選択＝全スペース可）</label>
-            <div id="tk_spaces" class="row" style="gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:120px;overflow:auto"></div>
+            <div class="muted" style="font-size:12px;margin-top:-2px">未入力の場合：開始＝発行日／販売中チケット選択時は有効日数から自動計算</div>
             <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="submitTicket()">発行</button></div>
             <div class="msg" id="tkMsg"></div>
           </div>
@@ -657,7 +690,7 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar','options','questions','pricing','customers'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar','options','questions','pricing','tickets','customers'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
@@ -666,6 +699,7 @@ function showTab(t) {
   if (t === 'options') loadOptionsAdmin();
   if (t === 'questions') loadQuestionsMgmt();
   if (t === 'pricing') loadPricingMgmt();
+  if (t === 'tickets') loadTicketProducts();
   if (t === 'customers') initCustomers();
   if (t === 'proxy') { buildAdminTimeOptions('p'); proxyPriceEdited = false; recalcProxyPrice(); }
   if (t === 'tent') { buildAdminTimeOptions('t'); }
@@ -1083,12 +1117,19 @@ async function deleteCampaign(id) {
 
 // --- 顧客管理・特典 ---
 let selectedCustomer = null;
+let lastCustomerTickets = [];
 async function initCustomers() {
   if (A.spaces.length === 0) await loadSpaces();
   document.getElementById('cp_spaces').innerHTML = A.spaces.map(s =>
     '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="cp-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
   document.getElementById('tk_spaces').innerHTML = A.spaces.map(s =>
     '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="tk-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+  // 販売中のチケット商品を発行用ドロップダウンへ
+  const tp = await api('/api/admin/ticket-products');
+  ticketProducts = (tp.body && tp.body.products) || [];
+  const active = ticketProducts.filter(p => p.is_active);
+  document.getElementById('tk_product').innerHTML = '<option value="">（手動で入力）</option>' +
+    active.map(p => '<option value="' + p.id + '">' + p.name + '（' + p.total_hours + 'h・' + yen(p.price) + '）</option>').join('');
   if (!document.getElementById('csBody').innerHTML) searchCustomers();
 }
 async function searchCustomers() {
@@ -1135,9 +1176,10 @@ async function selectCustomer(id) {
     const until = c.valid_until ? c.valid_until : '無期限';
     return '<tr><td>' + c.code + '</td><td>' + c.name + '</td><td>' + off + '</td><td>' + c.remaining_hours + '/' + c.total_hours + 'h</td><td>' + until + '</td><td><span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></td></tr>';
   }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
-  document.getElementById('csTickets').innerHTML = (body.tickets||[]).map(t => {
-    return '<tr><td>' + t.name + '</td><td>' + (t.spaces || '全スペース') + '</td><td>' + t.remaining_hours + '/' + t.total_hours + 'h</td><td>' + t.valid_from + '〜' + t.valid_until + '</td><td><span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></td></tr>';
-  }).join('') || '<tr><td colspan="5" class="muted">なし</td></tr>';
+  lastCustomerTickets = body.tickets || [];
+  document.getElementById('csTickets').innerHTML = lastCustomerTickets.map(t => {
+    return '<tr><td>' + t.name + '</td><td>' + (t.spaces || '全スペース') + '</td><td>' + t.remaining_hours + '/' + t.total_hours + 'h</td><td>' + t.valid_from + '〜' + t.valid_until + '</td><td><span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></td><td><button class="btn ghost sm" onclick="editIssuedTicket(\'' + t.id + '\')">残数変更</button></td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
   document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = ''; document.getElementById('tkMsg').textContent = '';
   // 自動入力などによる値の残留を防ぐため毎回クリア
   document.getElementById('pt_amount').value = '';
@@ -1180,24 +1222,144 @@ async function submitCoupon() {
   document.getElementById('cp_name').value='';
   selectCustomer(selectedCustomer); // 一覧更新
 }
+// 販売中のチケットを選ぶと内容をプレビュー表示し、手動入力欄を隠す
+function onTkProductChange() {
+  const pid = document.getElementById('tk_product').value;
+  const manual = document.getElementById('tk_manualFields');
+  const info = document.getElementById('tk_prodInfo');
+  if (!pid) {
+    if (manual) manual.classList.remove('hidden');
+    info.textContent = '';
+    return;
+  }
+  const p = ticketProducts.find(x => x.id === pid);
+  if (!p) return;
+  if (manual) manual.classList.add('hidden');
+  const spName = id => (A.spaces.find(s => s.id === id) || {}).name || id;
+  const spaces = (p.space_ids || []).map(spName).join(' / ') || '全スペース';
+  info.textContent = '対象: ' + spaces + ' ／ ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（発行日から）';
+}
 async function submitTicket() {
   const msg = document.getElementById('tkMsg');
-  const spaceIds = Array.from(document.querySelectorAll('.tk-space:checked')).map(el => el.value);
-  const payload = {
-    name: document.getElementById('tk_name').value.trim(),
-    totalHours: Number(document.getElementById('tk_hours').value),
-    validFrom: document.getElementById('tk_from').value,
-    validUntil: document.getElementById('tk_until').value,
-    spaceIds,
-  };
-  if (!payload.name) { msg.className='msg bad'; msg.textContent='チケット名を入力してください'; return; }
-  if (!payload.validUntil) { msg.className='msg bad'; msg.textContent='有効終了日を入力してください'; return; }
+  const productId = document.getElementById('tk_product').value;
+  let payload;
+  if (productId) {
+    payload = { productId, validFrom: document.getElementById('tk_from').value, validUntil: document.getElementById('tk_until').value };
+  } else {
+    const spaceIds = Array.from(document.querySelectorAll('.tk-space:checked')).map(el => el.value);
+    payload = {
+      name: document.getElementById('tk_name').value.trim(),
+      totalHours: Number(document.getElementById('tk_hours').value),
+      validFrom: document.getElementById('tk_from').value,
+      validUntil: document.getElementById('tk_until').value,
+      spaceIds,
+    };
+    if (!payload.name) { msg.className='msg bad'; msg.textContent='チケット名を入力してください'; return; }
+    if (!payload.validUntil) { msg.className='msg bad'; msg.textContent='有効終了日を入力してください（販売中のチケットから選ぶと有効日数から自動計算されます）'; return; }
+  }
   const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/tickets', jsonBody(payload));
   if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '発行に失敗しました'; return; }
   msg.className='msg ok'; msg.textContent = 'チケットを発行しました';
   document.getElementById('tk_name').value=''; document.getElementById('tk_hours').value='';
+  document.getElementById('tk_product').value=''; onTkProductChange();
   document.querySelectorAll('.tk-space:checked').forEach(el => el.checked = false);
   selectCustomer(selectedCustomer); // 一覧更新
+}
+// 発行済みチケットの残数(時間)・期限・状態を変更
+async function editIssuedTicket(id) {
+  const t = (lastCustomerTickets || []).find(x => x.id === id);
+  if (!t) return;
+  const remStr = prompt('残時間を入力してください（現在: ' + t.remaining_hours + ' / ' + t.total_hours + 'h）\n※サービス追加や訂正に使用します', String(t.remaining_hours));
+  if (remStr === null) return;
+  const remaining = Number(remStr);
+  if (!Number.isInteger(remaining) || remaining < 0) { alert('0以上の整数を入力してください'); return; }
+  const payload = { remainingHours: remaining };
+  // 残時間が総時間を超える場合は総時間も引き上げるか確認
+  if (remaining > t.total_hours) {
+    if (confirm('残時間が総時間(' + t.total_hours + 'h)を超えています。総時間も ' + remaining + 'h に引き上げますか？')) {
+      payload.totalHours = remaining;
+    } else { alert('残時間は総時間以下にしてください'); return; }
+  }
+  const { ok, body } = await api('/api/admin/tickets/' + id, jsonBody(payload, 'PATCH'));
+  if (!ok) { alert(body.error || '変更に失敗しました'); return; }
+  selectCustomer(selectedCustomer);
+}
+
+// --- チケット販売（商品マスタ）#24 ---
+let ticketProducts = [];
+async function loadTicketProducts() {
+  if (A.spaces.length === 0) await loadSpaces();
+  const spName = id => (A.spaces.find(s => s.id === id) || {}).name || id;
+  const { body } = await api('/api/admin/ticket-products');
+  ticketProducts = body.products || [];
+  document.getElementById('tpBody').innerHTML = ticketProducts.map(p => {
+    const spaces = (p.space_ids || []).map(spName).join(' / ') || '—';
+    const pub = p.is_active ? '<span class="pill confirmed">販売中</span>' : '<span class="pill cancelled">非公開</span>';
+    return '<tr><td>' + p.name + '</td><td>' + spaces + '</td><td>' + p.total_hours + 'h</td><td>' + yen(p.price) +
+      '</td><td>' + p.validity_days + '日</td><td>' + pub + '</td><td>' +
+      '<button class="btn ghost sm" onclick="editTicketProduct(\'' + p.id + '\')">編集</button> ' +
+      '<button class="btn ghost sm" onclick="delTicketProduct(\'' + p.id + '\')">削除</button></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">登録なし</td></tr>';
+  renderTpSpaceChecks([]);
+}
+function renderTpSpaceChecks(selected) {
+  const set = new Set(selected || []);
+  document.getElementById('tp_spaces').innerHTML = A.spaces.map(s =>
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)">' +
+    '<input type="checkbox" class="tp-space" value="' + s.id + '" style="width:auto"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
+}
+function resetTicketProductForm() {
+  document.getElementById('tp_id').value = '';
+  document.getElementById('tpFormTitle').textContent = 'チケット商品を追加';
+  ['tp_name','tp_hours','tp_price'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('tp_validity').value = '180';
+  document.getElementById('tp_sort').value = '0';
+  document.getElementById('tp_active').value = '1';
+  renderTpSpaceChecks([]);
+  document.getElementById('tpMsg').textContent = '';
+}
+function editTicketProduct(id) {
+  const p = ticketProducts.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('tp_id').value = p.id;
+  document.getElementById('tpFormTitle').textContent = 'チケット商品を編集：' + p.name;
+  document.getElementById('tp_name').value = p.name;
+  document.getElementById('tp_hours').value = p.total_hours;
+  document.getElementById('tp_price').value = p.price;
+  document.getElementById('tp_validity').value = p.validity_days;
+  document.getElementById('tp_sort').value = p.sort_order;
+  document.getElementById('tp_active').value = p.is_active ? '1' : '0';
+  renderTpSpaceChecks(p.space_ids);
+  document.getElementById('tpMsg').textContent = '';
+  document.getElementById('tpFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function saveTicketProduct() {
+  const msg = document.getElementById('tpMsg');
+  const id = document.getElementById('tp_id').value;
+  const payload = {
+    name: document.getElementById('tp_name').value.trim(),
+    totalHours: Number(document.getElementById('tp_hours').value),
+    price: Number(document.getElementById('tp_price').value),
+    validityDays: Number(document.getElementById('tp_validity').value),
+    sortOrder: Number(document.getElementById('tp_sort').value) || 0,
+    isActive: document.getElementById('tp_active').value === '1',
+    spaceIds: Array.from(document.querySelectorAll('.tp-space:checked')).map(el => el.value),
+  };
+  const { ok, body } = id
+    ? await api('/api/admin/ticket-products/' + id, jsonBody(payload, 'PUT'))
+    : await api('/api/admin/ticket-products', jsonBody(payload));
+  if (!ok) { msg.className='msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent = '保存しました';
+  resetTicketProductForm();
+  loadTicketProducts();
+}
+async function delTicketProduct(id) {
+  const p = ticketProducts.find(x => x.id === id);
+  if (!confirm('「' + (p ? p.name : '') + '」を削除します。よろしいですか？\n（発行済みチケットがある場合は非公開になります）')) return;
+  const { ok, body } = await api('/api/admin/ticket-products/' + id, { method: 'DELETE' });
+  if (!ok) { alert(body.error || '削除に失敗しました'); return; }
+  if (body.deleted === false) alert('発行済みチケットが存在するため、削除ではなく非公開にしました。');
+  loadTicketProducts();
 }
 
 // --- オプション管理 ---

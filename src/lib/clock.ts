@@ -22,6 +22,15 @@ export function todayYmdJST(now: number = Date.now()): string {
   return todayJST(now).replace(/-/g, '');
 }
 
+/** 'YYYY-MM-DD' に days 日を加算した 'YYYY-MM-DD' を返す（有効期限計算用） */
+export function addDaysJST(dateISO: string, days: number): string {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const base = Date.UTC(y, m - 1, d);
+  const next = new Date(base + days * 24 * 60 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${next.getUTCFullYear()}-${p(next.getUTCMonth() + 1)}-${p(next.getUTCDate())}`;
+}
+
 /** JSTの現在日時 'YYYY-MM-DD HH:MM:SS' */
 export function nowJST(now: number = Date.now()): string {
   const d = jstNow(now);

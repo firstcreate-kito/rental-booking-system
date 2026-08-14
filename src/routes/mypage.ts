@@ -15,6 +15,7 @@ import {
   getSpaceById,
   getMemberTickets,
   getUsableTicketsForSpace,
+  getSystemSetting,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { nowJST, todayJST } from '../lib/clock';
@@ -81,7 +82,8 @@ app.get('/coupons', async (c) => {
 /** GET /api/mypage/tickets 保有チケット一覧 */
 app.get('/tickets', async (c) => {
   const tickets = await getMemberTickets(c.env.DB, c.get('customer').id);
-  return c.json({ tickets });
+  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
+  return c.json({ tickets, contactUrl });
 });
 
 /** GET /api/mypage/usable-tickets?spaceId=xxx 指定スペースで使えるチケット */

@@ -1424,16 +1424,16 @@ export interface TicketRow {
 /** 管理者がチケットを発行して顧客に紐付ける */
 export async function issueTicket(
   db: D1Database,
-  t: { customerId: string; name: string; totalHours: number; validFrom: string; validUntil: string; spaceIds: string[] },
+  t: { customerId: string; name: string; totalHours: number; validFrom: string; validUntil: string; spaceIds: string[]; productId?: string | null },
   now: string,
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db
     .prepare(
       `INSERT INTO tickets (id, customer_id, product_id, name, total_hours, remaining_hours, valid_from, valid_until, status, purchased_at)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'active', ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
     )
-    .bind(id, t.customerId, t.name, t.totalHours, t.totalHours, t.validFrom, t.validUntil, now)
+    .bind(id, t.customerId, t.productId ?? null, t.name, t.totalHours, t.totalHours, t.validFrom, t.validUntil, now)
     .run();
   if (t.spaceIds.length) {
     await db.batch(
@@ -1441,6 +1441,123 @@ export async function issueTicket(
     );
   }
   return id;
+}
+
+/** 発行済みチケットの残時間・総時間・有効期限・状態を任意に変更（サービス追加や訂正用）#24 */
+export async function updateIssuedTicket(
+  db: D1Database,
+  ticketId: string,
+  patch: { totalHours?: number; remainingHours?: number; validUntil?: string; status?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (patch.totalHours != null) { sets.push('total_hours = ?'); vals.push(patch.totalHours); }
+  if (patch.remainingHours != null) { sets.push('remaining_hours = ?'); vals.push(patch.remainingHours); }
+  if (patch.validUntil) { sets.push('valid_until = ?'); vals.push(patch.validUntil); }
+  if (patch.status) { sets.push('status = ?'); vals.push(patch.status); }
+  if (!sets.length) return;
+  vals.push(ticketId);
+  await db.prepare(`UPDATE tickets SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+}
+
+export async function getIssuedTicket(db: D1Database, ticketId: string) {
+  return db.prepare('SELECT * FROM tickets WHERE id = ?').bind(ticketId).first();
+}
+
+// ---------------------------------------------------------------------------
+// チケット商品マスタ（販売中のチケット）#24
+// ---------------------------------------------------------------------------
+export interface TicketProductInput {
+  name: string;
+  totalHours: number;
+  price: number;
+  validityDays: number;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+/** チケット商品一覧（管理用：全件、対象スペースID配列付き） */
+export async function getTicketProducts(db: D1Database, activeOnly = false) {
+  const where = activeOnly ? 'WHERE p.is_active = 1' : '';
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.name, p.total_hours, p.price, p.validity_days, p.is_active, p.sort_order
+       FROM ticket_products p ${where} ORDER BY p.sort_order, p.price`,
+    )
+    .all<{ id: string; name: string; total_hours: number; price: number; validity_days: number; is_active: number; sort_order: number }>();
+  const products = results ?? [];
+  if (!products.length) return [];
+  const { results: links } = await db
+    .prepare('SELECT product_id, space_id FROM ticket_product_spaces')
+    .all<{ product_id: string; space_id: string }>();
+  const byProduct = new Map<string, string[]>();
+  for (const l of links ?? []) {
+    if (!byProduct.has(l.product_id)) byProduct.set(l.product_id, []);
+    byProduct.get(l.product_id)!.push(l.space_id);
+  }
+  return products.map((p) => ({ ...p, space_ids: byProduct.get(p.id) ?? [] }));
+}
+
+/** 指定スペースで販売中のチケット商品（顧客向け：追加購入案内用） */
+export async function getTicketProductsForSpace(db: D1Database, spaceId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.name, p.total_hours, p.price, p.validity_days
+       FROM ticket_products p
+       JOIN ticket_product_spaces ps ON ps.product_id = p.id
+       WHERE ps.space_id = ? AND p.is_active = 1
+       ORDER BY p.sort_order, p.price`,
+    )
+    .bind(spaceId)
+    .all();
+  return results ?? [];
+}
+
+export async function getTicketProduct(db: D1Database, id: string) {
+  const p = await db.prepare('SELECT * FROM ticket_products WHERE id = ?').bind(id).first();
+  if (!p) return null;
+  const { results } = await db.prepare('SELECT space_id FROM ticket_product_spaces WHERE product_id = ?').bind(id).all<{ space_id: string }>();
+  return { ...p, space_ids: (results ?? []).map((r) => r.space_id) };
+}
+
+export async function insertTicketProduct(db: D1Database, input: TicketProductInput, spaceIds: string[]): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO ticket_products (id, name, total_hours, price, validity_days, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, input.name, input.totalHours, input.price, input.validityDays, input.isActive ? 1 : 0, input.sortOrder)
+    .run();
+  if (spaceIds.length) {
+    await db.batch(spaceIds.map((sid) => db.prepare('INSERT OR IGNORE INTO ticket_product_spaces (product_id, space_id) VALUES (?, ?)').bind(id, sid)));
+  }
+  return id;
+}
+
+export async function updateTicketProduct(db: D1Database, id: string, input: TicketProductInput, spaceIds: string[]): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE ticket_products SET name = ?, total_hours = ?, price = ?, validity_days = ?, is_active = ?, sort_order = ? WHERE id = ?`,
+    )
+    .bind(input.name, input.totalHours, input.price, input.validityDays, input.isActive ? 1 : 0, input.sortOrder, id)
+    .run();
+  await db.prepare('DELETE FROM ticket_product_spaces WHERE product_id = ?').bind(id).run();
+  if (spaceIds.length) {
+    await db.batch(spaceIds.map((sid) => db.prepare('INSERT OR IGNORE INTO ticket_product_spaces (product_id, space_id) VALUES (?, ?)').bind(id, sid)));
+  }
+}
+
+/** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */
+export async function deleteTicketProduct(db: D1Database, id: string): Promise<{ deleted: boolean }> {
+  const ref = await db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE product_id = ?').bind(id).first<{ n: number }>();
+  if (ref && ref.n > 0) {
+    await db.prepare('UPDATE ticket_products SET is_active = 0 WHERE id = ?').bind(id).run();
+    return { deleted: false };
+  }
+  await db.prepare('DELETE FROM ticket_product_spaces WHERE product_id = ?').bind(id).run();
+  await db.prepare('DELETE FROM ticket_products WHERE id = ?').bind(id).run();
+  return { deleted: true };
 }
 
 /** 会員の保有チケット一覧（マイページ用） */

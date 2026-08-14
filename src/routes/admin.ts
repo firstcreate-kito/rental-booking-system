@@ -60,6 +60,12 @@ import {
   getSpaceOptions,
   isOptionAvailableForSpace,
   getDailyOptionUsage,
+  getSpaceQuestionsAdmin,
+  insertSpaceQuestion,
+  updateSpaceQuestion,
+  deleteSpaceQuestion,
+  getBookingAnswers,
+  type SpaceQuestionInput,
   type SpaceRow,
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
@@ -663,6 +669,7 @@ app.get('/bookings/:number', async (c) => {
     .all<{ option_id: string; quantity: number; subtotal: number }>();
   const spaceOpts = await getSpaceOptions(db, g.space_id);
   const currentOptionsTotal = (optSel ?? []).reduce((s, o) => s + o.subtotal, 0);
+  const answers = await getBookingAnswers(db, g.id);
   return c.json({
     bookingNumber: g.booking_number,
     status: g.status,
@@ -670,6 +677,7 @@ app.get('/bookings/:number', async (c) => {
     spaceName: space?.name ?? '',
     totalAmount: g.total_amount,
     spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
+    answers, // 追加質問の回答（#22）
     items: rows.map((r) => ({
       date: r.date,
       startTime: r.start_time,
@@ -1326,6 +1334,71 @@ app.put('/settings/contact-url', requireRole('owner', 'manager'), async (c) => {
   }
   await setSystemSetting(c.env.DB, 'contact_url', url);
   return c.json({ ok: true, contactUrl: url });
+});
+
+// ---------------------------------------------------------------------------
+// スペース別の追加質問（#22）
+// ---------------------------------------------------------------------------
+
+function parseSpaceQuestionInput(b: Record<string, unknown>): { input?: SpaceQuestionInput; error?: string } {
+  const spaceId = String(b.spaceId ?? '').trim();
+  const label = String(b.label ?? '').trim();
+  const inputType = b.inputType === 'select' ? 'select' : 'text';
+  const required = !!b.required;
+  const isActive = b.isActive === undefined ? true : !!b.isActive;
+  const sortOrder = Number(b.sortOrder ?? 0) || 0;
+  if (!spaceId) return { error: 'スペースは必須です' };
+  if (!label) return { error: '質問文は必須です' };
+  let options: string[] | null = null;
+  if (inputType === 'select') {
+    const arr = Array.isArray(b.options) ? (b.options as unknown[]).map((s) => String(s).trim()).filter(Boolean) : [];
+    if (arr.length === 0) return { error: '選択式の場合は選択肢を1つ以上入力してください' };
+    options = arr;
+  }
+  return { input: { spaceId, label, inputType, options, required, sortOrder, isActive } };
+}
+
+/** GET /api/admin/space-questions?spaceId= スペースの追加質問一覧（無効含む） */
+app.get('/space-questions', async (c) => {
+  const spaceId = c.req.query('spaceId');
+  if (!spaceId) return c.json({ error: 'spaceId は必須です' }, 400);
+  const questions = await getSpaceQuestionsAdmin(c.env.DB, spaceId);
+  return c.json({
+    questions: questions.map((q) => ({
+      id: q.id,
+      spaceId: q.space_id,
+      label: q.label,
+      inputType: q.input_type,
+      options: q.options ? JSON.parse(q.options) : null,
+      required: !!q.required,
+      sortOrder: q.sort_order,
+      isActive: !!q.is_active,
+    })),
+  });
+});
+
+/** POST /api/admin/space-questions 追加質問を作成 */
+app.post('/space-questions', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseSpaceQuestionInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  const id = await insertSpaceQuestion(c.env.DB, input);
+  return c.json({ id }, 201);
+});
+
+/** PUT /api/admin/space-questions/:id 追加質問を更新 */
+app.put('/space-questions/:id', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { input, error } = parseSpaceQuestionInput(b);
+  if (error || !input) return c.json({ error: error ?? 'invalid input' }, 400);
+  await updateSpaceQuestion(c.env.DB, c.req.param('id'), input);
+  return c.json({ ok: true });
+});
+
+/** DELETE /api/admin/space-questions/:id 追加質問を削除 */
+app.delete('/space-questions/:id', requireRole('owner', 'manager'), async (c) => {
+  await deleteSpaceQuestion(c.env.DB, c.req.param('id'));
+  return c.json({ ok: true });
 });
 
 export default app;

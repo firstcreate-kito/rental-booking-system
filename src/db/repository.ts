@@ -2,6 +2,7 @@
  * D1 データアクセス層（Phase 1 で使う分）
  */
 import type { HolidayType } from '../lib/calendar';
+import { nowJST } from '../lib/clock';
 
 /** spaces テーブルの行 */
 export interface SpaceRow {
@@ -1311,4 +1312,99 @@ export async function peekNextBookingSeq(db: D1Database, ymd: string): Promise<n
   if (!row) return 1;
   const seq = Number(row.booking_number.split('-')[1] ?? '0');
   return seq + 1;
+}
+
+// --- スペース別の追加質問（#22） ---
+export interface SpaceQuestionRow {
+  id: string;
+  space_id: string;
+  label: string;
+  input_type: 'text' | 'select';
+  options: string | null; // JSON配列文字列
+  required: number;
+  sort_order: number;
+  is_active: number;
+}
+
+export interface SpaceQuestionInput {
+  spaceId: string;
+  label: string;
+  inputType: 'text' | 'select';
+  options: string[] | null;
+  required: boolean;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+/** スペースの有効な追加質問（並び順） */
+export async function getSpaceQuestions(db: D1Database, spaceId: string): Promise<SpaceQuestionRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM space_questions WHERE space_id = ? AND is_active = 1 ORDER BY sort_order, created_at')
+    .bind(spaceId)
+    .all<SpaceQuestionRow>();
+  return results ?? [];
+}
+
+/** 管理用：スペースの全追加質問（無効含む） */
+export async function getSpaceQuestionsAdmin(db: D1Database, spaceId: string): Promise<SpaceQuestionRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM space_questions WHERE space_id = ? ORDER BY sort_order, created_at')
+    .bind(spaceId)
+    .all<SpaceQuestionRow>();
+  return results ?? [];
+}
+
+export async function getSpaceQuestionById(db: D1Database, id: string): Promise<SpaceQuestionRow | null> {
+  return db.prepare('SELECT * FROM space_questions WHERE id = ?').bind(id).first<SpaceQuestionRow>();
+}
+
+export async function insertSpaceQuestion(db: D1Database, q: SpaceQuestionInput): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO space_questions (id, space_id, label, input_type, options, required, sort_order, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, q.spaceId, q.label, q.inputType, q.options ? JSON.stringify(q.options) : null, q.required ? 1 : 0, q.sortOrder, q.isActive ? 1 : 0, nowJST())
+    .run();
+  return id;
+}
+
+export async function updateSpaceQuestion(db: D1Database, id: string, q: SpaceQuestionInput): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE space_questions SET label = ?, input_type = ?, options = ?, required = ?, sort_order = ?, is_active = ? WHERE id = ?`,
+    )
+    .bind(q.label, q.inputType, q.options ? JSON.stringify(q.options) : null, q.required ? 1 : 0, q.sortOrder, q.isActive ? 1 : 0, id)
+    .run();
+}
+
+export async function deleteSpaceQuestion(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM space_questions WHERE id = ?').bind(id).run();
+}
+
+/** 予約グループの回答を取得（質問文＋回答） */
+export async function getBookingAnswers(db: D1Database, groupId: string): Promise<Array<{ label: string; answer: string | null }>> {
+  const { results } = await db
+    .prepare('SELECT label, answer FROM booking_answers WHERE group_id = ? ORDER BY created_at')
+    .bind(groupId)
+    .all<{ label: string; answer: string | null }>();
+  return results ?? [];
+}
+
+/** 予約グループの回答をまとめて保存（作成時） */
+export async function insertBookingAnswers(
+  db: D1Database,
+  groupId: string,
+  rows: ReadonlyArray<{ questionId: string; label: string; answer: string }>,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const now = nowJST();
+  await db.batch(
+    rows.map((r) =>
+      db
+        .prepare('INSERT INTO booking_answers (id, group_id, question_id, label, answer, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), groupId, r.questionId, r.label, r.answer, now),
+    ),
+  );
 }

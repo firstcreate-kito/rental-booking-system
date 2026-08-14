@@ -13,6 +13,7 @@ import {
   getCustomerByEmail,
   getBookingGroupByNumber,
   getBookingsByGroup,
+  getSpaceQuestions,
   getCancelPolicies,
   getOptionsByIds,
   isOptionAvailableForSpace,
@@ -97,6 +98,8 @@ interface CreateBookingBody {
   couponCode?: string;
   /** 会員のみ: 使用ポイント（クーポンとは併用不可） */
   pointsToUse?: number;
+  /** スペース別の追加質問への回答（#22） */
+  answers?: Array<{ questionId: string; answer?: string }>;
 }
 
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
@@ -358,6 +361,16 @@ app.post('/', async (c) => {
     );
   }
 
+  // スペース別の追加質問（#22）: 必須チェック＋回答を質問文スナップショットで保存
+  const questions = await getSpaceQuestions(db, space.id);
+  const answerMap = new Map((body.answers ?? []).map((a) => [a.questionId, (a.answer ?? '').trim()]));
+  const answerRows: Array<{ questionId: string; label: string; answer: string }> = [];
+  for (const q of questions) {
+    const ans = answerMap.get(q.id) ?? '';
+    if (q.required && !ans) return c.json({ error: `「${q.label}」は必須です`, code: 'ANSWER_REQUIRED' }, 400);
+    if (ans) answerRows.push({ questionId: q.id, label: q.label, answer: ans });
+  }
+
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
@@ -410,6 +423,14 @@ app.post('/', async (c) => {
              VALUES (?, ?, ?, ?, ?)`,
           )
           .bind(crypto.randomUUID(), groupId, sel.optionId, sel.quantity, sel.subtotal),
+      );
+    }
+    // 追加質問の回答（#22）
+    for (const a of answerRows) {
+      stmts.push(
+        db
+          .prepare('INSERT INTO booking_answers (id, group_id, question_id, label, answer, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), groupId, a.questionId, a.label, a.answer, now),
       );
     }
     // クーポン消費（会員）

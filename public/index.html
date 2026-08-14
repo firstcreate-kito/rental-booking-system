@@ -174,6 +174,7 @@
     <input id="f_phone" />
     <label>会社名（任意）</label>
     <input id="f_company" />
+    <div id="f_questions"></div>
     <div class="card" style="margin-top:14px;background:#fafbfc">
       <div class="row"><span class="muted">スペース料金（通常）</span><span id="sum_space">-</span></div>
       <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:#b45309">-</span></div>
@@ -615,7 +616,22 @@ function optionsPayload() {
 async function goCustomer() {
   setStep(4);
   show('view-customer');
+  await renderQuestions();
   await recomputeSummary();
+}
+
+// スペース別の追加質問（#22）を読み込み・表示
+async function renderQuestions() {
+  const wrap = document.getElementById('f_questions');
+  const { body } = await api('/api/spaces/' + S.space.id + '/questions');
+  S.questions = body.questions || [];
+  wrap.innerHTML = S.questions.map(q => {
+    const req = q.required ? ' <span style="color:var(--bad)">*</span>' : '';
+    const ctrl = q.inputType === 'select'
+      ? '<select class="q-input" data-qid="' + q.id + '"><option value="">選択してください</option>' + (q.options || []).map(o => '<option>' + o + '</option>').join('') + '</select>'
+      : '<input class="q-input" data-qid="' + q.id + '" />';
+    return '<label>' + q.label + req + '</label>' + ctrl;
+  }).join('');
 }
 
 // --- 会員ログイン & 割引 ---
@@ -706,9 +722,18 @@ async function submitBooking() {
   const company = document.getElementById('f_company').value.trim();
   const msg = document.getElementById('submitMsg');
   if (!event || !name || !email || !phone) { msg.textContent = '必須項目を入力してください'; msg.classList.remove('hidden'); return; }
+  // 追加質問の回答を収集＋必須チェック
+  const answers = [];
+  for (const el of document.querySelectorAll('#f_questions .q-input')) {
+    const qid = el.getAttribute('data-qid');
+    const val = (el.value || '').trim();
+    const q = (S.questions || []).find(x => x.id === qid);
+    if (q && q.required && !val) { msg.textContent = '「' + q.label + '」を入力してください'; msg.classList.remove('hidden'); return; }
+    if (val) answers.push({ questionId: qid, answer: val });
+  }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), ...discountPayload() }) });
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;

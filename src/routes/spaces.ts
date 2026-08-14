@@ -10,6 +10,7 @@ import {
   getSpaceBookingsOnDate,
   getSystemSettings,
   getSystemSetting,
+  getSpaceQuestions,
   getSpaceOptions,
   getDailyOptionUsage,
   type SpaceRow,
@@ -61,6 +62,20 @@ app.get('/:id', async (c) => {
   const space = await getSpaceById(c.env.DB, c.req.param('id'));
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
   return c.json({ space: toPublicSpace(space) });
+});
+
+/** GET /api/spaces/:id/questions スペース別の追加質問（予約フォーム用） */
+app.get('/:id/questions', async (c) => {
+  const qs = await getSpaceQuestions(c.env.DB, c.req.param('id'));
+  return c.json({
+    questions: qs.map((q) => ({
+      id: q.id,
+      label: q.label,
+      inputType: q.input_type,
+      options: q.options ? JSON.parse(q.options) : null,
+      required: !!q.required,
+    })),
+  });
 });
 
 /** GET /api/spaces/:id/options?date=YYYY-MM-DD オプション一覧（在庫情報含む） */

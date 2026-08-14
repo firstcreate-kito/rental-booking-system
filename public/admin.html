@@ -88,6 +88,7 @@
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
       <button id="tab-calendar" onclick="showTab('calendar')">カレンダー管理</button>
       <button id="tab-options" onclick="showTab('options')">オプション管理</button>
+      <button id="tab-questions" onclick="showTab('questions')">追加質問</button>
       <button id="tab-pricing" onclick="showTab('pricing')">季節料金・キャンペーン</button>
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
     </div>
@@ -134,6 +135,10 @@
         <div class="muted" id="rsInfo" style="margin:6px 0 10px"></div>
         <div style="font-weight:600;font-size:13px;margin-bottom:4px">日時</div>
         <div id="rsSlots"></div>
+        <div id="rsAnswersWrap" class="hidden" style="margin-top:12px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">追加質問の回答</div>
+          <div id="rsAnswers" style="font-size:13px"></div>
+        </div>
         <div style="font-weight:600;font-size:13px;margin:12px 0 4px">オプション</div>
         <div id="rsOptions" class="muted" style="font-size:13px">—</div>
         <div class="muted" style="font-size:12px;margin-top:8px">※管理者操作のため受付締切・受付開始日の制約は無視されます。休業日・他予約・Googleカレンダーとの重複・オプション在庫はチェックされます。</div>
@@ -355,6 +360,33 @@
         </div>
         <div class="msg" id="optMsg"></div>
       </div>
+    </section>
+
+    <!-- スペース別の追加質問 -->
+    <section id="view-questions" class="card hidden">
+      <h2>スペース別の追加質問</h2>
+      <div class="muted">基本の予約項目は全スペース共通です。ここでは<strong>スペースごとに独自の質問</strong>（自由記述／選択式）を追加できます。予約フォームのお客様情報欄に表示されます。</div>
+      <div class="row" style="margin-top:10px;gap:8px;align-items:flex-end">
+        <div><label>スペース</label><select id="q_space" onchange="loadQuestions()"></select></div>
+      </div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table><thead><tr><th>質問</th><th>形式</th><th>必須</th><th>状態</th><th></th></tr></thead><tbody id="qBody"></tbody></table>
+      </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)" />
+      <h2 id="qFormTitle" style="font-size:14px">質問を追加</h2>
+      <input type="hidden" id="q_id" />
+      <div class="grid">
+        <div style="grid-column:1 / -1"><label>質問文 *</label><input id="q_label" placeholder="例）持ち込みされる楽器の種類" /></div>
+        <div><label>形式</label><select id="q_type" onchange="onQTypeChange()"><option value="text">自由記述</option><option value="select">選択式</option></select></div>
+        <div><label>必須</label><select id="q_required"><option value="0">任意</option><option value="1">必須</option></select></div>
+        <div><label>並び順</label><input id="q_sort" type="number" value="0" style="width:80px" /></div>
+      </div>
+      <div id="q_options_wrap" class="hidden"><label>選択肢（カンマ区切り）</label><input id="q_options" placeholder="例）使う, 使わない" /></div>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <button class="btn sm" onclick="saveQuestion()">保存</button>
+        <button class="btn ghost sm" onclick="resetQuestionForm()">クリア</button>
+      </div>
+      <div class="msg" id="qMsg"></div>
     </section>
 
     <!-- 季節料金・キャンペーン -->
@@ -603,17 +635,92 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar','options','pricing','customers'].forEach(x => {
+  ['list','proxy','tent','spaces','calendar','options','questions','pricing','customers'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'options') loadOptionsAdmin();
+  if (t === 'questions') loadQuestionsMgmt();
   if (t === 'pricing') loadPricingMgmt();
   if (t === 'customers') initCustomers();
   if (t === 'proxy') { buildAdminTimeOptions('p'); proxyPriceEdited = false; recalcProxyPrice(); }
   if (t === 'tent') { buildAdminTimeOptions('t'); }
+}
+
+// --- スペース別の追加質問（#22） ---
+async function loadQuestionsMgmt() {
+  if (A.spaces.length === 0) await loadSpaces();
+  document.getElementById('q_space').innerHTML = A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+  resetQuestionForm();
+  loadQuestions();
+}
+function onQTypeChange() {
+  document.getElementById('q_options_wrap').classList.toggle('hidden', document.getElementById('q_type').value !== 'select');
+}
+async function loadQuestions() {
+  const spaceId = document.getElementById('q_space').value;
+  if (!spaceId) return;
+  const { body } = await api('/api/admin/space-questions?spaceId=' + encodeURIComponent(spaceId));
+  const rows = body.questions || [];
+  document.getElementById('qBody').innerHTML = rows.length ? rows.map(q =>
+    '<tr><td>' + q.label + (q.inputType === 'select' && q.options ? ' <span class="muted">（' + q.options.join('・') + '）</span>' : '') + '</td>' +
+    '<td>' + (q.inputType === 'select' ? '選択式' : '自由記述') + '</td>' +
+    '<td>' + (q.required ? '必須' : '任意') + '</td>' +
+    '<td>' + (q.isActive ? '有効' : '無効') + '</td>' +
+    '<td><button class="btn ghost sm" onclick=\'editQuestion(' + JSON.stringify(q).replace(/'/g, "&#39;") + ')\'>編集</button> ' +
+    '<button class="btn danger sm" onclick="delQuestion(\'' + q.id + '\')">削除</button></td></tr>'
+  ).join('') : '<tr><td colspan="5" class="muted">まだ質問はありません</td></tr>';
+}
+function resetQuestionForm() {
+  document.getElementById('q_id').value = '';
+  document.getElementById('q_label').value = '';
+  document.getElementById('q_type').value = 'text';
+  document.getElementById('q_required').value = '0';
+  document.getElementById('q_sort').value = '0';
+  document.getElementById('q_options').value = '';
+  document.getElementById('qFormTitle').textContent = '質問を追加';
+  document.getElementById('qMsg').textContent = '';
+  onQTypeChange();
+}
+function editQuestion(q) {
+  document.getElementById('q_id').value = q.id;
+  document.getElementById('q_label').value = q.label;
+  document.getElementById('q_type').value = q.inputType;
+  document.getElementById('q_required').value = q.required ? '1' : '0';
+  document.getElementById('q_sort').value = q.sortOrder;
+  document.getElementById('q_options').value = (q.options || []).join(', ');
+  document.getElementById('qFormTitle').textContent = '質問を編集';
+  onQTypeChange();
+  document.getElementById('q_label').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function saveQuestion() {
+  const msg = document.getElementById('qMsg');
+  const id = document.getElementById('q_id').value;
+  const spaceId = document.getElementById('q_space').value;
+  const label = document.getElementById('q_label').value.trim();
+  const inputType = document.getElementById('q_type').value;
+  const required = document.getElementById('q_required').value === '1';
+  const sortOrder = Number(document.getElementById('q_sort').value) || 0;
+  if (!label) { msg.className = 'msg bad'; msg.textContent = '質問文を入力してください'; return; }
+  const payload = { spaceId, label, inputType, required, sortOrder, isActive: true };
+  if (inputType === 'select') {
+    payload.options = document.getElementById('q_options').value.split(',').map(s => s.trim()).filter(Boolean);
+    if (!payload.options.length) { msg.className = 'msg bad'; msg.textContent = '選択肢を1つ以上入力してください'; return; }
+  }
+  const { ok, body } = id
+    ? await api('/api/admin/space-questions/' + id, jsonBody(payload, 'PUT'))
+    : await api('/api/admin/space-questions', jsonBody(payload));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  resetQuestionForm();
+  loadQuestions();
+}
+async function delQuestion(id) {
+  if (!confirm('この質問を削除しますか？（既存予約の回答は残ります）')) return;
+  const { ok, body } = await api('/api/admin/space-questions/' + id, jsonBody({}, 'DELETE'));
+  if (!ok) { alert(body.error || '削除に失敗しました'); return; }
+  loadQuestions();
 }
 
 let bookingView = 'active';
@@ -1207,6 +1314,7 @@ async function openReschedule(number) {
   document.getElementById('rsMsg').textContent = '';
   document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
   document.getElementById('rsOptions').innerHTML = '';
+  document.getElementById('rsAnswersWrap').classList.add('hidden');
   document.getElementById('rsOverlay').style.display = 'flex';
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
@@ -1221,6 +1329,13 @@ async function openReschedule(number) {
       '<div><label>終了</label><input class="rs-end" value="' + it.endTime + '" placeholder="18:00" /></div>' +
     '</div>'
   ).join('');
+  // 追加質問の回答（読み取り専用表示）
+  const answers = body.answers || [];
+  if (answers.length) {
+    document.getElementById('rsAnswersWrap').classList.remove('hidden');
+    document.getElementById('rsAnswers').innerHTML = answers.map(a =>
+      '<div style="padding:3px 0"><span class="muted">' + a.label + '：</span>' + (a.answer || '') + '</div>').join('');
+  }
   // オプション（現在の選択を反映、追加/削除・数量変更可）
   const avail = body.availableOptions || [];
   const curMap = {}; (body.options || []).forEach(o => curMap[o.optionId] = o.quantity);

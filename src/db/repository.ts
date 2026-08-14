@@ -27,6 +27,9 @@ export interface SpaceRow {
   block_name: string | null;
   sort_order: number;
   is_active: number;
+  allow_card: number;
+  allow_paypal: number;
+  allow_invoice: number;
 }
 
 /** スペース作成/更新の入力 */
@@ -51,6 +54,9 @@ export interface SpaceInput {
   blockName?: string | null;
   sortOrder: number;
   isActive: boolean;
+  allowCard: boolean;
+  allowPaypal: boolean;
+  allowInvoice: boolean;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -89,6 +95,9 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.blockName ?? null,
     s.sortOrder,
     s.isActive ? 1 : 0,
+    s.allowCard ? 1 : 0,
+    s.allowPaypal ? 1 : 0,
+    s.allowInvoice ? 1 : 0,
   ];
 }
 
@@ -98,8 +107,9 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
       `INSERT INTO spaces
        (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
-        open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
+        allow_card, allow_paypal, allow_invoice)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -111,7 +121,8 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
       `UPDATE spaces SET
         name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
-        open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?
+        open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
+        allow_card = ?, allow_paypal = ?, allow_invoice = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -1068,6 +1079,8 @@ export interface BookingGroupRow {
   source: string;
   reschedule_count: number;
   created_at: string;
+  payment_method: string | null;
+  invoice_name: string | null;
 }
 
 export interface BookingRow {

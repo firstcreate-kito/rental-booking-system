@@ -180,6 +180,16 @@
     <label>会社名（任意）</label>
     <input id="f_company" />
     <div id="f_questions"></div>
+    <!-- お支払い方法（#38） -->
+    <div class="card" id="paymentSection" style="margin-top:14px">
+      <strong>お支払い方法</strong>
+      <div id="payMethods" style="margin-top:8px"></div>
+      <div id="invoiceNameWrap" class="hidden" style="margin-top:8px">
+        <label>請求書名（宛名）<span style="color:var(--bad)">*</span></label>
+        <input id="f_invoiceName" placeholder="例）株式会社アルベ 御中" />
+      </div>
+      <div class="muted" id="payNote" style="font-size:12px;margin-top:6px"></div>
+    </div>
     <div class="card" style="margin-top:14px;background:#fafbfc">
       <div class="row"><span class="muted">スペース料金（通常）</span><span id="sum_space">-</span></div>
       <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:#b45309">-</span></div>
@@ -201,6 +211,7 @@
       <div>ご予約ありがとうございます</div>
       <div class="num" id="doneNum"></div>
       <div class="muted">合計 <span id="doneTotal"></span>（税込）</div>
+      <div class="muted" id="donePay" style="margin-top:6px"></div>
       <div style="margin-top:20px"><button class="btn" onclick="location.reload()">最初に戻る</button></div>
     </div>
   </section>
@@ -623,6 +634,7 @@ async function goCustomer() {
   show('view-customer');
   await renderQuestions();
   await loadUsableTickets();
+  renderPayment();
   await recomputeSummary();
 }
 
@@ -638,6 +650,50 @@ async function renderQuestions() {
       : '<input class="q-input" data-qid="' + q.id + '" />';
     return '<label>' + q.label + req + '</label>' + ctrl;
   }).join('');
+}
+
+// お支払い方法（#38）: 施設ごとの許可・請求書の5日前締切
+const PAY_INVOICE_DEADLINE_DAYS = 5;
+function renderPayment() {
+  const sp = S.space || {};
+  const methods = [];
+  if (sp.allowCard) methods.push({ v: 'stripe', label: 'クレジットカード（Stripe）' });
+  if (sp.allowPaypal) methods.push({ v: 'paypal', label: 'PayPal' });
+  // 最も早い利用日までの日数
+  const earliest = (S.cart || []).map(c => c.date).sort()[0];
+  let daysUntil = 999;
+  if (earliest) {
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const d = new Date(earliest + 'T00:00:00');
+    daysUntil = Math.round((d - t) / 86400000);
+  }
+  const invoiceTooClose = daysUntil < PAY_INVOICE_DEADLINE_DAYS;
+  let html = methods.map((m, i) =>
+    '<label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="paymethod" value="' + m.v + '" style="width:auto"' + (i === 0 ? ' checked' : '') + ' onchange="onPayMethodChange()"> ' + m.label + '</label>').join('');
+  if (sp.allowInvoice) {
+    const dis = invoiceTooClose ? ' disabled' : '';
+    const grey = invoiceTooClose ? 'color:#9ca3af' : '';
+    const checked = methods.length === 0 && !invoiceTooClose ? ' checked' : '';
+    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="invoice" style="width:auto"' + dis + checked + ' onchange="onPayMethodChange()"> 請求書払い</label>';
+  }
+  document.getElementById('payMethods').innerHTML = html ||
+    '<div class="muted">この施設のお支払い方法が設定されていません。店舗までお問い合わせください。</div>';
+  let note = '';
+  if (sp.allowInvoice) {
+    note = '※請求書払いはご利用日の' + PAY_INVOICE_DEADLINE_DAYS + '日前までの受付となります。';
+    if (invoiceTooClose) note += '（ご利用日まで' + PAY_INVOICE_DEADLINE_DAYS + '日を切っているため、請求書払いはお選びいただけません）';
+  }
+  document.getElementById('payNote').textContent = note;
+  onPayMethodChange();
+}
+function onPayMethodChange() {
+  const sel = document.querySelector('input[name="paymethod"]:checked');
+  const isInvoice = sel && sel.value === 'invoice';
+  document.getElementById('invoiceNameWrap').classList.toggle('hidden', !isInvoice);
+}
+function selectedPayMethod() {
+  const sel = document.querySelector('input[name="paymethod"]:checked');
+  return sel ? sel.value : '';
 }
 
 // --- 会員ログイン & 割引 ---
@@ -794,13 +850,26 @@ async function submitBooking() {
     if (q && q.required && !val) { msg.textContent = '「' + q.label + '」を入力してください'; msg.classList.remove('hidden'); return; }
     if (val) answers.push({ questionId: qid, answer: val });
   }
+  // お支払い方法（#38）
+  const paymentMethod = selectedPayMethod();
+  if (!paymentMethod) { msg.textContent = 'お支払い方法を選択してください'; msg.classList.remove('hidden'); return; }
+  let invoiceName = '';
+  if (paymentMethod === 'invoice') {
+    invoiceName = document.getElementById('f_invoiceName').value.trim();
+    if (!invoiceName) { msg.textContent = '請求書名（宛名）を入力してください'; msg.classList.remove('hidden'); return; }
+  }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, ...discountPayload() }) });
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   document.getElementById('doneTotal').textContent = yen(body.total);
+  const payLabel = { stripe: 'クレジットカード（Stripe）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
+  let payTxt = payLabel ? ('お支払い方法：' + payLabel) : '';
+  if (body.paymentMethod === 'invoice' && body.invoiceName) payTxt += '（請求書名：' + body.invoiceName + '）';
+  if (body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') payTxt += '　※オンライン決済は現在準備中のため、当日または別途ご案内となります（テスト表示）';
+  document.getElementById('donePay').textContent = payTxt;
   show('view-done'); setStep(5);
 }
 

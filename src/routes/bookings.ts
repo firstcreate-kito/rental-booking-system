@@ -52,7 +52,7 @@ import {
   type BookingValidationSpace,
   type BookingItemInput,
 } from '../lib/availability';
-import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
+import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 
@@ -106,7 +106,14 @@ interface CreateBookingBody {
   ticketId?: string;
   /** スペース別の追加質問への回答（#22） */
   answers?: Array<{ questionId: string; answer?: string }>;
+  /** 支払い方法（#38）: 'stripe'(カード) / 'paypal' / 'invoice'(請求書) */
+  paymentMethod?: string;
+  /** 請求書払い時の請求書名（宛名）。invoice のとき必須 */
+  invoiceName?: string;
 }
+
+/** 請求書払いは利用日の何日前まで受け付けるか（#38） */
+const INVOICE_DEADLINE_DAYS = 5;
 
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
   return {
@@ -220,6 +227,28 @@ app.post('/', async (c) => {
   const settings = await getSystemSettings(db);
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
   const today = todayJST();
+
+  // 支払い方法の検証（#38）: 施設ごとの許可・請求書名必須・請求書の5日前締切
+  const allowedMethods: Record<string, boolean> = {
+    stripe: !!space.allow_card,
+    paypal: !!space.allow_paypal,
+    invoice: !!space.allow_invoice,
+  };
+  const paymentMethod =
+    String(body.paymentMethod ?? '').trim() ||
+    (space.allow_card ? 'stripe' : space.allow_paypal ? 'paypal' : 'invoice');
+  if (!allowedMethods[paymentMethod]) {
+    return c.json({ error: 'この施設では選択されたお支払い方法はご利用いただけません' }, 400);
+  }
+  let invoiceName: string | null = null;
+  if (paymentMethod === 'invoice') {
+    invoiceName = String(body.invoiceName ?? '').trim();
+    if (!invoiceName) return c.json({ error: '請求書払いの場合は請求書名（宛名）が必須です' }, 400);
+    const earliestDate = [...body.items].map((i) => i.date).sort()[0];
+    if (earliestDate < addDaysJST(today, INVOICE_DEADLINE_DAYS)) {
+      return c.json({ error: `請求書払いはご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済等をご利用ください。` }, 400);
+    }
+  }
 
   // 期間の祝日・季節料金・キャンペーン
   const itemDates = body.items.map((i) => i.date).sort();
@@ -403,10 +432,10 @@ app.post('/', async (c) => {
     stmts.push(
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, now),
     );
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -560,6 +589,8 @@ app.post('/', async (c) => {
       pointsUsed: totals.pointsUsed,
       pointsEarned: totals.pointsEarned,
       isMember: !!member,
+      paymentMethod,
+      invoiceName,
       days: group.days.map((d) => ({
         date: d.date,
         dayType: d.dayType,

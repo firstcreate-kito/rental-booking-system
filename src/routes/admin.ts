@@ -690,6 +690,8 @@ app.get('/bookings/:number', async (c) => {
     spaceName: space?.name ?? '',
     totalAmount: g.total_amount,
     spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
+    paymentMethod: g.payment_method,
+    invoiceName: g.invoice_name,
     ticketPaid,
     answers, // 追加質問の回答（#22）
     items: rows.map((r) => ({
@@ -979,6 +981,9 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     blockName: body.blockName ? String(body.blockName) : null,
     sortOrder: Number(body.sortOrder ?? 0),
     isActive: body.isActive !== false,
+    allowCard: body.allowCard !== false, // 既定でカード決済可
+    allowPaypal: body.allowPaypal === true, // 既定でPayPalは無効
+    allowInvoice: body.allowInvoice === true, // 既定で請求書払いは無効
   };
   return { input };
 }

@@ -30,6 +30,9 @@ VALUES
   ('meieki-piano-b',          '名駅防音室グランドピアノ練習室（B）',      'hourly', 1540, 1540,  NULL, 1, 1, 30, 1, 1, '08:00', '22:00', 180, 0, NULL, 7, 1),
   ('higashibetsuin-piano-24h','東別院防音室24時間グランドピアノ音楽練習室','hourly', 1650, 1650,  NULL, 1, 1, 30, 1, 1, '00:00', '23:59', 180, 0, NULL, 8, 1);
 
+-- 支払い方法（#38）: 既定はカード決済のみ。法人利用の多い施設は請求書払いも有効化。
+UPDATE spaces SET allow_invoice = 1 WHERE id IN ('albe-hall-nagoya', 'meieki-free');
+
 -- 北岡崎倉庫スペース: 土日祝のみ営業・最長7時間・時間料金5500円のみ（1日料金なし）。
 --   平日は貸出なし(weekday_available=0, weekday_rate=NULL)。
 --   受付開始(horizon)は暫定180日前。締切は利用日5日前(deadline=5)。※horizonは運用で調整可。

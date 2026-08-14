@@ -49,6 +49,9 @@ function toPublicSpace(s: SpaceRow) {
     bookingHorizonDays: s.booking_horizon_days,
     weekdayAvailable: !!s.weekday_available,
     weekendAvailable: !!s.weekend_available,
+    allowCard: !!s.allow_card,
+    allowPaypal: !!s.allow_paypal,
+    allowInvoice: !!s.allow_invoice,
   };
 }
 

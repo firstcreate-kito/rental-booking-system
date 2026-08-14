@@ -265,6 +265,13 @@
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked style="width:auto"> 土日祝に予約可</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked style="width:auto"> 公開する</label>
         </div>
+        <label style="margin-top:10px">お支払い方法（お客様が選べる決済手段）</label>
+        <div class="row" style="gap:18px;margin-top:4px">
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_card" checked style="width:auto"> カード決済（Stripe）</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_paypal" style="width:auto"> PayPal</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_invoice" style="width:auto"> 請求書払い</label>
+        </div>
+        <div class="muted" style="font-size:12px">※請求書払いはご利用日の5日前まで受付（直前予約は不可）。法人利用の多い施設で有効化してください。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -939,6 +946,9 @@ function fillSpaceForm(s) {
   document.getElementById('sp_wda').checked = s ? !!s.weekday_available : true;
   document.getElementById('sp_wea').checked = s ? !!s.weekend_available : true;
   document.getElementById('sp_active').checked = s ? !!s.is_active : true;
+  document.getElementById('sp_card').checked = s ? !!s.allow_card : true;
+  document.getElementById('sp_paypal').checked = s ? !!s.allow_paypal : false;
+  document.getElementById('sp_invoice').checked = s ? !!s.allow_invoice : false;
   document.getElementById('spMsg').textContent = '';
   document.getElementById('spForm').classList.remove('hidden');
 }
@@ -972,6 +982,9 @@ async function saveSpace() {
     weekdayAvailable: document.getElementById('sp_wda').checked,
     weekendAvailable: document.getElementById('sp_wea').checked,
     isActive: document.getElementById('sp_active').checked,
+    allowCard: document.getElementById('sp_card').checked,
+    allowPaypal: document.getElementById('sp_paypal').checked,
+    allowInvoice: document.getElementById('sp_invoice').checked,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing
@@ -1542,8 +1555,10 @@ async function openReschedule(number) {
   rsStatus = body.status;
   rsTicketPaid = !!body.ticketPaid;
   rsOriginal = (body.items || []).map(it => ({ date: it.date, startTime: it.startTime, endTime: it.endTime }));
+  const payLbl = { stripe:'カード(Stripe)', paypal:'PayPal', invoice:'請求書払い' }[body.paymentMethod] || '';
+  const payTxt = payLbl ? ('／' + payLbl + (body.paymentMethod==='invoice' && body.invoiceName ? '（'+body.invoiceName+'）' : '')) : '';
   document.getElementById('rsInfo').textContent =
-    body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）';
+    body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）' + payTxt;
   const tnote = rsTicketPaid
     ? '<div style="margin-bottom:8px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px">🎫 <strong>チケット払いの予約です。</strong>利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合はキャンセル→取り直しをお願いします。</div>'
     : '';

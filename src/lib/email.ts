@@ -156,6 +156,103 @@ ${feeLine}
   return { subject, html, text };
 }
 
+export interface RescheduleEmailData {
+  bookingNumber: string;
+  spaceName: string;
+  eventName: string;
+  customerName: string;
+  oldDays: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  newDays: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  total: number;
+  status: 'confirmed' | 'tentative';
+  /** 商談中など金額未確定のケースは false（金額行を出さない） */
+  showAmount: boolean;
+}
+
+/** 日時変更のお知らせ（お客様宛） */
+export function rescheduleEmail(d: RescheduleEmailData): { subject: string; html: string; text: string } {
+  const label = d.status === 'tentative' ? '仮予約（商談中）' : 'ご予約';
+  const subject = `【レンタルスペースALBE】${label}の日時を変更しました（${d.bookingNumber}）`;
+  const amountText = d.showAmount ? `\n変更後の合計金額（税込）: ${yen(d.total)}` : '';
+  const text = `${d.customerName} 様
+
+${label}の日時を下記の通り変更いたしました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+
+【変更前】
+${daysBlockText(d.oldDays)}
+
+【変更後】
+${daysBlockText(d.newDays)}${amountText}
+
+ご不明な点がございましたらお問い合わせください。
+レンタルスペースALBE`;
+  const amountHtml = d.showAmount
+    ? `<p style="font-size:18px">変更後の合計金額（税込）: <strong>${yen(d.total)}</strong></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p><strong>${label}</strong>の日時を下記の通り変更いたしました。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">変更前</p>
+<ul style="margin:4px 0;color:#9ca3af;text-decoration:line-through">${daysBlockHtml(d.oldDays)}</ul>
+<p style="margin:6px 0;color:#6b7280">変更後</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>
+${amountHtml}
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。<br>レンタルスペースALBE</p>
+</div>`;
+  return { subject, html, text };
+}
+
+/** 日時変更の管理者通知メール */
+export function adminRescheduleEmail(d: RescheduleEmailData & { customerEmail?: string; customerPhone?: string }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const label = d.status === 'tentative' ? '商談中（仮予約）' : '本予約';
+  const subject = `【日時変更】${d.spaceName} ${d.newDays[0]?.date ?? ''}（${d.bookingNumber}）`;
+  const amountText = d.showAmount ? `\n変更後合計: ${yen(d.total)}` : '';
+  const contact = d.customerEmail ? `\nお客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : `\nお客様: ${d.customerName}`;
+  const text = `${label}の日時が変更されました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+
+【変更前】
+${daysBlockText(d.oldDays)}
+
+【変更後】
+${daysBlockText(d.newDays)}${amountText}${contact}`;
+  const amountHtml = d.showAmount ? `<p>変更後合計: <strong>${yen(d.total)}</strong></p>` : '';
+  const contactHtml = d.customerEmail
+    ? `${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）`
+    : escapeHtml(d.customerName);
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>${label}</strong>の日時が変更されました。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${contactHtml}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">変更前</p>
+<ul style="margin:4px 0;color:#9ca3af;text-decoration:line-through">${daysBlockHtml(d.oldDays)}</ul>
+<p style="margin:6px 0;color:#6b7280">変更後</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>
+${amountHtml}
+</div>`;
+  return { subject, html, text };
+}
+
 /** 新規予約の管理者通知メール */
 export function adminNewBookingEmail(d: BookingEmailData & { customerEmail: string; customerPhone?: string }): {
   subject: string;

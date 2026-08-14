@@ -48,7 +48,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 
 const app = new Hono<AppBindings>();
@@ -843,20 +843,45 @@ app.post('/:number/reschedule', async (c) => {
   }
   await db.batch(stmts);
 
+  const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+  const custName = cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様');
+
   // Googleカレンダー同期：旧イベントを削除し、新しい日時でイベントを作り直す
   let calendarWarning: string | null = null;
   if (space.google_calendar_id) {
     await deleteBookingFromCalendar(c.env, space.google_calendar_id, oldRows.map((r) => r.google_event_id));
-    const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
     const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
       bookingNumber: number,
       eventName: g.event_name,
-      customerName: cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様'),
+      customerName: custName,
       items: body.items,
       bookingIds: newBookingIds,
       tentative: g.status === 'tentative',
     });
     calendarWarning = res.warning ?? null;
+  }
+
+  // 変更通知メール（お客様＋管理者）。商談中は金額を伏せる。
+  const oldDays = oldRows.map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time }));
+  const newDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
+  const mailData = {
+    bookingNumber: number,
+    spaceName: space.name,
+    eventName: g.event_name,
+    customerName: custName,
+    oldDays,
+    newDays,
+    total: newTotal,
+    status: g.status as 'confirmed' | 'tentative',
+    showAmount: g.status !== 'tentative',
+  };
+  const custEmail = cust?.email ? String(cust.email) : '';
+  if (custEmail) {
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
+  }
+  if (c.env.MAIL_ADMIN) {
+    const adminMail = adminRescheduleEmail({ ...mailData, customerEmail: custEmail || undefined, customerPhone: cust?.phone ? String(cust.phone) : undefined });
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
   }
 
   return c.json({

@@ -5,6 +5,8 @@ import {
   bookingConfirmationEmail,
   cancellationEmail,
   adminNewBookingEmail,
+  rescheduleEmail,
+  adminRescheduleEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -79,5 +81,39 @@ describe('email - キャンセル/管理者通知テンプレート', () => {
     });
     expect(m.text).toContain('c@d.jp');
     expect(m.text).toContain('09000000000');
+  });
+});
+
+describe('email - 日時変更（reschedule）テンプレート', () => {
+  const oldDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '12:00' }];
+  const newDays = [{ date: '2026-09-15', startTime: '14:00', endTime: '17:00' }];
+  it('本予約: 変更前後の日時と金額を含む', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'アルベホール', eventName: 'E', customerName: '山田',
+      oldDays, newDays, total: 32670, status: 'confirmed', showAmount: true,
+    });
+    expect(m.subject).toContain('B1');
+    expect(m.subject).toContain('日時を変更');
+    expect(m.text).toContain('2026-09-10');
+    expect(m.text).toContain('2026-09-15');
+    expect(m.text).toContain('¥32,670');
+  });
+  it('商談中: 金額を表示しない（showAmount=false）', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 21780, status: 'tentative', showAmount: false,
+    });
+    expect(m.subject).toContain('仮予約');
+    expect(m.text).not.toContain('¥21,780');
+  });
+  it('管理者通知: 連絡先と変更前後を含む', () => {
+    const m = adminRescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 1000, status: 'confirmed', showAmount: true,
+      customerEmail: 'c@d.jp', customerPhone: '09000000000',
+    });
+    expect(m.text).toContain('c@d.jp');
+    expect(m.text).toContain('2026-09-10');
+    expect(m.text).toContain('2026-09-15');
   });
 });

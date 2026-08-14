@@ -37,6 +37,8 @@ import {
   issueTicket,
   updateIssuedTicket,
   getIssuedTicket,
+  getTicketUsageForGroup,
+  buildTicketRescheduleStmts,
   getTicketProducts,
   getTicketProduct,
   insertTicketProduct,
@@ -92,7 +94,7 @@ import {
   type SeasonalRule,
   type DayBookingInput,
 } from '../lib/pricing';
-import { seasonalCampaignConflict, type SeasonalPeriod } from '../lib/discounts';
+import { seasonalCampaignConflict, coveredAmountForHours, type SeasonalPeriod } from '../lib/discounts';
 import {
   validateBookingItem,
   intervalsOverlap,
@@ -808,12 +810,49 @@ app.post('/bookings/:number/reschedule', async (c) => {
   // 商談中（仮予約）はスペース料金を据え置き（既存のスペース分を維持）。
   // 本予約（代理予約含む）はスペース料金を再計算し、差額を返す。
   const existingSpaceFee = g.total_amount - currentOptionsTotal;
-  const newSpaceFee = isTentative ? existingSpaceFee : newGroup.spaceTotal;
+
+  // チケット払いの予約は、旧消費を戻して新しい日程で再充当する（#24）。
+  const ticketUsage = isTentative ? null : await getTicketUsageForGroup(db, g.id);
+  let ticketRecalc: { usageId: string; ticketId: string; newRemaining: number; newHours: number; coveredYen: number } | null = null;
+  let newSpaceFee: number;
+  if (ticketUsage) {
+    const restored = ticketUsage.remainingHours + ticketUsage.oldHours; // 旧消費を一旦戻した残時間
+    const cov = coveredAmountForHours(
+      newGroup.days.map((d) => ({ billableHours: d.billableHours, price: d.price })),
+      restored,
+    );
+    newSpaceFee = Math.max(0, newGroup.spaceTotal - cov.coveredYen); // チケット充当後の自己負担分
+    ticketRecalc = {
+      usageId: ticketUsage.usageId,
+      ticketId: ticketUsage.ticketId,
+      newRemaining: restored - cov.coveredHours,
+      newHours: cov.coveredHours,
+      coveredYen: cov.coveredYen,
+    };
+  } else {
+    newSpaceFee = isTentative ? existingSpaceFee : newGroup.spaceTotal;
+  }
   const newTotal = newSpaceFee + optionsTotalFinal;
   const adjustment = isTentative ? null : computeAdjustment(g.total_amount, newTotal);
 
   const newBookingIds = body.items.map(() => crypto.randomUUID());
-  const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id)];
+  // チケット再計算の文（外部キー制約回避のため2段構成で組み立てる）
+  const ticketStmts = ticketRecalc
+    ? buildTicketRescheduleStmts(db, {
+        usageId: ticketRecalc.usageId,
+        ticketId: ticketRecalc.ticketId,
+        newRemaining: ticketRecalc.newRemaining,
+        newHours: ticketRecalc.newHours,
+        spaceTotal: newGroup.spaceTotal,
+        coveredYen: ticketRecalc.coveredYen,
+        newFirstBookingId: newBookingIds[0],
+        now: nowJST(),
+      })
+    : null;
+  const stmts: D1PreparedStatement[] = [];
+  // 旧 ticket_usage を先に削除してから旧 bookings を削除（FK 回避）
+  if (ticketStmts) stmts.push(ticketStmts.clearOldUsage);
+  stmts.push(db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id));
   for (let i = 0; i < body.items.length; i++) {
     const item = body.items[i];
     const day = newGroup.days[i];
@@ -828,6 +867,8 @@ app.post('/bookings/:number/reschedule', async (c) => {
     );
   }
   stmts.push(db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id));
+  // チケット払いの予約：新 bookings 挿入後に残時間更新＋新 ticket_usage を挿入
+  if (ticketStmts) stmts.push(...ticketStmts.applyNew);
   // オプションが指定されていれば置き換え（未指定なら既存を維持）
   if (optionsProvided) {
     stmts.push(db.prepare('DELETE FROM booking_option_selections WHERE group_id = ?').bind(g.id));

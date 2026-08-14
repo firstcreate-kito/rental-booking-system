@@ -131,7 +131,7 @@ function sortByUnitPriceDesc(days: readonly DiscountableDay[]): DiscountableDay[
  * 高い時間帯から hours 時間分を充当したときの「充当対象の金額（円）」を返す。
  * 日単位で切り出し、端数は日ごとに丸める。
  */
-function coveredAmountForHours(days: readonly DiscountableDay[], hours: number): {
+export function coveredAmountForHours(days: readonly DiscountableDay[], hours: number): {
   coveredYen: number;
   coveredHours: number;
 } {

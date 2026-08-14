@@ -16,6 +16,8 @@ import {
   getSpaceQuestions,
   getTicketForCustomer,
   getTicketSpaceIds,
+  getTicketUsageForGroup,
+  buildTicketRescheduleStmts,
   getCancelPolicies,
   getOptionsByIds,
   isOptionAvailableForSpace,
@@ -43,7 +45,7 @@ import {
   type SeasonalRule,
   type DayBookingInput,
 } from '../lib/pricing';
-import { applyDiscounts, resolveCampaign, type DiscountableDay, type CampaignCandidate } from '../lib/discounts';
+import { applyDiscounts, resolveCampaign, coveredAmountForHours, type DiscountableDay, type CampaignCandidate } from '../lib/discounts';
 import {
   validateBookingItem,
   intervalsOverlap,
@@ -854,13 +856,48 @@ app.post('/:number/reschedule', async (c) => {
     holidays: holidayMap,
     seasonalRules,
   });
-  const newTotal = newGroup.spaceTotal;
+
+  // チケット払いの予約は、旧消費を戻して新しい日程で再充当する（#24）。
+  const ticketUsage = await getTicketUsageForGroup(db, g.id);
+  let ticketRecalc: { usageId: string; ticketId: string; newRemaining: number; newHours: number; coveredYen: number } | null = null;
+  let newTotal: number;
+  if (ticketUsage) {
+    const restored = ticketUsage.remainingHours + ticketUsage.oldHours;
+    const cov = coveredAmountForHours(
+      newGroup.days.map((d) => ({ billableHours: d.billableHours, price: d.price })),
+      restored,
+    );
+    newTotal = Math.max(0, newGroup.spaceTotal - cov.coveredYen);
+    ticketRecalc = {
+      usageId: ticketUsage.usageId,
+      ticketId: ticketUsage.ticketId,
+      newRemaining: restored - cov.coveredHours,
+      newHours: cov.coveredHours,
+      coveredYen: cov.coveredYen,
+    };
+  } else {
+    newTotal = newGroup.spaceTotal;
+  }
   const adjustment = computeAdjustment(g.total_amount, newTotal);
 
   // 日程を差し替え（旧bookingsを削除→新規挿入）+ グループ更新 + 差額記録
   const now = nowJST();
   const newBookingIds = body.items.map(() => crypto.randomUUID());
+  const ticketStmts = ticketRecalc
+    ? buildTicketRescheduleStmts(db, {
+        usageId: ticketRecalc.usageId,
+        ticketId: ticketRecalc.ticketId,
+        newRemaining: ticketRecalc.newRemaining,
+        newHours: ticketRecalc.newHours,
+        spaceTotal: newGroup.spaceTotal,
+        coveredYen: ticketRecalc.coveredYen,
+        newFirstBookingId: newBookingIds[0],
+        now,
+      })
+    : null;
   const stmts: D1PreparedStatement[] = [];
+  // 旧 ticket_usage を先に削除してから旧 bookings を削除（FK 回避）
+  if (ticketStmts) stmts.push(ticketStmts.clearOldUsage);
   stmts.push(db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id));
   for (let i = 0; i < body.items.length; i++) {
     const item = body.items[i];
@@ -893,6 +930,8 @@ app.post('/:number/reschedule', async (c) => {
       .prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?')
       .bind(newTotal, g.id),
   );
+  // チケット払いの予約：新 bookings 挿入後に残時間更新＋新 ticket_usage を挿入
+  if (ticketStmts) stmts.push(...ticketStmts.applyNew);
   if (adjustment.type !== 'zero') {
     stmts.push(
       db

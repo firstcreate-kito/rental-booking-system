@@ -63,7 +63,7 @@
       <a href="mypage.html" class="btn ghost sm">マイページへ</a>
     </div>
     <div class="muted" style="margin:6px 0 12px">利用可能時間分を対象スペースのご利用料金に充当できます。ご購入後はマイページ「チケット」でご確認いただけます。決済はクレジットカード（Stripe の安全な決済ページ）で行います。</div>
-    <div id="payDisabled" class="banner warn hidden">現在オンライン決済は準備中です。お手数ですが店舗までお問い合わせください。</div>
+    <div id="payDisabled" class="banner warn hidden">現在オンライン決済（カード）は準備中です。下の「テスト購入」で購入〜マイページ反映〜消化の流れをご確認いただけます（決済は発生しません）。</div>
     <div id="prodList"></div>
     <div class="muted" id="prodEmpty"></div>
     <div class="msg bad" id="shopMsg"></div>
@@ -128,10 +128,12 @@ async function loadProducts() {
   Object.keys(groups).forEach(gname => {
     html += '<h3>' + gname + '</h3>';
     groups[gname].forEach(p => {
+      const btn = T.paymentEnabled
+        ? '<button class="btn sm" onclick="buy(\'' + p.id + '\',this)">購入する</button>'
+        : '<button class="btn sm ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button>';
       html += '<div class="prod"><div><div class="name">' + p.name + '</div>' +
         '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div></div>' +
-        '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' +
-        '<button class="btn sm" ' + (T.paymentEnabled ? '' : 'disabled') + ' onclick="buy(\'' + p.id + '\',this)">購入する</button></div></div>';
+        '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' + btn + '</div></div>';
     });
   });
   document.getElementById('prodList').innerHTML = html;
@@ -148,6 +150,21 @@ async function buy(productId, btn) {
   }
   // Stripe の決済ページへ遷移
   window.location.href = body.url;
+}
+
+// テスト購入（決済なしで即発行・動作確認用）
+async function demoBuy(productId, btn) {
+  const msg = document.getElementById('shopMsg'); msg.textContent = '';
+  if (!confirm('テスト購入します（決済は発生しません）。マイページにチケットが追加されます。よろしいですか？')) return;
+  btn.disabled = true; btn.textContent = '発行中…';
+  const { ok, body } = await api('/api/tickets/demo-purchase', jsonBody({ productId }));
+  if (!ok) { msg.textContent = body.error || 'テスト購入に失敗しました'; btn.disabled = false; btn.textContent = 'テスト購入'; return; }
+  const banner = document.getElementById('resultBanner');
+  banner.className = 'banner ok';
+  banner.innerHTML = '✅ テスト購入が完了しました。チケットを反映しました。<a href="mypage.html" style="color:#166534;font-weight:600;text-decoration:underline">マイページで確認する ▶</a>';
+  banner.classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  btn.disabled = false; btn.textContent = 'テスト購入';
 }
 
 // 決済からの戻り（?status=success&session=... / ?status=cancel）

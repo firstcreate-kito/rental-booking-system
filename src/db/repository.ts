@@ -1682,7 +1682,82 @@ export async function getTicketForCustomer(db: D1Database, ticketId: string, cus
   return db.prepare('SELECT * FROM tickets WHERE id = ? AND customer_id = ?').bind(ticketId, customerId).first<TicketRow>();
 }
 
+/**
+ * 予約グループがチケットで支払われているかを検出（予約内容変更時の再計算用）#24
+ * ticket_usage を現在のグループの予約行に結び付けて取得する。
+ */
+export async function getTicketUsageForGroup(
+  db: D1Database,
+  groupId: string,
+): Promise<{ usageId: string; ticketId: string; oldHours: number; remainingHours: number; status: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT tu.id AS usage_id, tu.ticket_id, tu.hours_consumed AS old_hours,
+              t.remaining_hours, t.status
+       FROM ticket_usage tu
+       JOIN bookings b ON b.id = tu.booking_id
+       JOIN tickets t ON t.id = tu.ticket_id
+       WHERE b.group_id = ?
+       LIMIT 1`,
+    )
+    .bind(groupId)
+    .first<{ usage_id: string; ticket_id: string; old_hours: number; remaining_hours: number; status: string }>();
+  if (!row) return null;
+  return {
+    usageId: row.usage_id,
+    ticketId: row.ticket_id,
+    oldHours: row.old_hours,
+    remainingHours: row.remaining_hours,
+    status: row.status,
+  };
+}
+
 export async function getTicketSpaceIds(db: D1Database, ticketId: string): Promise<string[]> {
   const { results } = await db.prepare('SELECT space_id FROM ticket_spaces WHERE ticket_id = ?').bind(ticketId).all<{ space_id: string }>();
   return (results ?? []).map((r) => r.space_id);
+}
+
+/**
+ * 予約内容変更でチケット消費を再計算するための D1 文を生成（#24）。
+ * 旧消費を戻したうえで新しい消費・残時間・利用履歴を反映する。
+ * バッチの外部キー制約（ticket_usage → bookings）を避けるため、
+ *  - clearOldUsage: 旧 bookings を削除する前に旧 ticket_usage を削除
+ *  - applyNew: 新 bookings を挿入した後に tickets を更新し新 ticket_usage を挿入
+ * の2段に分けて返す。
+ * ※呼び出し側で coveredAmountForHours により newRemaining/newHours/coveredYen を算出して渡す。
+ */
+export function buildTicketRescheduleStmts(
+  db: D1Database,
+  p: {
+    usageId: string;
+    ticketId: string;
+    newRemaining: number;
+    newHours: number;
+    spaceTotal: number;
+    coveredYen: number;
+    newFirstBookingId: string;
+    now: string;
+  },
+): { clearOldUsage: D1PreparedStatement; applyNew: D1PreparedStatement[] } {
+  const status = p.newRemaining <= 0 ? 'exhausted' : 'active';
+  return {
+    clearOldUsage: db.prepare('DELETE FROM ticket_usage WHERE id = ?').bind(p.usageId),
+    applyNew: [
+      db.prepare('UPDATE tickets SET remaining_hours = ?, status = ? WHERE id = ?').bind(p.newRemaining, status, p.ticketId),
+      db
+        .prepare(
+          `INSERT INTO ticket_usage (id, ticket_id, booking_id, hours_consumed, original_price, discounted_price, used_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          p.ticketId,
+          p.newFirstBookingId,
+          p.newHours,
+          p.spaceTotal,
+          p.spaceTotal - p.coveredYen,
+          p.now,
+        ),
+    ],
+  };
 }

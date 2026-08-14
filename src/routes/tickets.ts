@@ -6,9 +6,10 @@ import {
   getTicketProduct,
   createPendingPurchase,
   getPurchaseBySession,
+  fulfillTicketPurchase,
 } from '../db/repository';
 import { stripeConfigured, createCheckoutSession } from '../lib/stripe';
-import { nowJST } from '../lib/clock';
+import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
 
@@ -61,6 +62,34 @@ app.post('/checkout', requireAuth, async (c) => {
   );
 
   return c.json({ url: session.url });
+});
+
+/**
+ * POST /api/tickets/demo-purchase 動作確認用のテスト購入（決済なしで即発行）body:{productId}
+ * ※本番決済（Stripe）が未設定のあいだだけ利用可能。設定後は自動的に無効化される。
+ */
+app.post('/demo-purchase', requireAuth, async (c) => {
+  if (stripeConfigured(c.env)) {
+    return c.json({ error: '本番決済が有効なため、テスト購入は利用できません。' }, 400);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const productId = String((body as Record<string, unknown>).productId ?? '').trim();
+  if (!productId) return c.json({ error: 'productId は必須です' }, 400);
+  const product = (await getTicketProduct(c.env.DB, productId)) as { id: string; price: number; is_active: number } | null;
+  if (!product || !product.is_active) return c.json({ error: '販売中のチケットが見つかりません' }, 404);
+
+  const customer = c.get('customer');
+  const purchaseId = crypto.randomUUID();
+  const sessionId = 'demo_' + purchaseId;
+  await createPendingPurchase(
+    c.env.DB,
+    { id: purchaseId, customerId: customer.id, productId: product.id, amount: product.price, sessionId },
+    nowJST(),
+  );
+  // Stripe の決済完了 Webhook と同じ発行処理を直接呼ぶ（テスト用）
+  const result = await fulfillTicketPurchase(c.env.DB, sessionId, nowJST(), todayJST(), addDaysJST);
+  if (!result.ok) return c.json({ error: 'テスト発行に失敗しました：' + (result.reason ?? '') }, 500);
+  return c.json({ ok: true, ticketId: result.ticketId });
 });
 
 /** GET /api/tickets/purchase-status?session=... 決済後の反映状況を確認（会員のみ） */

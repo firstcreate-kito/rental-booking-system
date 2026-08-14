@@ -1548,6 +1548,94 @@ export async function updateTicketProduct(db: D1Database, id: string, input: Tic
   }
 }
 
+// ---------------------------------------------------------------------------
+// チケットのオンライン購入（Stripe Checkout）#24
+// ---------------------------------------------------------------------------
+/** 決済開始時に purchases 行を pending で作成 */
+export async function createPendingPurchase(
+  db: D1Database,
+  p: { id: string; customerId: string; productId: string; amount: number; sessionId: string },
+  now: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO ticket_purchases (id, customer_id, product_id, stripe_session_id, amount, currency, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'jpy', 'pending', ?)`,
+    )
+    .bind(p.id, p.customerId, p.productId, p.sessionId, p.amount, now)
+    .run();
+}
+
+export async function getPurchaseBySession(db: D1Database, sessionId: string) {
+  return db.prepare('SELECT * FROM ticket_purchases WHERE stripe_session_id = ?').bind(sessionId).first<{
+    id: string;
+    customer_id: string;
+    product_id: string | null;
+    status: string;
+    ticket_id: string | null;
+  }>();
+}
+
+/**
+ * 決済完了 Webhook を受けてチケットを発行（冪等）。
+ * 'pending'→'processing' を条件付き UPDATE で 1回だけ確保し、二重発行を防ぐ。
+ * addDaysISO は clock.addDaysJST 相当（有効期限計算）を注入する。
+ */
+export async function fulfillTicketPurchase(
+  db: D1Database,
+  sessionId: string,
+  now: string,
+  today: string,
+  addDaysISO: (dateISO: string, days: number) => string,
+): Promise<{ ok: boolean; already?: boolean; ticketId?: string; reason?: string }> {
+  const purchase = await getPurchaseBySession(db, sessionId);
+  if (!purchase) return { ok: false, reason: 'purchase not found' };
+  if (purchase.status === 'paid') return { ok: true, already: true, ticketId: purchase.ticket_id ?? undefined };
+
+  // pending のときだけ processing に遷移して所有権を確保（同時配信の二重発行防止）
+  const claim = await db
+    .prepare("UPDATE ticket_purchases SET status = 'processing' WHERE stripe_session_id = ? AND status = 'pending'")
+    .bind(sessionId)
+    .run();
+  const changed = (claim.meta as { changes?: number } | undefined)?.changes ?? 0;
+  if (changed !== 1) {
+    // 既に他で処理中/処理済み
+    const again = await getPurchaseBySession(db, sessionId);
+    return { ok: true, already: true, ticketId: again?.ticket_id ?? undefined };
+  }
+
+  if (!purchase.product_id) {
+    await db.prepare("UPDATE ticket_purchases SET status = 'pending' WHERE stripe_session_id = ?").bind(sessionId).run();
+    return { ok: false, reason: 'no product' };
+  }
+  const product = (await getTicketProduct(db, purchase.product_id)) as
+    | { name: string; total_hours: number; validity_days: number; space_ids: string[] }
+    | null;
+  if (!product) {
+    await db.prepare("UPDATE ticket_purchases SET status = 'pending' WHERE stripe_session_id = ?").bind(sessionId).run();
+    return { ok: false, reason: 'product missing' };
+  }
+  const validUntil = addDaysISO(today, product.validity_days);
+  const ticketId = await issueTicket(
+    db,
+    {
+      customerId: purchase.customer_id,
+      name: product.name,
+      totalHours: product.total_hours,
+      validFrom: today,
+      validUntil,
+      spaceIds: product.space_ids,
+      productId: purchase.product_id,
+    },
+    now,
+  );
+  await db
+    .prepare("UPDATE ticket_purchases SET status = 'paid', ticket_id = ?, paid_at = ? WHERE stripe_session_id = ?")
+    .bind(ticketId, now, sessionId)
+    .run();
+  return { ok: true, ticketId };
+}
+
 /** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */
 export async function deleteTicketProduct(db: D1Database, id: string): Promise<{ deleted: boolean }> {
   const ref = await db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE product_id = ?').bind(id).first<{ n: number }>();

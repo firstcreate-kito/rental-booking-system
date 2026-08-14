@@ -20,6 +20,11 @@ export interface Env {
   /** Google カレンダー連携（サービスアカウント）。両方セット時のみ有効 */
   GOOGLE_SA_EMAIL?: string;
   GOOGLE_SA_PRIVATE_KEY?: string;
+  /** Stripe 決済（チケット購入）。SECRET_KEY と WEBHOOK_SECRET 両方セット時のみ有効 */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** 決済完了後の戻り先ベースURL（未設定ならリクエスト元 origin を使用） */
+  PUBLIC_BASE_URL?: string;
 }
 
 /** 認証済み顧客（コンテキストに載る最小情報） */

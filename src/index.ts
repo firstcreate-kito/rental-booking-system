@@ -8,6 +8,8 @@ import auth from './routes/auth';
 import mypage from './routes/mypage';
 import signage from './routes/signage';
 import admin from './routes/admin';
+import tickets from './routes/tickets';
+import webhooks from './routes/webhooks';
 
 const app = new Hono<AppBindings>();
 
@@ -34,6 +36,9 @@ app.use('*', async (c, next) => {
   const user = c.env.BASIC_AUTH_USER;
   const pass = c.env.BASIC_AUTH_PASS;
   if (!user || !pass) return next();
+
+  // Stripe など外部サービスからの Webhook は Basic 認証を通せないため除外する
+  if (c.req.path.startsWith('/api/webhooks/')) return next();
 
   const expected = await gateToken(user, pass);
 
@@ -101,6 +106,8 @@ app.route('/api/auth', auth);
 app.route('/api/mypage', mypage);
 app.route('/api/signage', signage);
 app.route('/api/admin', admin);
+app.route('/api/tickets', tickets);
+app.route('/api/webhooks', webhooks);
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。

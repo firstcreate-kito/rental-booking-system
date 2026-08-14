@@ -697,7 +697,7 @@ function ticketCatalogHtml() {
   if (!S.ticketProducts || !S.ticketProducts.length) return '';
   const list = S.ticketProducts.map(p => '・' + p.name + '（' + p.total_hours + '時間 / ' + yen(p.price) + '）').join('<br>');
   return '<div style="margin-top:6px">' + list + '</div>' +
-    '<div style="margin-top:6px"><a href="' + S.ticketContactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">▶ チケットの追加購入について問い合わせる</a></div>';
+    '<div style="margin-top:6px"><a href="tickets.html" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">▶ チケットを購入する（回数券ページ）</a></div>';
 }
 // チケット残数が少ない/使い切りのとき追加購入を促す
 function updateTicketBuyPrompt(remainingAfter, exhausted) {

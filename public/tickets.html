@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ALBE チケット購入</title>
+<style>
+  :root { --brand:#1f6feb; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --ok:#16a34a; --warn:#f59e0b; --bad:#dc2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  header .who { font-size:12px; color:var(--muted); }
+  main { max-width:860px; margin:0 auto; padding:20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  h3 { font-size:14px; margin:18px 0 8px; color:var(--ink); }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .btn { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
+  .btn.sm { padding:5px 10px; font-size:12px; }
+  .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .muted { color:var(--muted); font-size:12px; }
+  .hidden { display:none; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .prod { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .prod .name { font-weight:600; }
+  .prod .price { font-size:20px; font-weight:700; color:var(--brand); }
+  .banner { border-radius:10px; padding:14px; margin-bottom:16px; }
+  .banner.ok { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+  .banner.warn { background:#fff8e6; color:#a15c00; border:1px solid #f0c36d; }
+</style>
+</head>
+<body>
+<header>
+  <h1>レンタルスペースALBE チケット購入</h1>
+  <div class="who" id="who"></div>
+</header>
+<main>
+  <!-- 決済結果バナー -->
+  <div id="resultBanner" class="hidden"></div>
+
+  <!-- ログイン -->
+  <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
+    <h2>ログイン</h2>
+    <div class="muted">チケットのご購入には会員ログインが必要です。</div>
+    <div class="muted demo-hint">デモ会員 → <code>demo-member@albe.test</code> / <code>demopass123</code></div>
+    <label>メールアドレス</label><input id="l_email" type="email" />
+    <label>パスワード</label><input id="l_pass" type="password" onkeydown="if(event.key==='Enter')login()" />
+    <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
+      <a href="mypage.html" class="muted" style="color:var(--brand)">新規会員登録・パスワード再設定</a>
+      <button class="btn" onclick="login()">ログイン</button>
+    </div>
+    <div class="msg bad" id="loginMsg"></div>
+  </section>
+
+  <!-- 商品一覧 -->
+  <section id="shopView" class="card hidden">
+    <div class="row"><h2 style="margin:0">チケット（回数券）を購入する</h2>
+      <a href="mypage.html" class="btn ghost sm">マイページへ</a>
+    </div>
+    <div class="muted" style="margin:6px 0 12px">利用可能時間分を対象スペースのご利用料金に充当できます。ご購入後はマイページ「チケット」でご確認いただけます。決済はクレジットカード（Stripe の安全な決済ページ）で行います。</div>
+    <div id="payDisabled" class="banner warn hidden">現在オンライン決済は準備中です。お手数ですが店舗までお問い合わせください。</div>
+    <div id="prodList"></div>
+    <div class="muted" id="prodEmpty"></div>
+    <div class="msg bad" id="shopMsg"></div>
+  </section>
+</main>
+<script>
+const T = { token: null, member: null, spaces: {}, products: [], paymentEnabled: false };
+const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+async function api(path, opts) {
+  const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
+  if (T.token) o.headers['Authorization'] = 'Bearer ' + T.token;
+  const r = await fetch(path, o); const j = await r.json().catch(()=>({}));
+  return { ok:r.ok, status:r.status, body:j };
+}
+const jsonBody = (obj, method) => ({ method: method||'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
+
+async function login() {
+  const email = document.getElementById('l_email').value.trim();
+  const password = document.getElementById('l_pass').value;
+  const msg = document.getElementById('loginMsg');
+  const { ok, body } = await api('/api/auth/login', jsonBody({ email, password }));
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  T.token = body.token; T.member = body.customer;
+  try { sessionStorage.setItem('albe_member_token', body.token); } catch (e) {}
+  enterShop();
+}
+function enterShop() {
+  document.getElementById('who').textContent = (T.member && (T.member.contactName || T.member.email) || '') + ' さん';
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('shopView').classList.remove('hidden');
+  loadProducts();
+}
+async function restoreSession() {
+  let tok = null;
+  try { tok = sessionStorage.getItem('albe_member_token'); } catch (e) {}
+  if (!tok) return false;
+  T.token = tok;
+  const { ok, body } = await api('/api/mypage/profile');
+  if (!ok || !body.profile) { T.token = null; try { sessionStorage.removeItem('albe_member_token'); } catch(e){} return false; }
+  T.member = { contactName: body.profile.contact_name, email: body.profile.email };
+  enterShop();
+  return true;
+}
+
+async function loadProducts() {
+  // スペース名の対応表
+  const sp = await api('/api/spaces');
+  (sp.body.spaces || []).forEach(s => { T.spaces[s.id] = s.name; });
+  const { body } = await api('/api/tickets/products');
+  T.products = body.products || [];
+  T.paymentEnabled = !!body.paymentEnabled;
+  document.getElementById('payDisabled').classList.toggle('hidden', T.paymentEnabled);
+  document.getElementById('prodEmpty').textContent = T.products.length ? '' : '現在販売中のチケットはありません。';
+  // 対象スペースでグルーピング（space_ids を | 連結でキー化）
+  const groups = {};
+  T.products.forEach(p => {
+    const names = (p.space_ids || []).map(id => T.spaces[id] || id);
+    const key = names.join(' / ') || 'その他';
+    (groups[key] = groups[key] || []).push(p);
+  });
+  let html = '';
+  Object.keys(groups).forEach(gname => {
+    html += '<h3>' + gname + '</h3>';
+    groups[gname].forEach(p => {
+      html += '<div class="prod"><div><div class="name">' + p.name + '</div>' +
+        '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div></div>' +
+        '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' +
+        '<button class="btn sm" ' + (T.paymentEnabled ? '' : 'disabled') + ' onclick="buy(\'' + p.id + '\',this)">購入する</button></div></div>';
+    });
+  });
+  document.getElementById('prodList').innerHTML = html;
+}
+
+async function buy(productId, btn) {
+  const msg = document.getElementById('shopMsg'); msg.textContent = '';
+  btn.disabled = true; btn.textContent = '決済ページへ…';
+  const { ok, body } = await api('/api/tickets/checkout', jsonBody({ productId }));
+  if (!ok || !body.url) {
+    msg.textContent = body.error || '決済ページの作成に失敗しました';
+    btn.disabled = false; btn.textContent = '購入する';
+    return;
+  }
+  // Stripe の決済ページへ遷移
+  window.location.href = body.url;
+}
+
+// 決済からの戻り（?status=success&session=... / ?status=cancel）
+async function handleReturn() {
+  const q = new URLSearchParams(location.search);
+  const status = q.get('status');
+  if (!status) return;
+  const banner = document.getElementById('resultBanner');
+  if (status === 'cancel') {
+    banner.className = 'banner warn';
+    banner.textContent = '決済をキャンセルしました。ご購入は完了していません。';
+    banner.classList.remove('hidden');
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+  if (status === 'success') {
+    const session = q.get('session');
+    banner.className = 'banner ok';
+    banner.innerHTML = 'ご決済ありがとうございます。チケットを反映しています…';
+    banner.classList.remove('hidden');
+    history.replaceState(null, '', location.pathname);
+    // Webhook 反映を数回ポーリング
+    for (let i = 0; i < 10; i++) {
+      const { body } = await api('/api/tickets/purchase-status?session=' + encodeURIComponent(session || ''));
+      if (body.status === 'paid') {
+        banner.innerHTML = '✅ チケットのご購入が完了しました。<a href="mypage.html" style="color:#166534;font-weight:600;text-decoration:underline">マイページで確認する ▶</a>';
+        return;
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    banner.innerHTML = 'ご決済を受け付けました。反映まで少しお時間がかかる場合があります。<a href="mypage.html" style="color:#166534;font-weight:600;text-decoration:underline">マイページで確認する ▶</a>';
+  }
+}
+
+(async function init() {
+  const restored = await restoreSession();
+  await handleReturn(); // ログイン済みなら購入結果を反映
+})();
+</script>
+</body>
+</html>

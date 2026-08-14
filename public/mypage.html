@@ -138,8 +138,10 @@
     </section>
 
     <section id="view-tickets" class="card hidden">
-      <h2>保有チケット（回数券）</h2>
-      <div class="muted" style="margin-bottom:8px">予約時に選択すると、利用時間分がスペース料金に充当されます。</div>
+      <div class="row"><h2 style="margin:0">保有チケット（回数券）</h2>
+        <a href="tickets.html" class="btn sm">＋ チケットを購入</a>
+      </div>
+      <div class="muted" style="margin:6px 0 8px">予約時に選択すると、利用時間分がスペース料金に充当されます。</div>
       <div id="tkList"></div>
       <div class="muted" id="tkEmpty"></div>
     </section>
@@ -326,8 +328,8 @@ async function loadTickets() {
     const exhausted = t.status === 'exhausted' || t.remaining_hours <= 0;
     const low = t.status === 'active' && t.remaining_hours > 0 && t.remaining_hours <= LOW;
     let notice = '';
-    if (exhausted) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>使い切りました。</strong> <a href="' + contactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">追加購入について問い合わせる ▶</a></div>';
-    else if (low) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>残りわずかです。</strong> <a href="' + contactUrl + '" target="_blank" rel="noopener" style="font-weight:600;color:#a15c00">追加購入について問い合わせる ▶</a></div>';
+    if (exhausted) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>使い切りました。</strong> <a href="tickets.html" style="font-weight:600;color:#a15c00">チケットを追加購入する ▶</a></div>';
+    else if (low) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>残りわずかです。</strong> <a href="tickets.html" style="font-weight:600;color:#a15c00">チケットを追加購入する ▶</a></div>';
     return '<div class="coupon"><div class="row"><strong>' + t.name + '</strong>' +
       '<span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></div>' +
       '<div>残り ' + t.remaining_hours + ' / ' + t.total_hours + ' 時間（' + pct + '%）</div>' +

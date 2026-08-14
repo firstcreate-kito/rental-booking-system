@@ -122,7 +122,7 @@
     </section>
 
     <!-- 日時変更モーダル -->
-    <div id="rsOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div id="rsOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
       <div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">日時変更</h2>
@@ -1079,7 +1079,7 @@ async function openReschedule(number) {
   rsNumber = number;
   document.getElementById('rsMsg').textContent = '';
   document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
-  document.getElementById('rsOverlay').classList.remove('hidden');
+  document.getElementById('rsOverlay').style.display = 'flex';
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
   document.getElementById('rsInfo').textContent =
@@ -1093,7 +1093,7 @@ async function openReschedule(number) {
   ).join('');
 }
 function closeReschedule() {
-  document.getElementById('rsOverlay').classList.add('hidden');
+  document.getElementById('rsOverlay').style.display = 'none';
   rsNumber = null;
 }
 async function submitReschedule() {

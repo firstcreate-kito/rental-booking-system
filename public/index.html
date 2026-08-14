@@ -54,6 +54,7 @@
   .slot.st-booked { background: #fdecec; border-color: #f5b5b5; color: #b91c1c; text-decoration: line-through; }
   .slot.st-tent { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
   .slot.st-past { background: #f1f3f5; border-color: #e2e5ea; color: #c0c4cc; text-decoration: line-through; }
+  .slot.st-end { background: #fff; border-color: var(--line); color: #6b7280; border-style: dashed; }
   .slot.sel { background: #dbeafe !important; border-color: #60a5fa !important; color: #1e3a8a !important; text-decoration: none !important; }
   .slot.sel-start { background: #2563eb !important; border-color: #2563eb !important; color: #fff !important; font-weight: 700; }
   .slotlegend { font-size: 10px; color: var(--muted); display: flex; gap: 12px; margin-bottom: 6px; }
@@ -204,7 +205,7 @@
   <div class="modal">
     <h2 id="modalDate"></h2>
     <div class="slotlegend">
-      <span>🟩 空き</span><span>🟥 予約済み</span><span>🟨 商談中</span>
+      <span>🟩 空き</span><span>🟥 予約済み</span><span>🟨 商談中</span><span style="color:#6b7280">┈ 終了専用の時刻</span>
     </div>
     <div class="slotbar" id="mSlots"></div>
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -394,52 +395,59 @@ function rangeOverlapKind(s, e) {
 }
 const addMin = (t, m) => { const x = toMin(t) + m; return String(Math.floor(x/60)).padStart(2,'0') + ':' + String(x%60).padStart(2,'0'); };
 function renderSlotBar() {
-  const ts = times(S.space.openTime, S.space.closeTime);
+  const ts = times(S.space.openTime, S.space.closeTime); // 営業終了(例:22:00)まで含む時刻の一覧
   let html = '';
   const cut = S.pastCutoffMin; // 当日の現在時刻（分）。当日でなければ -1
   const selStart = document.getElementById('mStart').value;
   const selEnd = document.getElementById('mEnd').value;
   const showSel = S.pickState !== 'start' && selStart && selEnd;
-  for (let i = 0; i < ts.length - 1; i++) {
-    const s = ts[i], e = ts[i + 1];
-    const isPast = cut >= 0 && toMin(s) < cut;
-    const k = slotKind(s, e);
-    let cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
-    // 選択中の範囲をハイライト（開始は濃い青、範囲内は薄い青）
-    if (showSel && toMin(s) >= toMin(selStart) && toMin(s) < toMin(selEnd)) {
-      cls += (s === selStart) ? ' sel sel-start' : ' sel';
+  for (let i = 0; i < ts.length; i++) {
+    const t = ts[i];
+    const isLast = i === ts.length - 1; // 最後は営業終了時刻＝「終了専用」の時刻ボタン
+    const isPast = cut >= 0 && toMin(t) < cut;
+    let cls;
+    if (isLast) {
+      cls = 'st-end'; // 開始には使えない終了専用の時刻
+    } else {
+      const k = slotKind(t, ts[i + 1]);
+      cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
     }
-    // 過去枠以外は2タップで範囲選択（1回目=開始 / 2回目=終了）
-    const click = isPast ? '' : ' onclick="pickSlot(\'' + s + '\')" style="cursor:pointer"';
-    html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '"' + click + '>' + s + '</div>';
+    // 選択中：開始・終了の時刻を濃い青、その間を薄い青でハイライト
+    if (showSel) {
+      const tm = toMin(t), sm = toMin(selStart), em = toMin(selEnd);
+      if (tm === sm || tm === em) cls += ' sel sel-start';
+      else if (tm > sm && tm < em) cls += ' sel';
+    }
+    // 過去時刻以外はクリック可（1回目＝開始時刻 / 2回目＝終了時刻）
+    const click = isPast ? '' : ' onclick="pickSlot(\'' + t + '\')" style="cursor:pointer"';
+    html += '<div class="slot ' + cls + '" title="' + t + '"' + click + '>' + t + '</div>';
   }
   document.getElementById('mSlots').innerHTML = html;
 }
 function updatePickHint() {
   const h = document.getElementById('mPickHint');
   if (!h) return;
-  if (S.pickState === 'start') h.textContent = '① 開始の枠をクリックしてください';
-  else if (S.pickState === 'end') h.textContent = '② 終了の枠をクリック（同じ枠をもう一度で30分）';
+  if (S.pickState === 'start') h.textContent = '① 開始の時刻をクリックしてください';
+  else if (S.pickState === 'end') h.textContent = '② 終了の時刻をクリックしてください';
   else h.textContent = '選択中：' + document.getElementById('mStart').value + '〜' + document.getElementById('mEnd').value + '（「選び直す」で再選択）';
 }
-// 2タップ範囲選択：1回目クリックで開始、2回目で終了（#20）
+// 2タップで時刻選択：1回目＝開始時刻、2回目＝終了時刻（クリックした時刻がそのまま終了）
 function pickSlot(t) {
   const stSel = document.getElementById('mStart'), enSel = document.getElementById('mEnd');
   const canStart = [...stSel.options].some(o => o.value === t && !o.disabled);
-  if (S.pickState === 'end' && toMin(t) >= toMin(stSel.value)) {
-    // 2回目：クリックした枠を含めて終了（終了＝クリック枠 + 30分）
-    const endT = addMin(t, 30);
-    const enOpt = [...enSel.options].find(o => o.value === endT && !o.disabled);
-    if (!enOpt) return; // 営業時間を超える等は無視
-    enSel.value = endT;
+  const canEnd = [...enSel.options].some(o => o.value === t && !o.disabled);
+  if (S.pickState === 'end' && canEnd && toMin(t) > toMin(stSel.value)) {
+    // 2回目：クリックした「時刻」をそのまま終了に（＋30分にはしない）
+    enSel.value = t;
     S.pickState = 'done';
   } else {
-    // 1回目（または選択済み・開始より前をクリック）→ 開始をセットし直す
-    if (!canStart) return;
+    // 1回目（または選択済み／開始以前をクリック）→ 開始をセット
+    if (!canStart) return; // 終了専用の時刻(営業終了)は開始にできない
     stSel.value = t;
+    // 暫定の終了＝開始+30分（無ければ開始より後の最初の有効な時刻）。次のクリックで確定
     const prov = addMin(t, 30);
-    const enOpt = [...enSel.options].find(o => o.value === prov && !o.disabled);
-    if (enOpt) enSel.value = prov; // 暫定で30分。次のクリックで終了を延ばす
+    if ([...enSel.options].some(o => o.value === prov && !o.disabled)) enSel.value = prov;
+    else { for (const o of enSel.options) { if (!o.disabled && toMin(o.value) > toMin(t)) { enSel.value = o.value; break; } } }
     S.pickState = 'end';
   }
   renderSlotBar(); updatePickHint(); previewModal();

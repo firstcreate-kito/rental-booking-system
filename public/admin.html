@@ -1119,15 +1119,18 @@ async function cancelBooking(number) {
 // --- 日時変更（管理者） ---
 let rsNumber = null;
 let rsStatus = null;
+let rsOriginal = [];
 async function openReschedule(number) {
   rsNumber = number;
   rsStatus = null;
+  rsOriginal = [];
   document.getElementById('rsMsg').textContent = '';
   document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
   document.getElementById('rsOverlay').style.display = 'flex';
   const { ok, body } = await api('/api/admin/bookings/' + number);
   if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
   rsStatus = body.status;
+  rsOriginal = (body.items || []).map(it => ({ date: it.date, startTime: it.startTime, endTime: it.endTime }));
   document.getElementById('rsInfo').textContent =
     body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）';
   document.getElementById('rsSlots').innerHTML = (body.items || []).map((it, i) =>
@@ -1153,6 +1156,17 @@ async function submitReschedule() {
     if (!date || !startTime || !endTime) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">すべての日付・時間を入力してください</span>'; return; }
     items.push({ date, startTime, endTime });
   }
+  // 変更内容の確認（誤操作による重複メール送信を防止）
+  const changeLines = items.map((it, i) => {
+    const o = rsOriginal[i];
+    const before = o ? (o.date + ' ' + o.startTime + '–' + o.endTime) : '（新規）';
+    const after = it.date + ' ' + it.startTime + '–' + it.endTime;
+    return '　' + before + '  →  ' + after;
+  }).join('\n');
+  const mailNote = rsStatus === 'tentative'
+    ? '※商談中のため金額は据え置きです。'
+    : '※お客様（メール登録がある場合）と管理者へ変更通知メールが送信されます。';
+  if (!confirm('予約 ' + rsNumber + ' の日時を変更します。\n\n' + changeLines + '\n\n' + mailNote + '\n\nこの内容で変更・通知してもよろしいですか？')) return;
   const btn = document.getElementById('rsSubmit');
   btn.disabled = true;
   document.getElementById('rsMsg').textContent = '保存中…';

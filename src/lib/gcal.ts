@@ -203,6 +203,25 @@ export async function insertEvent(
   return { id: j.id, htmlLink: j.htmlLink, created: j.created };
 }
 
+/** イベントのタイトル（summary）を更新（商談中→本予約化などの表示切替用） */
+export async function patchEventSummary(
+  env: GcalEnv,
+  calendarId: string,
+  eventId: string,
+  summary: string,
+): Promise<void> {
+  const token = await getAccessToken(env);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary }),
+    },
+  );
+  if (!res.ok) throw new Error(`patchEvent error: ${res.status}`);
+}
+
 /** イベントを削除（ロールバック・キャンセル用） */
 export async function deleteEvent(env: GcalEnv, calendarId: string, eventId: string): Promise<void> {
   const token = await getAccessToken(env);

@@ -3,7 +3,13 @@
  * 予約台帳の正は Google カレンダー（#25/#27）。
  */
 import type { Env } from '../types';
-import { gcalConfigured, freeBusy, insertEvent, deleteEvent, conflictsWithBusy, toJstRfc3339 } from './gcal';
+import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, conflictsWithBusy, toJstRfc3339 } from './gcal';
+
+const TENTATIVE_PREFIX = '【商談中】';
+
+function bookingSummary(eventName: string, customerName: string, tentative: boolean): string {
+  return `${tentative ? TENTATIVE_PREFIX : ''}${eventName}（${customerName}）`;
+}
 
 export interface DayItem {
   date: string;
@@ -50,16 +56,18 @@ export async function writeBookingToCalendar(
     customerName: string;
     items: readonly DayItem[];
     bookingIds: readonly string[];
+    tentative?: boolean; // 商談中は【商談中】マーカー付き
   },
 ): Promise<{ warning?: string }> {
   if (!gcalConfigured(env) || !calendarId) return {};
+  const label = args.tentative ? '（商談中）' : '';
   try {
     const updates: D1PreparedStatement[] = [];
     for (let i = 0; i < args.items.length; i++) {
       const it = args.items[i];
       const ev = await insertEvent(env, calendarId, {
-        summary: `${args.eventName}（${args.customerName}）`,
-        description: `予約番号: ${args.bookingNumber}\nお客様: ${args.customerName}\n（レンタルスペースALBE 予約システム）`,
+        summary: bookingSummary(args.eventName, args.customerName, !!args.tentative),
+        description: `予約番号: ${args.bookingNumber}${label}\nお客様: ${args.customerName}\n（レンタルスペースALBE 予約システム）`,
         startISO: toJstRfc3339(it.date, it.startTime),
         endISO: toJstRfc3339(it.date, it.endTime),
       });
@@ -71,6 +79,44 @@ export async function writeBookingToCalendar(
     return {};
   } catch (err) {
     return { warning: `Googleカレンダーへの書き込みに失敗しました（予約は成立しています）: ${(err as Error).message}` };
+  }
+}
+
+/**
+ * 商談中 → 本予約化。既存イベントがあればタイトルの【商談中】マーカーを外し、
+ * まだイベントが無い行（連携後追加等）には新規作成する。
+ */
+export async function promoteBookingCalendar(
+  env: Env,
+  calendarId: string | null,
+  args: {
+    bookingNumber: string;
+    eventName: string;
+    customerName: string;
+    rows: ReadonlyArray<{ id: string; date: string; start_time: string; end_time: string; google_event_id: string | null }>;
+  },
+): Promise<{ warning?: string }> {
+  if (!gcalConfigured(env) || !calendarId) return {};
+  const summary = bookingSummary(args.eventName, args.customerName, false);
+  try {
+    const updates: D1PreparedStatement[] = [];
+    for (const r of args.rows) {
+      if (r.google_event_id) {
+        await patchEventSummary(env, calendarId, r.google_event_id, summary);
+      } else {
+        const ev = await insertEvent(env, calendarId, {
+          summary,
+          description: `予約番号: ${args.bookingNumber}\nお客様: ${args.customerName}\n（レンタルスペースALBE 予約システム）`,
+          startISO: toJstRfc3339(r.date, r.start_time),
+          endISO: toJstRfc3339(r.date, r.end_time),
+        });
+        updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id));
+      }
+    }
+    if (updates.length) await env.DB.batch(updates);
+    return {};
+  } catch (err) {
+    return { warning: `Googleカレンダーの本予約化に失敗しました: ${(err as Error).message}` };
   }
 }
 

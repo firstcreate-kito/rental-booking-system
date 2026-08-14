@@ -254,7 +254,7 @@ app.get('/:id/slots', async (c) => {
     };
   });
 
-  return c.json({ spaceId: id, month, today, days, nextMonthFrom: addDays(endDate, 1) });
+  return c.json({ spaceId: id, month, today, days, nextMonthFrom: addDays(endDate, 1), contactUrl: settings.get('contact_url') ?? '' });
 });
 
 export default app;

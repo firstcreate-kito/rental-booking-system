@@ -217,6 +217,13 @@
   </div>
 </div>
 
+<!-- 商談中（満枠）の日をホバーした時のお問い合わせ案内ポップアップ -->
+<div id="tentPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #fcd34d;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6"
+     onmouseenter="cancelHideTent()" onmouseleave="hideTentHover()">
+  <div style="color:#92400e">商談中となっていますが、予約確定ではございません。ご予約をご検討のお客様はお問い合わせください。</div>
+  <div style="margin-top:8px"><a id="tentPopupBtn" href="#" target="_blank" rel="noopener" class="btn sm" style="display:inline-block;text-decoration:none">お問い合わせ</a></div>
+</div>
+
 <script>
 const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1 };
 // 本番（localhost 以外）では開発用の表示・デモ会員ヒントを隠す
@@ -277,6 +284,7 @@ async function loadCalendar() {
   const { body } = await api('/api/spaces/' + S.space.id + '/slots?month=' + S.month);
   S.slots = body.days || [];
   S.today = body.today;
+  S.contactUrl = body.contactUrl || '';
   document.getElementById('calMonth').textContent = S.month.replace('-', '年') + '月';
   document.getElementById('calDows').innerHTML = ['日','月','火','水','木','金','土']
     .map(d => '<div class="dow">' + d + '</div>').join('');
@@ -304,7 +312,10 @@ async function loadCalendar() {
       symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
     }
     const onclick = d.bookable ? ' onclick="openModal(\'' + d.date + '\')"' : '';
-    html += '<div class="' + cls.join(' ') + '"' + onclick + '>' +
+    // ✕（満枠）かつ商談中の日は、ホバーでお問い合わせ案内ポップアップを表示（#28拡張）
+    const tentFull = (d.status === 'full' && d.hasTentative);
+    const hover = tentFull ? ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"' : '';
+    html += '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' +
       '<div>' + dayNum + '</div>' + symHtml +
       (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
   }
@@ -316,6 +327,30 @@ function showCalendar() {
   // 部屋直リンク時は「スペース選択へ」を隠す（単一部屋の埋め込み想定）
   document.getElementById('backToSpacesBtn').style.display = S.deepLinked ? 'none' : '';
   if (S.cart.length) renderCart();
+}
+
+// --- 商談中（満枠）の日のホバー案内ポップアップ ---
+let _tentHideTimer = null;
+function showTentHover(cell) {
+  cancelHideTent();
+  const pop = document.getElementById('tentPopup');
+  const btn = document.getElementById('tentPopupBtn');
+  if (S.contactUrl) { btn.style.display = 'inline-block'; btn.href = S.contactUrl; }
+  else { btn.style.display = 'none'; }
+  pop.style.display = 'block';
+  const r = cell.getBoundingClientRect();
+  const pw = pop.offsetWidth;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - pw - 8;
+  if (left > maxLeft) left = maxLeft;
+  pop.style.top = (r.bottom + window.scrollY + 6) + 'px';
+  pop.style.left = Math.max(8, left) + 'px';
+}
+function hideTentHover() {
+  _tentHideTimer = setTimeout(() => { document.getElementById('tentPopup').style.display = 'none'; }, 220);
+}
+function cancelHideTent() {
+  if (_tentHideTimer) { clearTimeout(_tentHideTimer); _tentHideTimer = null; }
 }
 
 function changeMonth(delta) {
@@ -359,9 +394,20 @@ function renderSlotBar() {
     const isPast = cut >= 0 && toMin(s) < cut;
     const k = slotKind(s, e);
     const cls = isPast ? 'st-past' : k === 'tentative' ? 'st-tent' : k === 'booked' ? 'st-booked' : 'st-free';
-    html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '">' + s + '</div>';
+    // 過去枠以外はクリックで開始時刻に反映（終了は開始+1時間）
+    const click = isPast ? '' : ' onclick="pickSlot(\'' + s + '\')" style="cursor:pointer"';
+    html += '<div class="slot ' + cls + '" title="' + s + '–' + e + '"' + click + '>' + s + '</div>';
   }
   document.getElementById('mSlots').innerHTML = html;
+}
+// 時間枠をクリックしたら開始時刻に設定し、終了は開始+1時間に（#20）
+function pickSlot(t) {
+  const st = document.getElementById('mStart');
+  const opt = [...st.options].find(o => o.value === t && !o.disabled);
+  if (!opt) return; // 選択不可（受付時間外等）は無視
+  st.value = t;
+  setDefaultEnd();
+  previewModal();
 }
 function buildTimeOptions() {
   const ts = times(S.space.openTime, S.space.closeTime);
@@ -427,9 +473,9 @@ async function previewModal() {
     warn.classList.remove('hidden');
   } else if (ovKind === 'tentative') {
     // 商談中：予約はできないため、お問い合わせへ誘導（#28）
-    let html = '🟡 選択した時間帯は現在「商談中」の枠です。ご予約をご希望の場合は、お手数ですがお問い合わせください。';
+    let html = '商談中となっていますが、予約確定ではございません。ご予約をご検討のお客様はお問い合わせください。';
     if (S.contactUrl) {
-      html += '<div style="margin-top:6px"><a href="' + S.contactUrl + '" target="_blank" rel="noopener" style="color:#92400e;font-weight:600">お問い合わせはこちら →</a></div>';
+      html += '<div style="margin-top:6px"><a href="' + S.contactUrl + '" target="_blank" rel="noopener" class="btn sm" style="display:inline-block;text-decoration:none">お問い合わせ</a></div>';
     }
     warn.innerHTML = html;
     warn.classList.remove('hidden');

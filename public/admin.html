@@ -121,6 +121,24 @@
       <div class="muted" id="listEmpty"></div>
     </section>
 
+    <!-- 日時変更モーダル -->
+    <div id="rsOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">日時変更</h2>
+          <button class="btn ghost sm" onclick="closeReschedule()">✕</button>
+        </div>
+        <div class="muted" id="rsInfo" style="margin:6px 0 10px"></div>
+        <div id="rsSlots"></div>
+        <div class="muted" style="font-size:12px;margin-top:8px">※管理者操作のため受付締切・受付開始日の制約は無視されます。休業日・他予約・Googleカレンダーとの重複はチェックされます。</div>
+        <div class="msg" id="rsMsg"></div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost" onclick="closeReschedule()">キャンセル</button>
+          <button class="btn" id="rsSubmit" onclick="submitReschedule()">変更を保存</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 代理予約 -->
     <section id="view-proxy" class="card hidden">
       <h2>代理予約（本予約として登録）</h2>
@@ -526,9 +544,11 @@ async function loadBookings() {
     let actions = '';
     if (b.status === 'tentative') {
       actions = '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button> ' +
+        '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">日時変更</button> ' +
         '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>';
     } else if (b.status === 'confirmed') {
-      actions = '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
+      actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">日時変更</button> ' +
+        '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
     }
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
       '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + b.booking_number +
@@ -1050,6 +1070,56 @@ async function cancelBooking(number) {
   const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody({}));
   if (!res.ok) { alert(res.body.error || 'キャンセルに失敗しました'); return; }
   alert('キャンセルしました。キャンセル料 ' + yen(res.body.cancelFee) + '（手動徴収）');
+  loadBookings();
+}
+
+// --- 日時変更（管理者） ---
+let rsNumber = null;
+async function openReschedule(number) {
+  rsNumber = number;
+  document.getElementById('rsMsg').textContent = '';
+  document.getElementById('rsSlots').innerHTML = '<div class="muted">読み込み中…</div>';
+  document.getElementById('rsOverlay').classList.remove('hidden');
+  const { ok, body } = await api('/api/admin/bookings/' + number);
+  if (!ok) { document.getElementById('rsSlots').innerHTML = '<div class="msg err">' + (body.error || '取得に失敗しました') + '</div>'; return; }
+  document.getElementById('rsInfo').textContent =
+    body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）';
+  document.getElementById('rsSlots').innerHTML = (body.items || []).map((it, i) =>
+    '<div class="grid" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">' +
+      '<div><label>日付</label><input type="date" class="rs-date" value="' + it.date + '" /></div>' +
+      '<div><label>開始</label><input class="rs-start" value="' + it.startTime + '" placeholder="10:00" /></div>' +
+      '<div><label>終了</label><input class="rs-end" value="' + it.endTime + '" placeholder="18:00" /></div>' +
+    '</div>'
+  ).join('');
+}
+function closeReschedule() {
+  document.getElementById('rsOverlay').classList.add('hidden');
+  rsNumber = null;
+}
+async function submitReschedule() {
+  if (!rsNumber) return;
+  const dates = [...document.querySelectorAll('#rsSlots .rs-date')];
+  const starts = [...document.querySelectorAll('#rsSlots .rs-start')];
+  const ends = [...document.querySelectorAll('#rsSlots .rs-end')];
+  const items = [];
+  for (let i = 0; i < dates.length; i++) {
+    const date = dates[i].value.trim(), startTime = starts[i].value.trim(), endTime = ends[i].value.trim();
+    if (!date || !startTime || !endTime) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">すべての日付・時間を入力してください</span>'; return; }
+    items.push({ date, startTime, endTime });
+  }
+  const btn = document.getElementById('rsSubmit');
+  btn.disabled = true;
+  document.getElementById('rsMsg').textContent = '保存中…';
+  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody({ items }));
+  btn.disabled = false;
+  if (!ok) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">' + (body.error || '変更に失敗しました') + '</span>'; return; }
+  let note = '日時を変更しました。新しい合計 ' + yen(body.newTotal);
+  const adj = body.adjustment;
+  if (adj && adj.type === 'surcharge') note += '（追加請求 +' + yen(adj.amount) + '）';
+  else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';
+  if (body.calendarWarning) note += '\n⚠ ' + body.calendarWarning;
+  alert(note);
+  closeReschedule();
   loadBookings();
 }
 

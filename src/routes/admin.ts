@@ -49,6 +49,7 @@ import {
   type CampaignInput,
   getSpaceClosures,
   getSpaceBookingsOnDate,
+  getOccupyingIntervalsExcludingGroup,
   getCustomerByEmail,
   getBookingGroupByNumber,
   getBookingsByGroup,
@@ -59,10 +60,10 @@ import {
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
-import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
+import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail } from '../lib/email';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
-import { checkCalendarConflict, writeBookingToCalendar, promoteBookingCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, promoteBookingCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -612,6 +613,118 @@ app.post('/bookings/:number/release', async (c) => {
   const relSpace = await getSpaceById(db, g.space_id);
   await deleteBookingFromCalendar(c.env, relSpace?.google_calendar_id ?? null, relBookings.map((b) => b.google_event_id));
   return c.json({ bookingNumber: number, status: 'cancelled' });
+});
+
+/**
+ * GET /api/admin/bookings/:number 予約グループの明細（日時変更モーダル用）
+ */
+app.get('/bookings/:number', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  const space = await getSpaceById(db, g.space_id);
+  const rows = await getBookingsByGroup(db, g.id);
+  return c.json({
+    bookingNumber: g.booking_number,
+    status: g.status,
+    eventName: g.event_name,
+    spaceName: space?.name ?? '',
+    totalAmount: g.total_amount,
+    items: rows.map((r) => ({
+      date: r.date,
+      startTime: r.start_time,
+      endTime: r.end_time,
+      isResidence: !!r.is_residence,
+    })),
+  });
+});
+
+/**
+ * POST /api/admin/bookings/:number/reschedule 日時変更（管理者）
+ * body: { items: [{date,startTime,endTime,isResidence?}] }
+ * 管理者は受付期間（締切/受付開始）の制約を無視できる。休業日・競合は不可。
+ */
+app.post('/bookings/:number/reschedule', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const body = (await c.req.json().catch(() => ({}))) as { items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }> };
+  if (!Array.isArray(body.items) || body.items.length === 0) return c.json({ error: 'items は必須です' }, 400);
+
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約は変更できません' }, 400);
+  const space = await getSpaceById(db, g.space_id);
+  if (!space) return c.json({ error: 'space not found' }, 404);
+
+  const itemDates = body.items.map((i) => i.date).sort();
+  const [holidays, seasonalRows] = await Promise.all([
+    getHolidays(db, itemDates[0], itemDates[itemDates.length - 1]),
+    getActiveSeasonalRulesForSpace(db, space.id),
+  ]);
+  const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
+
+  // 休業日・競合チェック（受付期間の制約は管理者につき無視）
+  for (const item of body.items) {
+    const closures = await getSpaceClosures(db, space.id, item.date, item.date);
+    if (isClosed(item.date, { holidays: holidayMap, spaceClosureDates: closures })) {
+      return c.json({ error: `${item.date} は休業日です` }, 409);
+    }
+    const existing = await getOccupyingIntervalsExcludingGroup(db, space.id, item.date, g.id);
+    if (existing.some((b) => intervalsOverlap(item.startTime, item.endTime, b.start_time, b.end_time))) {
+      return c.json({ error: `${item.date} ${item.startTime}-${item.endTime} は既に予約があります` }, 409);
+    }
+  }
+
+  // Googleカレンダー：変更先の空き照会（自分自身のイベントは除外）
+  const oldRows = await getBookingsByGroup(db, g.id);
+  const calCheck = await checkCalendarConflictExcluding(c.env, space.google_calendar_id, body.items, oldRows.map((r) => r.google_event_id));
+  if (calCheck.conflict) {
+    return c.json({ error: `${calCheck.conflict} はGoogleカレンダー上で埋まっています。別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' }, 409);
+  }
+
+  const dayInputs: DayBookingInput[] = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime, isResidence: i.isResidence }));
+  const newGroup = computeGroupSpacePrice(toPricingConfig(space), dayInputs, { holidays: holidayMap, seasonalRules });
+  const newTotal = newGroup.spaceTotal;
+  const adjustment = computeAdjustment(g.total_amount, newTotal);
+
+  const keepStatus = g.status === 'tentative' ? 'tentative' : 'confirmed';
+  const newBookingIds = body.items.map(() => crypto.randomUUID());
+  const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM bookings WHERE group_id = ?').bind(g.id)];
+  for (let i = 0; i < body.items.length; i++) {
+    const item = body.items[i];
+    const day = newGroup.days[i];
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO bookings
+           (id, group_id, space_id, date, start_time, end_time, billable_hours, billing_mode, is_residence, rate, price, status, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(newBookingIds[i], g.id, space.id, item.date, item.startTime, item.endTime, day.billableHours, day.billingMode, day.isResidence ? 1 : 0, day.rate, day.price, keepStatus, g.source),
+    );
+  }
+  stmts.push(db.prepare('UPDATE booking_groups SET total_amount = ?, reschedule_count = reschedule_count + 1 WHERE id = ?').bind(newTotal, g.id));
+  await db.batch(stmts);
+
+  // Googleカレンダー同期：旧イベント削除→新日時で作成
+  let calendarWarning: string | null = null;
+  if (space.google_calendar_id) {
+    await deleteBookingFromCalendar(c.env, space.google_calendar_id, oldRows.map((r) => r.google_event_id));
+    const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
+      bookingNumber: number,
+      eventName: g.event_name,
+      customerName: cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様'),
+      items: body.items,
+      bookingIds: newBookingIds,
+      tentative: keepStatus === 'tentative',
+    });
+    calendarWarning = res.warning ?? null;
+  }
+
+  return c.json({ bookingNumber: number, newTotal, adjustment, calendarWarning });
 });
 
 // ---------------------------------------------------------------------------

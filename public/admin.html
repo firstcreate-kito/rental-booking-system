@@ -154,15 +154,15 @@
       <label>イベント名 *</label><input id="p_event" />
       <label>既存のお客様を検索（任意）</label>
       <div class="row" style="gap:8px">
-        <input id="p_cs_q" placeholder="名前・メール・電話・会社名で部分検索" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();proxyLookup();}" />
-        <button class="btn sm ghost" type="button" onclick="proxyLookup()">検索</button>
+        <input id="p_cs_q" placeholder="名前・メール・電話・会社名で部分検索" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();custLookup('p');}" />
+        <button class="btn sm ghost" type="button" onclick="custLookup('p')">検索</button>
       </div>
       <div id="p_cs_results" class="hidden" style="margin-top:6px;border:1px solid var(--line);border-radius:8px;max-height:200px;overflow:auto;background:#fff"></div>
       <div class="muted" id="p_pickInfo" style="font-size:12px;margin-top:4px"></div>
       <div class="grid" style="margin-top:6px">
-        <div><label>お客様名</label><input id="p_name" oninput="clearProxyPick()" /></div>
-        <div><label>メール</label><input id="p_email" oninput="clearProxyPick()" /></div>
-        <div><label>電話</label><input id="p_phone" oninput="clearProxyPick()" /></div>
+        <div><label>お客様名</label><input id="p_name" oninput="clearCustPick('p')" /></div>
+        <div><label>メール</label><input id="p_email" oninput="clearCustPick('p')" /></div>
+        <div><label>電話</label><input id="p_phone" oninput="clearCustPick('p')" /></div>
       </div>
       <div class="row" style="margin-top:12px;justify-content:flex-end">
         <button class="btn" onclick="createBooking('proxy')">登録する</button>
@@ -181,7 +181,20 @@
         <div><label>終了 *</label><input id="t_end" placeholder="18:00" /></div>
       </div>
       <label>案件名 *</label><input id="t_event" placeholder="例）○○社 商談中" />
+      <label>既存のお客様を検索（任意）</label>
+      <div class="row" style="gap:8px">
+        <input id="t_cs_q" placeholder="名前・メール・電話・会社名で部分検索" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();custLookup('t');}" />
+        <button class="btn sm ghost" type="button" onclick="custLookup('t')">検索</button>
+      </div>
+      <div id="t_cs_results" class="hidden" style="margin-top:6px;border:1px solid var(--line);border-radius:8px;max-height:200px;overflow:auto;background:#fff"></div>
+      <div class="muted" id="t_pickInfo" style="font-size:12px;margin-top:4px"></div>
+      <div class="grid" style="margin-top:6px">
+        <div><label>お客様名</label><input id="t_name" oninput="clearCustPick('t')" /></div>
+        <div><label>メール</label><input id="t_email" oninput="clearCustPick('t')" /></div>
+        <div><label>電話</label><input id="t_phone" oninput="clearCustPick('t')" /></div>
+      </div>
       <label>メモ（任意）</label><input id="t_note" />
+      <div class="muted" style="font-size:12px;margin-top:4px">※お客様情報を入れておくと、本予約化のときに再入力せずに済みます。</div>
       <div class="row" style="margin-top:12px;justify-content:flex-end">
         <button class="btn tent" onclick="createBooking('tent')">商談中で登録</button>
       </div>
@@ -604,52 +617,50 @@ async function testEmail() {
   alert('❌ 送信に失敗しました。Resendからのエラー:\n\n' + (body.error || '不明') + '\n\n送信元(MAIL_FROM): ' + (body.mailFrom || '(未設定)'));
 }
 
-// --- 代理予約：既存顧客の検索・呼び出し ---
-let proxyCustomerId = null;
-let proxyLookupRows = [];
-function clearProxyPick() { proxyCustomerId = null; document.getElementById('p_pickInfo').textContent = ''; }
-async function proxyLookup() {
-  const q = document.getElementById('p_cs_q').value.trim();
-  const box = document.getElementById('p_cs_results');
+// --- 代理予約／商談中：既存顧客の検索・呼び出し（prefix 'p'=代理予約 / 't'=商談中）---
+const pickedCust = { p: null, t: null };
+const custLookupRows = { p: [], t: [] };
+function clearCustPick(pre) { pickedCust[pre] = null; document.getElementById(pre + '_pickInfo').textContent = ''; }
+async function custLookup(pre) {
+  const q = document.getElementById(pre + '_cs_q').value.trim();
+  const box = document.getElementById(pre + '_cs_results');
   const { body } = await api('/api/admin/customers?q=' + encodeURIComponent(q));
-  proxyLookupRows = body.customers || [];
+  custLookupRows[pre] = body.customers || [];
   box.classList.remove('hidden');
-  if (!proxyLookupRows.length) { box.innerHTML = '<div class="muted" style="padding:10px">該当する顧客がいません</div>'; return; }
-  box.innerHTML = proxyLookupRows.map((c, i) =>
-    '<div onclick="pickProxyCustomer(' + i + ')" style="padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:10px" ' +
+  if (!custLookupRows[pre].length) { box.innerHTML = '<div class="muted" style="padding:10px">該当する顧客がいません</div>'; return; }
+  box.innerHTML = custLookupRows[pre].map((c, i) =>
+    '<div onclick="pickCust(\'' + pre + '\',' + i + ')" style="padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:10px" ' +
     'onmouseover="this.style.background=\'#f5f7ff\'" onmouseout="this.style.background=\'#fff\'">' +
     '<span>' + (c.contact_name || '（名前なし）') + (c.company_name ? '（' + c.company_name + '）' : '') + '</span>' +
     '<span class="muted" style="font-size:12px;white-space:nowrap">' + (c.email || '') + '　' + (c.phone || '') + (c.is_registered ? '　会員' : '') + '</span></div>').join('');
 }
-function pickProxyCustomer(i) {
-  const c = proxyLookupRows[i];
-  proxyCustomerId = c.id;
-  document.getElementById('p_name').value = c.contact_name || '';
-  document.getElementById('p_email').value = c.email || '';
-  document.getElementById('p_phone').value = c.phone || '';
-  document.getElementById('p_cs_results').classList.add('hidden');
-  document.getElementById('p_pickInfo').textContent = '✓ 既存のお客様を選択中（この予約は既存の顧客に紐づき、重複登録されません）';
+function pickCust(pre, i) {
+  const c = custLookupRows[pre][i];
+  pickedCust[pre] = c.id;
+  document.getElementById(pre + '_name').value = c.contact_name || '';
+  document.getElementById(pre + '_email').value = c.email || '';
+  document.getElementById(pre + '_phone').value = c.phone || '';
+  document.getElementById(pre + '_cs_results').classList.add('hidden');
+  document.getElementById(pre + '_pickInfo').textContent = '✓ 既存のお客様を選択中（この予約は既存の顧客に紐づき、重複登録されません）';
 }
 async function createBooking(kind) {
   const p = kind === 'proxy';
-  const pre = p ? 'p_' : 't_';
+  const pre = p ? 'p' : 't';
   const msg = document.getElementById(p ? 'proxyMsg' : 'tentMsg');
-  const spaceId = document.getElementById(pre + 'space').value;
-  const date = document.getElementById(pre + 'date').value;
-  const startTime = document.getElementById(pre + 'start').value.trim();
-  const endTime = document.getElementById(pre + 'end').value.trim();
-  const eventName = document.getElementById(pre + 'event').value.trim();
+  const spaceId = document.getElementById(pre + '_space').value;
+  const date = document.getElementById(pre + '_date').value;
+  const startTime = document.getElementById(pre + '_start').value.trim();
+  const endTime = document.getElementById(pre + '_end').value.trim();
+  const eventName = document.getElementById(pre + '_event').value.trim();
   if (!spaceId || !date || !startTime || !endTime || !eventName) { msg.className = 'msg bad'; msg.textContent = '必須項目を入力してください'; return; }
   const payload = { spaceId, eventName, items: [{ date, startTime, endTime }] };
-  if (p) {
-    const name = document.getElementById('p_name').value.trim();
-    const email = document.getElementById('p_email').value.trim();
-    const phone = document.getElementById('p_phone').value.trim();
-    if (proxyCustomerId) payload.customer = { id: proxyCustomerId, contactName: name, email, phone };
-    else if (email && name && phone) payload.customer = { contactName: name, email, phone };
-  } else {
-    payload.note = document.getElementById('t_note').value.trim();
-  }
+  // お客様情報（代理予約・商談中とも共通。商談中で入れておくと本予約化時に再入力不要）
+  const name = document.getElementById(pre + '_name').value.trim();
+  const email = document.getElementById(pre + '_email').value.trim();
+  const phone = document.getElementById(pre + '_phone').value.trim();
+  if (pickedCust[pre]) payload.customer = { id: pickedCust[pre], contactName: name, email, phone };
+  else if (email && name && phone) payload.customer = { contactName: name, email, phone };
+  if (!p) payload.note = document.getElementById('t_note').value.trim();
   const url = p ? '/api/admin/bookings' : '/api/admin/bookings/tentative';
   const { ok, body } = await api(url, jsonBody(payload));
   if (!ok) {
@@ -662,7 +673,9 @@ async function createBooking(kind) {
   }
   msg.className = 'msg ok';
   msg.textContent = (p ? '代理予約' : '商談中') + 'を登録しました（予約番号 ' + body.bookingNumber + '・' + yen(body.total) + '）';
-  if (p) { proxyCustomerId = null; document.getElementById('p_cs_results').classList.add('hidden'); document.getElementById('p_pickInfo').textContent = ''; }
+  pickedCust[pre] = null;
+  document.getElementById(pre + '_cs_results').classList.add('hidden');
+  document.getElementById(pre + '_pickInfo').textContent = '';
   showTab('list'); loadBookings();
 }
 

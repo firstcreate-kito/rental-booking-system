@@ -484,9 +484,16 @@ app.post('/bookings/:number/confirm', async (c) => {
   }
 
   // 本予約化の直前にGoogleカレンダー（台帳の正）を照会。埋まっていれば拒否。
+  // 商談中予約は既に【商談中】イベントとしてカレンダーに存在するため、
+  // 自分自身のイベントは除外して外部予約とのみ重複チェックする。
   const confirmSpace = await getSpaceById(db, g.space_id);
   const items = bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time }));
-  const calCheck = await checkCalendarConflict(c.env, confirmSpace?.google_calendar_id ?? null, items);
+  const calCheck = await checkCalendarConflictExcluding(
+    c.env,
+    confirmSpace?.google_calendar_id ?? null,
+    items,
+    bookings.map((b) => b.google_event_id),
+  );
   if (calCheck.conflict) {
     return c.json({ error: `${calCheck.conflict} はGoogleカレンダー上で埋まっています。本予約化できません。`, code: 'CALENDAR_CONFLICT' }, 409);
   }

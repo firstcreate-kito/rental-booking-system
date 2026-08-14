@@ -190,7 +190,12 @@
           <div><label>スラッグ（URL用・任意 例:albehall）</label><input id="sp_slug" placeholder="英小文字・数字・-" /></div>
           <div><label>課金タイプ</label><select id="sp_billing"><option value="hourly">時間貸し</option><option value="block">1日単位専用</option></select></div>
         </div>
-        <div><label>GoogleカレンダーID（連携用・任意）</label><input id="sp_gcal" placeholder="例）xxxxx@group.calendar.google.com" /></div>
+        <div><label>GoogleカレンダーID（連携用・任意）</label>
+          <div class="row" style="gap:8px">
+            <input id="sp_gcal" placeholder="例）xxxxx@group.calendar.google.com" style="flex:1" />
+            <button type="button" class="btn ghost sm" onclick="testCalendar()">接続テスト</button>
+          </div>
+        </div>
         <div class="grid">
           <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
@@ -638,6 +643,20 @@ function fillSpaceForm(s) {
   document.getElementById('sp_active').checked = s ? !!s.is_active : true;
   document.getElementById('spMsg').textContent = '';
   document.getElementById('spForm').classList.remove('hidden');
+}
+async function testCalendar() {
+  const calendarId = document.getElementById('sp_gcal').value.trim();
+  if (!calendarId) { alert('先にGoogleカレンダーIDを入力してください。'); return; }
+  const { ok, body } = await api('/api/admin/calendar-test', jsonBody({ calendarId }));
+  if (!body.configured) {
+    alert('Googleカレンダー連携が未設定です。\n\nGOOGLE_SA_EMAIL: ' + body.hasEmail + '\nGOOGLE_SA_PRIVATE_KEY: ' + body.hasKey + '\n\n両方を wrangler secret put で登録し、npm run deploy してください。');
+    return;
+  }
+  if (body.ok) {
+    alert('✅ 接続成功！\n\nこのカレンダーに読み書きできます（当日の予定 ' + body.busyCount + ' 件を取得）。\nサービスアカウント: ' + (body.saEmail || '') + '\n\nこのまま予約すればカレンダーに書き込まれます。');
+    return;
+  }
+  alert('❌ 接続に失敗しました。\n\nGoogleからのエラー:\n' + (body.error || '不明') + '\n\nサービスアカウント: ' + (body.saEmail || '') + '\n\n確認ポイント:\n・このカレンダーを上記サービスアカウントに「予定の変更権限」で共有したか\n・カレンダーIDが正しいか');
 }
 function newSpace() { fillSpaceForm(null); }
 function editSpace(id) { fillSpaceForm(adminSpaces.find(s => s.id === id)); }

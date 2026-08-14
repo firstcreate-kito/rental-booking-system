@@ -101,17 +101,23 @@ async function checkCalendarConflict(
   env: Env,
   calendarId: string | null,
   items: readonly DayItem[],
-): Promise<string | null> {
-  if (!gcalConfigured(env) || !calendarId) return null;
-  for (const it of items) {
-    const startISO = toJstRfc3339(it.date, it.startTime);
-    const endISO = toJstRfc3339(it.date, it.endTime);
-    const busy = await freeBusy(env, calendarId, startISO, endISO);
-    if (conflictsWithBusy(startISO, endISO, busy)) {
-      return `${it.date} ${it.startTime}-${it.endTime}`;
+): Promise<{ conflict?: string; error?: string }> {
+  if (!gcalConfigured(env) || !calendarId) return {};
+  try {
+    for (const it of items) {
+      const startISO = toJstRfc3339(it.date, it.startTime);
+      const endISO = toJstRfc3339(it.date, it.endTime);
+      const busy = await freeBusy(env, calendarId, startISO, endISO);
+      if (conflictsWithBusy(startISO, endISO, busy)) {
+        return { conflict: `${it.date} ${it.startTime}-${it.endTime}` };
+      }
     }
+    return {};
+  } catch (err) {
+    // 照会に失敗（認証/権限/カレンダーID等）しても予約は止めない。
+    // 実際の重複はローカルDBチェックでも防いでおり、書き込み側で警告を出す。
+    return { error: (err as Error).message };
   }
-  return null;
 }
 
 /**
@@ -426,11 +432,12 @@ app.post('/', async (c) => {
     }
   }
 
-  // Googleカレンダー（予約台帳の正）を確定直前に照会。埋まっていれば拒否（ダブルブッキング回避B）
-  const calConflict = await checkCalendarConflict(c.env, space.google_calendar_id, body.items);
-  if (calConflict) {
+  // Googleカレンダー（予約台帳の正）を確定直前に照会。埋まっていれば拒否（ダブルブッキング回避B）。
+  // 照会自体が失敗（認証/権限等）しても予約は止めず、書き込み側の警告で拾う。
+  const calCheck = await checkCalendarConflict(c.env, space.google_calendar_id, body.items);
+  if (calCheck.conflict) {
     return c.json(
-      { error: `申し訳ありません、${calConflict} はたった今埋まりました。お手数ですが別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' },
+      { error: `申し訳ありません、${calCheck.conflict} はたった今埋まりました。お手数ですが別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' },
       409,
     );
   }

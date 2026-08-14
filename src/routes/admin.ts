@@ -61,6 +61,7 @@ import { nowJST, todayJST, todayYmdJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail } from '../lib/email';
+import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -157,6 +158,30 @@ app.post('/logout', async (c) => {
 
 // 以降は管理者ログイン必須
 app.use('/*', requireAdmin);
+
+/** POST /api/admin/calendar-test Googleカレンダー接続テスト（設定確認用） */
+app.post('/calendar-test', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const calendarId = String(b.calendarId ?? '').trim();
+  const configured = gcalConfigured(c.env);
+  if (!configured) {
+    return c.json({
+      configured: false,
+      hasEmail: !!c.env.GOOGLE_SA_EMAIL,
+      hasKey: !!c.env.GOOGLE_SA_PRIVATE_KEY,
+      error: 'GOOGLE_SA_EMAIL と GOOGLE_SA_PRIVATE_KEY が未設定です（wrangler secret put で登録してください）',
+    });
+  }
+  if (!calendarId) return c.json({ configured: true, error: 'カレンダーIDが未入力です' }, 400);
+  // 今日の適当な1時間で freeBusy を試す（読み書き権限・ID・認証の総合チェック）
+  const today = todayJST();
+  try {
+    const busy = await freeBusy(c.env, calendarId, toJstRfc3339(today, '00:00'), toJstRfc3339(today, '23:59'));
+    return c.json({ configured: true, ok: true, calendarId, busyCount: busy.length, saEmail: c.env.GOOGLE_SA_EMAIL ?? null });
+  } catch (err) {
+    return c.json({ configured: true, ok: false, calendarId, error: (err as Error).message, saEmail: c.env.GOOGLE_SA_EMAIL ?? null });
+  }
+});
 
 /** POST /api/admin/test-email メール送信テスト（設定確認用） */
 app.post('/test-email', requireRole('owner', 'manager'), async (c) => {

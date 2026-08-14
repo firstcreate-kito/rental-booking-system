@@ -93,10 +93,25 @@ describe('email - 日時変更（reschedule）テンプレート', () => {
       oldDays, newDays, total: 32670, status: 'confirmed', showAmount: true,
     });
     expect(m.subject).toContain('B1');
-    expect(m.subject).toContain('日時を変更');
+    expect(m.subject).toContain('内容を変更');
     expect(m.text).toContain('2026-09-10');
     expect(m.text).toContain('2026-09-15');
     expect(m.text).toContain('¥32,670');
+  });
+  it('オプションを渡すと本文に表示（管理者通知の件名は【予約内容変更】）', () => {
+    const opts = [{ name: 'ハンガーラック', quantity: 2, subtotal: 1100 }];
+    const cm = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 22880, status: 'confirmed', showAmount: true, options: opts,
+    });
+    expect(cm.text).toContain('ハンガーラック');
+    expect(cm.text).toContain('オプション');
+    const am = adminRescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 22880, status: 'confirmed', showAmount: true, options: [],
+    });
+    expect(am.subject).toContain('【予約内容変更】');
+    expect(am.text).toContain('なし'); // 空配列は「なし」
   });
   it('商談中: 金額を表示しない（showAmount=false）', () => {
     const m = rescheduleEmail({

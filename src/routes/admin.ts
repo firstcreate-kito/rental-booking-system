@@ -749,6 +749,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
   const reqOptions = Array.isArray(body.options) ? body.options : undefined;
   let newOptionsTotal = 0;
   const newSelections: Array<{ optionId: string; quantity: number; subtotal: number }> = [];
+  const optionLines: Array<{ name: string; quantity: number; subtotal: number }> = []; // 通知メール用
   if (reqOptions && reqOptions.length > 0) {
     const optMap = await getOptionsByIds(db, reqOptions.map((o) => o.optionId));
     const newDatesForStock = [...new Set(body.items.map((i) => i.date))];
@@ -772,6 +773,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
       }
       const subtotal = optionSubtotal(opt.price_type, opt.unit_price, norm.quantity);
       newSelections.push({ optionId: opt.id, quantity: norm.quantity, subtotal });
+      optionLines.push({ name: opt.name, quantity: norm.quantity, subtotal });
       newOptionsTotal += subtotal;
     }
   }
@@ -852,6 +854,8 @@ app.post('/bookings/:number/reschedule', async (c) => {
     total: newTotal,
     status: keepStatus as 'confirmed' | 'tentative',
     showAmount: !isTentative,
+    // オプションを編集した場合のみメールに反映（未指定なら省略）
+    options: optionsProvided ? optionLines : undefined,
   };
   const custEmail = cust?.email ? String(cust.email) : '';
   if (custEmail) {

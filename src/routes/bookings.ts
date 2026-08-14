@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { AppBindings } from '../types';
+import type { AppBindings, Env } from '../types';
 import {
   getSpaceById,
   getCustomerProfile,
@@ -49,6 +49,14 @@ import {
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail } from '../lib/email';
+import {
+  gcalConfigured,
+  freeBusy,
+  insertEvent,
+  deleteEvent,
+  conflictsWithBusy,
+  toJstRfc3339,
+} from '../lib/gcal';
 
 const app = new Hono<AppBindings>();
 
@@ -77,6 +85,79 @@ function toCampaignCandidates(
     applyWeekend: !!r.apply_weekend,
     spaceId: r.space_id,
   }));
+}
+
+interface DayItem {
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Google カレンダー（予約台帳の正）を照会し、いずれかのコマが埋まっていれば
+ * その旨を返す。連携未設定・カレンダーID未設定なら null（チェックなし）。
+ */
+async function checkCalendarConflict(
+  env: Env,
+  calendarId: string | null,
+  items: readonly DayItem[],
+): Promise<string | null> {
+  if (!gcalConfigured(env) || !calendarId) return null;
+  for (const it of items) {
+    const startISO = toJstRfc3339(it.date, it.startTime);
+    const endISO = toJstRfc3339(it.date, it.endTime);
+    const busy = await freeBusy(env, calendarId, startISO, endISO);
+    if (conflictsWithBusy(startISO, endISO, busy)) {
+      return `${it.date} ${it.startTime}-${it.endTime}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * 予約成立後、各コマを Google カレンダーにイベントとして書き込み、
+ * bookings.google_event_id に保存する。失敗しても予約は成立させ、警告文を返す。
+ */
+async function writeBookingToCalendar(
+  env: Env,
+  calendarId: string | null,
+  args: { bookingNumber: string; eventName: string; customerName: string; items: readonly DayItem[]; bookingIds: readonly string[] },
+): Promise<{ warning?: string }> {
+  if (!gcalConfigured(env) || !calendarId) return {};
+  try {
+    const updates: D1PreparedStatement[] = [];
+    for (let i = 0; i < args.items.length; i++) {
+      const it = args.items[i];
+      const ev = await insertEvent(env, calendarId, {
+        summary: `${args.eventName}（${args.customerName}）`,
+        description: `予約番号: ${args.bookingNumber}\nお客様: ${args.customerName}\n（レンタルスペースALBE 予約システム）`,
+        startISO: toJstRfc3339(it.date, it.startTime),
+        endISO: toJstRfc3339(it.date, it.endTime),
+      });
+      updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, args.bookingIds[i]));
+    }
+    if (updates.length) await env.DB.batch(updates);
+    return {};
+  } catch (err) {
+    return { warning: `Googleカレンダーへの書き込みに失敗しました（予約は成立しています）: ${(err as Error).message}` };
+  }
+}
+
+/** 予約グループのイベントを Google カレンダーから削除（キャンセル時） */
+async function deleteBookingFromCalendar(
+  env: Env,
+  calendarId: string | null,
+  eventIds: readonly (string | null)[],
+): Promise<void> {
+  if (!gcalConfigured(env) || !calendarId) return;
+  for (const id of eventIds) {
+    if (!id) continue;
+    try {
+      await deleteEvent(env, calendarId, id);
+    } catch {
+      // 削除失敗は握りつぶす（照合バッチで拾う想定）
+    }
+  }
 }
 
 interface CreateBookingBody {
@@ -345,6 +426,15 @@ app.post('/', async (c) => {
     }
   }
 
+  // Googleカレンダー（予約台帳の正）を確定直前に照会。埋まっていれば拒否（ダブルブッキング回避B）
+  const calConflict = await checkCalendarConflict(c.env, space.google_calendar_id, body.items);
+  if (calConflict) {
+    return c.json(
+      { error: `申し訳ありません、${calConflict} はたった今埋まりました。お手数ですが別の時間をお選びください。`, code: 'CALENDAR_CONFLICT' },
+      409,
+    );
+  }
+
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
@@ -445,6 +535,15 @@ app.post('/', async (c) => {
     }
   }
 
+  // Googleカレンダー（予約台帳の正）へイベント書き込み＋イベントID保存
+  const gcalResult = await writeBookingToCalendar(c.env, space.google_calendar_id, {
+    bookingNumber,
+    eventName: body.eventName,
+    customerName: contactName,
+    items: body.items,
+    bookingIds,
+  });
+
   // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
   // 失敗しても予約は成立させる（バックグラウンド送信）。
   const mailDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
@@ -485,6 +584,7 @@ app.post('/', async (c) => {
         price: d.price,
         isResidence: d.isResidence,
       })),
+      calendarWarning: gcalResult.warning ?? null,
     },
     201,
   );
@@ -654,6 +754,10 @@ app.post('/:number/cancel', async (c) => {
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
   await db.batch(stmts);
+
+  // Googleカレンダー（台帳の正）からイベント削除
+  const cancelSpace = await getSpaceById(db, g.space_id);
+  await deleteBookingFromCalendar(c.env, cancelSpace?.google_calendar_id ?? null, bookings.map((b) => b.google_event_id));
 
   // キャンセル確認メール（お客様宛。会員/ゲスト問わず customer_id があれば送信）
   if (g.customer_id) {

@@ -1014,6 +1014,7 @@ export interface BookingRow {
   rate: number | null;
   price: number;
   status: string;
+  google_event_id: string | null;
 }
 
 export async function getBookingGroupByNumber(

@@ -1648,15 +1648,22 @@ export async function deleteTicketProduct(db: D1Database, id: string): Promise<{
   return { deleted: true };
 }
 
-/** 会員の保有チケット一覧（マイページ用） */
-export async function getMemberTickets(db: D1Database, customerId: string) {
+/**
+ * 会員の保有チケット一覧（マイページ・管理画面用）。
+ * today を渡すと、有効期限を過ぎた 'active' チケットを 'expired'（失効）として返す。
+ */
+export async function getMemberTickets(db: D1Database, customerId: string, today?: string) {
+  const statusExpr = today
+    ? "CASE WHEN t.status = 'active' AND t.valid_until < ? THEN 'expired' ELSE t.status END AS status"
+    : 't.status';
+  const binds = today ? [today, customerId] : [customerId];
   const { results } = await db
     .prepare(
-      `SELECT t.id, t.name, t.total_hours, t.remaining_hours, t.valid_from, t.valid_until, t.status,
+      `SELECT t.id, t.name, t.total_hours, t.remaining_hours, t.valid_from, t.valid_until, ${statusExpr},
               (SELECT GROUP_CONCAT(s.name, ' / ') FROM ticket_spaces ts JOIN spaces s ON s.id = ts.space_id WHERE ts.ticket_id = t.id) AS spaces
        FROM tickets t WHERE t.customer_id = ? ORDER BY t.purchased_at DESC`,
     )
-    .bind(customerId)
+    .bind(...binds)
     .all();
   return results ?? [];
 }

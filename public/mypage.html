@@ -193,7 +193,7 @@ async function api(path, opts) {
   return { ok:r.ok, status:r.status, body:j };
 }
 const jsonBody = (obj, method) => ({ method: method||'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
-const statusLabel = s => ({confirmed:'本予約',cancelled:'キャンセル',completed:'完了',active:'有効',exhausted:'消化済',expired:'期限切れ'}[s]||s);
+const statusLabel = s => ({confirmed:'本予約',cancelled:'キャンセル',completed:'完了',active:'有効',exhausted:'消化済',expired:'失効'}[s]||s);
 
 async function login() {
   const email = document.getElementById('l_email').value.trim();

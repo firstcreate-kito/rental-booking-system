@@ -1041,7 +1041,7 @@ app.get('/customers/:id', async (c) => {
   const [points, coupons, tickets] = await Promise.all([
     getPointBalanceAndLog(c.env.DB, id),
     getMemberCoupons(c.env.DB, id),
-    getMemberTickets(c.env.DB, id),
+    getMemberTickets(c.env.DB, id, todayJST()),
   ]);
   return c.json({ profile, points, coupons, tickets });
 });

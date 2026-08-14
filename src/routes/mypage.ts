@@ -81,7 +81,7 @@ app.get('/coupons', async (c) => {
 
 /** GET /api/mypage/tickets 保有チケット一覧 */
 app.get('/tickets', async (c) => {
-  const tickets = await getMemberTickets(c.env.DB, c.get('customer').id);
+  const tickets = await getMemberTickets(c.env.DB, c.get('customer').id, todayJST());
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
   return c.json({ tickets, contactUrl });
 });

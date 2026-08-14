@@ -483,7 +483,7 @@
         <div style="grid-column:1 / -1"><label>チケット名 *</label><input id="tp_name" placeholder="例）名駅防音室A・B共通チケット 6時間" /></div>
         <div><label>利用可能時間（h）*</label><input id="tp_hours" type="number" min="1" placeholder="6" /></div>
         <div><label>販売料金（円）*</label><input id="tp_price" type="number" min="0" placeholder="7700" /></div>
-        <div><label>有効日数 *</label><input id="tp_validity" type="number" min="1" value="180" /></div>
+        <div><label>有効日数 *</label><input id="tp_validity" type="number" min="1" value="365" /></div>
         <div><label>並び順</label><input id="tp_sort" type="number" value="0" style="width:80px" /></div>
         <div><label>状態</label><select id="tp_active"><option value="1">公開（販売中）</option><option value="0">非公開</option></select></div>
       </div>
@@ -826,7 +826,7 @@ async function loadBookings() {
       '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
   }).join('');
 }
-function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了', active:'有効', exhausted:'使い切り', expired:'期限切れ' }[s] || s; }
+function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了', active:'有効', exhausted:'使い切り', expired:'失効' }[s] || s; }
 async function testEmail() {
   const to = prompt('テストメールの送信先アドレスを入力してください。\n※onboarding@resend.dev を使用中は、Resend登録アドレス宛のみ届きます。', (A.admin && A.admin.email) || '');
   if (!to) return;
@@ -1187,6 +1187,9 @@ async function selectCustomer(id) {
   // 自動入力などによる値の残留を防ぐため毎回クリア
   document.getElementById('pt_amount').value = '';
   document.getElementById('pt_desc').value = '';
+  // チケット手動発行の有効終了日は既定で1年後を入れておく
+  const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1);
+  document.getElementById('tk_until').value = oneYear.toISOString().slice(0, 10);
   document.getElementById('csDetail').classList.remove('hidden');
 }
 async function submitPoints() {
@@ -1321,7 +1324,7 @@ function resetTicketProductForm() {
   document.getElementById('tp_id').value = '';
   document.getElementById('tpFormTitle').textContent = 'チケット商品を追加';
   ['tp_name','tp_hours','tp_price'].forEach(i => document.getElementById(i).value = '');
-  document.getElementById('tp_validity').value = '180';
+  document.getElementById('tp_validity').value = '365';
   document.getElementById('tp_sort').value = '0';
   document.getElementById('tp_active').value = '1';
   renderTpSpaceChecks([]);

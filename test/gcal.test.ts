@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gcalConfigured, toJstRfc3339, rangesOverlap, conflictsWithBusy } from '../src/lib/gcal';
+import { gcalConfigured, toJstRfc3339, rangesOverlap, conflictsWithBusy, rfc3339ToJst, busyToDayInterval } from '../src/lib/gcal';
 
 describe('gcal - 設定判定', () => {
   it('両方セットで有効', () => {
@@ -39,5 +39,26 @@ describe('gcal - 重なり判定', () => {
     ];
     expect(conflictsWithBusy(s('14:00'), s('16:00'), busy)).toBe(true);
     expect(conflictsWithBusy(s('10:00'), s('13:00'), busy)).toBe(false); // 隙間に収まる
+  });
+});
+
+describe('gcal - 読み取り（JST変換・日クランプ）', () => {
+  it('rfc3339ToJst: +09:00 はそのまま', () => {
+    expect(rfc3339ToJst('2026-08-20T10:00:00+09:00')).toEqual({ date: '2026-08-20', time: '10:00' });
+  });
+  it('rfc3339ToJst: UTC(Z) は+9時間', () => {
+    expect(rfc3339ToJst('2026-08-20T01:00:00Z')).toEqual({ date: '2026-08-20', time: '10:00' });
+  });
+  it('busyToDayInterval: 同日はそのまま', () => {
+    const iv = busyToDayInterval({ start: '2026-08-20T10:00:00+09:00', end: '2026-08-20T12:00:00+09:00' }, '2026-08-20', '22:00');
+    expect(iv).toEqual({ startTime: '10:00', endTime: '12:00' });
+  });
+  it('busyToDayInterval: 対象日に無ければ null', () => {
+    const iv = busyToDayInterval({ start: '2026-08-21T10:00:00+09:00', end: '2026-08-21T12:00:00+09:00' }, '2026-08-20', '22:00');
+    expect(iv).toBeNull();
+  });
+  it('busyToDayInterval: 翌日跨ぎは営業終了に丸める', () => {
+    const iv = busyToDayInterval({ start: '2026-08-20T21:00:00+09:00', end: '2026-08-21T02:00:00+09:00' }, '2026-08-20', '22:00');
+    expect(iv).toEqual({ startTime: '21:00', endTime: '22:00' });
   });
 });

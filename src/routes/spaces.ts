@@ -24,6 +24,7 @@ import {
 import { findSeasonalPct, type SeasonalRule } from '../lib/pricing';
 import { computeDayAvailability, statusSymbol } from '../lib/availability';
 import { todayJST, nowJST } from '../lib/clock';
+import { gcalConfigured, freeBusy, busyToDayInterval, toJstRfc3339, type BusyInterval } from '../lib/gcal';
 
 const app = new Hono<AppBindings>();
 
@@ -113,6 +114,24 @@ app.get('/:id/day', async (c) => {
     kind: b.status === 'tentative' ? 'tentative' : 'booked',
   }));
 
+  // Googleカレンダー（台帳の正）の予定も「予約済み」として反映（外部ポータル予約等）
+  if (gcalConfigured(c.env) && space.google_calendar_id) {
+    try {
+      const busy = await freeBusy(
+        c.env,
+        space.google_calendar_id,
+        toJstRfc3339(date, '00:00'),
+        toJstRfc3339(date, '23:59'),
+      );
+      for (const b of busy as BusyInterval[]) {
+        const iv = busyToDayInterval(b, date, space.close_time);
+        if (iv) booked.push({ startTime: iv.startTime, endTime: iv.endTime, kind: 'booked' });
+      }
+    } catch {
+      // カレンダー照会失敗時はローカルのみで表示（表示を止めない）
+    }
+  }
+
   return c.json({
     spaceId: id,
     date,
@@ -165,6 +184,21 @@ app.get('/:id/slots', async (c) => {
     byDate.set(b.date, arr);
   }
 
+  // Googleカレンダー（台帳の正）の予定を月分まとめて取得（外部ポータル予約等を空き状況に反映）
+  let gcalBusy: BusyInterval[] = [];
+  if (gcalConfigured(c.env) && space.google_calendar_id) {
+    try {
+      gcalBusy = await freeBusy(
+        c.env,
+        space.google_calendar_id,
+        toJstRfc3339(startDate, '00:00'),
+        toJstRfc3339(endDate, '23:59'),
+      );
+    } catch {
+      gcalBusy = []; // 照会失敗時はローカルのみ
+    }
+  }
+
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
   const days = dates.map((date) => {
     const dayType = getDayType(date, holidayMap);
@@ -179,11 +213,18 @@ app.get('/:id/slots', async (c) => {
       slotMinutes: space.slot_minutes,
       isClosed: closed,
       dayAvailable,
-      bookings: dayBookings.map((b) => ({
-        startTime: b.start_time,
-        endTime: b.end_time,
-        status: b.status,
-      })),
+      bookings: [
+        ...dayBookings.map((b) => ({
+          startTime: b.start_time,
+          endTime: b.end_time,
+          status: b.status,
+        })),
+        // Googleカレンダーの予定（外部予約等）も占有として反映
+        ...gcalBusy
+          .map((b) => busyToDayInterval(b, date, space.close_time))
+          .filter((iv): iv is { startTime: string; endTime: string } => iv !== null)
+          .map((iv) => ({ startTime: iv.startTime, endTime: iv.endTime, status: 'confirmed' })),
+      ],
       thresholdPct,
     });
 

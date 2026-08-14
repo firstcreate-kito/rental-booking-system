@@ -33,6 +33,36 @@ export function toJstRfc3339(date: string, time: string): string {
   return `${date}T${time.length === 5 ? time : time.slice(0, 5)}:00+09:00`;
 }
 
+/** RFC3339（任意TZ）を JST の { date:'YYYY-MM-DD', time:'HH:MM' } に変換 */
+export function rfc3339ToJst(iso: string): { date: string; time: string } {
+  const d = new Date(Date.parse(iso) + 9 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return {
+    date: `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`,
+    time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`,
+  };
+}
+
+/**
+ * busy 区間を対象日の HH:MM 区間にクランプして返す（対象日と重ならなければ null）。
+ * 前日以前から続く場合は '00:00'、翌日以降まで続く場合は endBound（営業終了等）に丸める。
+ */
+export function busyToDayInterval(
+  busy: BusyInterval,
+  date: string,
+  endBound: string,
+): { startTime: string; endTime: string } | null {
+  const s = rfc3339ToJst(busy.start);
+  const e = rfc3339ToJst(busy.end);
+  if (e.date < date || s.date > date) return null; // 対象日に無い
+  // 終了が対象日の 00:00（＝前日で閉じる）は対象外
+  if (e.date === date && e.time === '00:00') return null;
+  const startTime = s.date < date ? '00:00' : s.time;
+  const endTime = e.date > date ? endBound : e.time;
+  if (startTime >= endTime) return null;
+  return { startTime, endTime };
+}
+
 /** [aStart,aEnd) と [bStart,bEnd) が重なるか（RFC3339 文字列を時刻比較） */
 export function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
   const a1 = Date.parse(aStart), a2 = Date.parse(aEnd);

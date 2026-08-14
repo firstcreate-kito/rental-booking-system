@@ -115,7 +115,10 @@ app.get('/:id/day', async (c) => {
     kind: b.status === 'tentative' ? 'tentative' : 'booked',
   }));
 
-  // Googleカレンダー（台帳の正）の予定も「予約済み」として反映（外部ポータル予約等）
+  // Googleカレンダー（台帳の正）の予定も「予約済み」として反映（外部ポータル予約等）。
+  // ただし当システムの予約（確定・商談中）は既にGoogleカレンダーへ書き込んでいるため、
+  // ローカル予約と重なるカレンダー予定は「二重取得」となり、商談中がbookedで
+  // 上書きされてしまう。重なる予定は除外し、外部ポータル等ローカルに無い予定のみ足す。
   if (gcalConfigured(c.env) && space.google_calendar_id) {
     try {
       const busy = await freeBusy(
@@ -124,9 +127,13 @@ app.get('/:id/day', async (c) => {
         toJstRfc3339(date, '00:00'),
         toJstRfc3339(date, '23:59'),
       );
+      const localIvs = booked.map((x) => ({ s: x.startTime, e: x.endTime }));
+      const ovl = (aS: string, aE: string, bS: string, bE: string) => aS < bE && bS < aE;
       for (const b of busy as BusyInterval[]) {
         const iv = busyToDayInterval(b, date, space.close_time);
-        if (iv) booked.push({ startTime: iv.startTime, endTime: iv.endTime, kind: 'booked' });
+        if (!iv) continue;
+        const dup = localIvs.some((l) => ovl(iv.startTime, iv.endTime, l.s, l.e));
+        if (!dup) booked.push({ startTime: iv.startTime, endTime: iv.endTime, kind: 'booked' });
       }
     } catch {
       // カレンダー照会失敗時はローカルのみで表示（表示を止めない）

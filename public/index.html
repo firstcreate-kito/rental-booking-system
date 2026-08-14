@@ -221,7 +221,7 @@
 <div id="tentPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #fcd34d;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6"
      onmouseenter="cancelHideTent()" onmouseleave="hideTentHover()">
   <div style="color:#92400e">商談中となっていますが、予約確定ではございません。ご予約をご検討のお客様はお問い合わせください。</div>
-  <div style="margin-top:8px"><a id="tentPopupBtn" href="#" target="_blank" rel="noopener" class="btn sm" style="display:inline-block;text-decoration:none">お問い合わせ</a></div>
+  <div style="margin-top:8px"><a id="tentPopupBtn" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>
 </div>
 
 <script>
@@ -475,7 +475,7 @@ async function previewModal() {
     // 商談中：予約はできないため、お問い合わせへ誘導（#28）
     let html = '商談中となっていますが、予約確定ではございません。ご予約をご検討のお客様はお問い合わせください。';
     if (S.contactUrl) {
-      html += '<div style="margin-top:6px"><a href="' + S.contactUrl + '" target="_blank" rel="noopener" class="btn sm" style="display:inline-block;text-decoration:none">お問い合わせ</a></div>';
+      html += '<div style="margin-top:6px"><a href="' + S.contactUrl + '" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>';
     }
     warn.innerHTML = html;
     warn.classList.remove('hidden');

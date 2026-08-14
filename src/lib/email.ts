@@ -253,6 +253,35 @@ ${amountHtml}
   return { subject, html, text };
 }
 
+/** パスワード再設定メール（お客様宛） */
+export function passwordResetEmail(d: {
+  customerName: string;
+  resetUrl: string;
+  expiresLabel: string; // 例: 1時間
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】パスワード再設定のご案内';
+  const text = `${d.customerName} 様
+
+パスワード再設定のご依頼を受け付けました。
+下記のURLを開き、新しいパスワードを設定してください。
+
+${d.resetUrl}
+
+※このリンクの有効期限は${d.expiresLabel}です。期限を過ぎた場合はお手数ですが再度お手続きください。
+※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。
+
+レンタルスペースALBE`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>パスワード再設定のご依頼を受け付けました。<br>下記のボタンから新しいパスワードを設定してください。</p>
+<p style="margin:20px 0"><a href="${escapeHtml(d.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">新しいパスワードを設定する</a></p>
+<p style="font-size:12px;color:#6b7280">ボタンが開けない場合は、次のURLをブラウザに貼り付けてください：<br>${escapeHtml(d.resetUrl)}</p>
+<p style="font-size:13px;color:#6b7280">※このリンクの有効期限は${escapeHtml(d.expiresLabel)}です。<br>※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。</p>
+<p style="color:#6b7280;font-size:13px">レンタルスペースALBE</p>
+</div>`;
+  return { subject, html, text };
+}
+
 /** 新規予約の管理者通知メール */
 export function adminNewBookingEmail(d: BookingEmailData & { customerEmail: string; customerPhone?: string }): {
   subject: string;

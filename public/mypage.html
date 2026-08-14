@@ -61,6 +61,21 @@
       <button class="btn" onclick="login()">ログイン</button>
     </div>
     <div class="msg bad" id="loginMsg"></div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+      <a href="javascript:void(0)" onclick="showForgot()" style="font-size:12px;color:var(--brand)">パスワードをお忘れの方はこちら</a>
+    </div>
+  </section>
+
+  <!-- パスワード再設定の依頼 -->
+  <section id="forgotView" class="card hidden" style="max-width:420px;margin:40px auto">
+    <h2>パスワードの再設定</h2>
+    <div class="muted" style="margin-bottom:6px">ご登録のメールアドレスを入力してください。再設定用のリンクをメールでお送りします。</div>
+    <label>メールアドレス</label><input id="fg_email" type="email" onkeydown="if(event.key==='Enter')submitForgot()" />
+    <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
+      <button class="btn ghost sm" onclick="showLogin()">← ログインに戻る</button>
+      <button class="btn" id="fgBtn" onclick="submitForgot()">再設定メールを送る</button>
+    </div>
+    <div class="msg" id="forgotMsg"></div>
   </section>
 
   <!-- 新規会員登録 -->
@@ -158,6 +173,8 @@ const M = { token:null, member:null };
 if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
   document.querySelectorAll('.demo-hint').forEach(el => el.style.display = 'none');
 }
+// index.html などから #forgot 付きで来たら、パスワード再設定依頼フォームを開く
+if (location.hash === '#forgot') { showForgot(); }
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
@@ -182,11 +199,31 @@ async function login() {
 }
 function showRegister() {
   document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('forgotView').classList.add('hidden');
   document.getElementById('registerView').classList.remove('hidden');
 }
 function showLogin() {
   document.getElementById('registerView').classList.add('hidden');
+  document.getElementById('forgotView').classList.add('hidden');
   document.getElementById('loginView').classList.remove('hidden');
+}
+function showForgot() {
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('registerView').classList.add('hidden');
+  document.getElementById('forgotView').classList.remove('hidden');
+  document.getElementById('forgotMsg').textContent = '';
+}
+async function submitForgot() {
+  const msg = document.getElementById('forgotMsg');
+  const email = document.getElementById('fg_email').value.trim();
+  if (!email) { msg.className = 'msg bad'; msg.textContent = 'メールアドレスを入力してください'; return; }
+  const btn = document.getElementById('fgBtn');
+  btn.disabled = true; btn.textContent = '送信中…';
+  const { ok, body } = await api('/api/auth/password-reset/request', jsonBody({ email }));
+  btn.disabled = false; btn.textContent = '再設定メールを送る';
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '送信に失敗しました'; return; }
+  msg.className = 'msg ok';
+  msg.textContent = 'ご登録があれば、再設定用のメールをお送りしました。メール内のリンクから新しいパスワードを設定してください（有効期限1時間）。';
 }
 async function submitRegister() {
   const msg = document.getElementById('registerMsg');

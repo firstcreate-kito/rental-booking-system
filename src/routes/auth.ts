@@ -6,9 +6,13 @@ import {
   createSession,
   deleteSession,
   updateLastLogin,
+  createPasswordResetToken,
+  getPasswordResetToken,
+  applyPasswordReset,
 } from '../db/repository';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST } from '../lib/clock';
+import { sendEmail, passwordResetEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
 
@@ -92,6 +96,71 @@ app.post('/login', async (c) => {
     token,
     customer: { id: cust.id, email: cust.email, contactName: cust.contact_name, statusId: cust.status_id },
   });
+});
+
+/**
+ * POST /api/auth/password-reset/request パスワード再設定メールの送付依頼
+ * body: { email }
+ * セキュリティ上、メールの登録有無に関わらず常に { ok:true } を返す（存在の推測を防ぐ）。
+ * 登録済み会員のみ、再設定リンク付きメールを送信する。
+ */
+app.post('/password-reset/request', async (c) => {
+  const db = c.env.DB;
+  let body: { email?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  const email = (body.email ?? '').trim();
+  if (!email || !isValidEmail(email)) return c.json({ error: '有効なメールアドレスを入力してください' }, 400);
+
+  const cust = await getCustomerAuthByEmail(db, email);
+  if (cust && cust.password_hash && !cust.is_blocked) {
+    const now = nowJST();
+    const token = generateToken();
+    const expiresAt = nowJST(Date.now() + 60 * 60 * 1000); // 1時間後
+    await createPasswordResetToken(db, token, cust.id, expiresAt, now);
+    const origin = new URL(c.req.url).origin;
+    const resetUrl = `${origin}/reset.html?token=${token}`;
+    const mail = passwordResetEmail({
+      customerName: cust.contact_name ? String(cust.contact_name) : 'お客様',
+      resetUrl,
+      expiresLabel: '1時間',
+    });
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
+  }
+  return c.json({ ok: true });
+});
+
+/**
+ * POST /api/auth/password-reset/confirm 新しいパスワードを設定する
+ * body: { token, password }
+ */
+app.post('/password-reset/confirm', async (c) => {
+  const db = c.env.DB;
+  let body: { token?: string; password?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  const token = (body.token ?? '').trim();
+  const password = body.password ?? '';
+  if (!token) return c.json({ error: 'リンクが無効です。再度お手続きください。' }, 400);
+  if (password.length < MIN_PASSWORD) {
+    return c.json({ error: `パスワードは${MIN_PASSWORD}文字以上にしてください` }, 400);
+  }
+  const row = await getPasswordResetToken(db, token);
+  if (!row || row.used) {
+    return c.json({ error: 'このリンクは無効か、既に使用済みです。再度お手続きください。' }, 400);
+  }
+  if (nowJST() > row.expires_at) {
+    return c.json({ error: 'リンクの有効期限が切れています。再度お手続きください。' }, 400);
+  }
+  const passwordHash = await hashPassword(password);
+  await applyPasswordReset(db, row.customer_id, passwordHash);
+  return c.json({ ok: true });
 });
 
 /** POST /api/auth/logout ログアウト */

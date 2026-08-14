@@ -506,6 +506,52 @@ export async function deleteSession(db: D1Database, token: string): Promise<void
   await db.prepare('DELETE FROM auth_sessions WHERE token = ?').bind(token).run();
 }
 
+/** 会員の全セッションを無効化（パスワード再設定時など） */
+export async function deleteSessionsForCustomer(db: D1Database, customerId: string): Promise<void> {
+  await db.prepare('DELETE FROM auth_sessions WHERE customer_id = ?').bind(customerId).run();
+}
+
+// --- パスワード再設定（#21） ---
+export interface PasswordResetRow {
+  token: string;
+  customer_id: string;
+  expires_at: string;
+  used: number;
+}
+
+export async function createPasswordResetToken(
+  db: D1Database,
+  token: string,
+  customerId: string,
+  expiresAt: string,
+  now: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO password_reset_tokens (token, customer_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)')
+    .bind(token, customerId, expiresAt, now)
+    .run();
+}
+
+export async function getPasswordResetToken(db: D1Database, token: string): Promise<PasswordResetRow | null> {
+  return db
+    .prepare('SELECT token, customer_id, expires_at, used FROM password_reset_tokens WHERE token = ?')
+    .bind(token)
+    .first<PasswordResetRow>();
+}
+
+/** パスワードを更新し、その顧客の再設定トークンを全て使用済みにする（未使用リンクも無効化） */
+export async function applyPasswordReset(
+  db: D1Database,
+  customerId: string,
+  passwordHash: string,
+): Promise<void> {
+  await db.batch([
+    db.prepare('UPDATE customers SET password_hash = ?, is_registered = 1 WHERE id = ?').bind(passwordHash, customerId),
+    db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE customer_id = ?').bind(customerId),
+    db.prepare('DELETE FROM auth_sessions WHERE customer_id = ?').bind(customerId),
+  ]);
+}
+
 // --- マイページ ---
 export async function getCustomerProfile(db: D1Database, customerId: string) {
   return db

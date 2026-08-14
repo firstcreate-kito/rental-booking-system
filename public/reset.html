@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ALBE パスワード再設定</title>
+<style>
+  :root { --brand:#1f6feb; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --ok:#16a34a; --bad:#dc2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; }
+  header h1 { font-size:16px; margin:0; }
+  main { max-width:420px; margin:40px auto; padding:0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 3px; }
+  input { width:100%; padding:9px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .btn { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:14px; cursor:pointer; width:100%; margin-top:16px; }
+  .btn:disabled { opacity:.6; cursor:default; }
+  .muted { color:var(--muted); font-size:12px; }
+  .msg { font-size:13px; margin-top:12px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+<header><h1>レンタルスペースALBE</h1></header>
+<main>
+  <div class="card">
+    <h2>パスワードの再設定</h2>
+    <div id="formArea">
+      <div class="muted">新しいパスワードを入力してください（8文字以上）。</div>
+      <label>新しいパスワード</label>
+      <input id="pw1" type="password" autocomplete="new-password" />
+      <label>新しいパスワード（確認）</label>
+      <input id="pw2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')submitReset()" />
+      <button class="btn" id="submitBtn" onclick="submitReset()">パスワードを設定する</button>
+    </div>
+    <div id="doneArea" style="display:none">
+      <div class="msg ok">✅ パスワードを再設定しました。新しいパスワードでログインしてください。</div>
+      <p><a href="mypage.html">マイページのログインへ →</a></p>
+    </div>
+    <div class="msg bad" id="msg"></div>
+  </div>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+if (!token) {
+  document.getElementById('formArea').style.display = 'none';
+  document.getElementById('msg').textContent = 'リンクが無効です。マイページから再度お手続きください。';
+}
+async function submitReset() {
+  const msg = document.getElementById('msg');
+  msg.className = 'msg bad'; msg.textContent = '';
+  const p1 = document.getElementById('pw1').value, p2 = document.getElementById('pw2').value;
+  if (p1.length < 8) { msg.textContent = 'パスワードは8文字以上にしてください'; return; }
+  if (p1 !== p2) { msg.textContent = 'パスワードが一致しません'; return; }
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '送信中…';
+  try {
+    const r = await fetch('/api/auth/password-reset/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password: p1 }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { msg.textContent = body.error || '再設定に失敗しました'; btn.disabled = false; btn.textContent = 'パスワードを設定する'; return; }
+    document.getElementById('formArea').style.display = 'none';
+    document.getElementById('doneArea').style.display = 'block';
+  } catch (e) {
+    msg.textContent = '通信エラーが発生しました。時間をおいて再度お試しください。';
+    btn.disabled = false; btn.textContent = 'パスワードを設定する';
+  }
+}
+</script>
+</body>
+</html>

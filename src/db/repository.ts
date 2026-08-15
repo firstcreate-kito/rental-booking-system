@@ -1712,6 +1712,119 @@ export async function markBookingPaymentPaid(db: D1Database, sessionId: string, 
   return { ok: true, groupId: pay.group_id };
 }
 
+// ---------------------------------------------------------------------------
+// 書類（請求書・領収書）#41
+// ---------------------------------------------------------------------------
+
+export interface IssuerSettings {
+  name: string;
+  zip?: string;
+  address?: string;
+  tel?: string;
+  email?: string;
+  invoiceRegNo?: string;
+  bankInfo?: string;
+  note?: string;
+}
+
+/** 事業者情報（請求書・領収書の発行元）を system_settings から取得 */
+export async function getIssuerInfo(db: D1Database): Promise<IssuerSettings> {
+  const s = await getSystemSettings(db);
+  return {
+    name: s.get('issuer_name') || 'レンタルスペースALBE',
+    zip: s.get('issuer_zip') || '',
+    address: s.get('issuer_address') || '',
+    tel: s.get('issuer_tel') || '',
+    email: s.get('issuer_email') || '',
+    invoiceRegNo: s.get('issuer_invoice_reg_no') || '',
+    bankInfo: s.get('issuer_bank_info') || '',
+    note: s.get('issuer_note') || '',
+  };
+}
+
+export interface DocumentRow {
+  id: string;
+  group_id: string;
+  customer_id: string;
+  type: 'invoice' | 'receipt';
+  booking_number: string;
+  public_token: string;
+  total_amount: number;
+  issued_at: string;
+  status: string;
+}
+
+/** 推測不可能な書類トークンを生成（64桁hex） */
+function newDocumentToken(): string {
+  return (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '');
+}
+
+/**
+ * 予約グループに対して書類を発行（冪等）。
+ * 既に同種の有効な書類があればそれを返し、新規発行しない。
+ */
+export async function createDocumentForGroup(
+  db: D1Database,
+  groupId: string,
+  type: 'invoice' | 'receipt',
+): Promise<{ token: string; created: boolean } | null> {
+  const existing = await db
+    .prepare("SELECT public_token FROM documents WHERE group_id = ? AND type = ? AND status = 'issued' LIMIT 1")
+    .bind(groupId, type)
+    .first<{ public_token: string }>();
+  if (existing) return { token: existing.public_token, created: false };
+
+  const g = await db
+    .prepare('SELECT booking_number, customer_id, total_amount FROM booking_groups WHERE id = ?')
+    .bind(groupId)
+    .first<{ booking_number: string; customer_id: string; total_amount: number }>();
+  if (!g) return null;
+
+  const token = newDocumentToken();
+  await db
+    .prepare(
+      `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), groupId, g.customer_id, type, g.booking_number, token, g.total_amount)
+    .run();
+  return { token, created: true };
+}
+
+export async function getDocumentByToken(db: D1Database, token: string): Promise<DocumentRow | null> {
+  const row = await db
+    .prepare("SELECT * FROM documents WHERE public_token = ? AND status = 'issued'")
+    .bind(token)
+    .first<DocumentRow>();
+  return row ?? null;
+}
+
+/** 会員（顧客）の書類一覧（新しい順） */
+export async function getDocumentsForCustomer(db: D1Database, customerId: string): Promise<DocumentRow[]> {
+  const { results } = await db
+    .prepare("SELECT * FROM documents WHERE customer_id = ? AND status = 'issued' ORDER BY issued_at DESC")
+    .bind(customerId)
+    .all<DocumentRow>();
+  return results ?? [];
+}
+
+/** 管理画面用：書類一覧（宛名付き・新しい順） */
+export async function listDocumentsForAdmin(db: D1Database, limit = 200) {
+  const { results } = await db
+    .prepare(
+      `SELECT d.id, d.type, d.booking_number, d.public_token, d.total_amount, d.issued_at, d.status,
+              c.contact_name, c.company_name, bg.invoice_name
+       FROM documents d
+       LEFT JOIN customers c ON c.id = d.customer_id
+       LEFT JOIN booking_groups bg ON bg.id = d.group_id
+       WHERE d.status = 'issued'
+       ORDER BY d.issued_at DESC LIMIT ?`,
+    )
+    .bind(limit)
+    .all();
+  return results ?? [];
+}
+
 /** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */
 export async function deleteTicketProduct(db: D1Database, id: string): Promise<{ deleted: boolean }> {
   const ref = await db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE product_id = ?').bind(id).first<{ n: number }>();

@@ -11,6 +11,7 @@ import admin from './routes/admin';
 import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
+import documents from './routes/documents';
 
 const app = new Hono<AppBindings>();
 
@@ -40,6 +41,8 @@ app.use('*', async (c, next) => {
 
   // Stripe など外部サービスからの Webhook は Basic 認証を通せないため除外する
   if (c.req.path.startsWith('/api/webhooks/')) return next();
+  // 書類（請求書・領収書）は公開トークンURLで閲覧するため除外（トークンが秘匿値）
+  if (c.req.path.startsWith('/api/documents/')) return next();
 
   const expected = await gateToken(user, pass);
 
@@ -110,6 +113,7 @@ app.route('/api/admin', admin);
 app.route('/api/tickets', tickets);
 app.route('/api/webhooks', webhooks);
 app.route('/api/paypal', paypal);
+app.route('/api/documents', documents);
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。

@@ -19,6 +19,7 @@ import {
   getTicketUsageForGroup,
   buildTicketRescheduleStmts,
   createBookingPayment,
+  createDocumentForGroup,
   getBookingPaymentBySession,
   getBookingSummaryForGroup,
   getCancelPolicies,
@@ -247,8 +248,8 @@ app.post('/', async (c) => {
   }
   let invoiceName: string | null = null;
   if (paymentMethod === 'invoice') {
-    invoiceName = String(body.invoiceName ?? '').trim();
-    if (!invoiceName) return c.json({ error: '請求書払いの場合は請求書名（宛名）が必須です' }, 400);
+    // 請求書名（宛名）は任意。未入力の場合は申込者の個人名を宛名に用いる（書類生成時にフォールバック）。#41
+    invoiceName = String(body.invoiceName ?? '').trim() || null;
     const earliestDate = [...body.items].map((i) => i.date).sort()[0];
     if (earliestDate < addDaysJST(today, INVOICE_DEADLINE_DAYS)) {
       return c.json({ error: `請求書払いはご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済等をご利用ください。` }, 400);
@@ -599,6 +600,15 @@ app.post('/', async (c) => {
   }
   if (stmts.length) await db.batch(stmts);
 
+  // 請求書払い（銀行振込）の場合は請求書を自動発行（#41）。失敗しても予約は成立させる。
+  if (paymentMethod === 'invoice' && totals.total > 0) {
+    try {
+      await createDocumentForGroup(db, groupId, 'invoice');
+    } catch {
+      /* 書類発行失敗は予約成立に影響させない */
+    }
+  }
+
   // Googleカレンダー（予約台帳の正）へイベント書き込み＋イベントID保存
   const gcalResult = await writeBookingToCalendar(c.env, space.google_calendar_id, {
     bookingNumber,
@@ -610,6 +620,7 @@ app.post('/', async (c) => {
 
   // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
   // 失敗しても予約は成立させる（バックグラウンド送信）。
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
   const mailDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
   const emailData = {
     bookingNumber,
@@ -619,6 +630,9 @@ app.post('/', async (c) => {
     days: mailDays,
     total: totals.total,
     status: 'confirmed' as const,
+    // 会員は書類（請求書・領収書）をマイページからDLできる。案内リンクを添える（#41）
+    mypageUrl: member ? `${origin}/mypage.html` : undefined,
+    isInvoice: paymentMethod === 'invoice',
   };
   const confirm = bookingConfirmationEmail(emailData);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
@@ -632,7 +646,6 @@ app.post('/', async (c) => {
   let checkoutUrl: string | null = null;
   // 決済ページ作成が失敗した場合の理由（診断用にフロントへ返す）。
   let checkoutError: string | null = null;
-  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
   if (paymentMethod === 'stripe' && totals.total > 0) {
     if (!stripeConfigured(c.env)) {
       checkoutError = 'stripe_not_configured';

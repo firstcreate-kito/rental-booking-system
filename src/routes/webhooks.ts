@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
-import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid } from '../db/repository';
+import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup } from '../db/repository';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -37,6 +37,14 @@ app.post('/stripe', async (c) => {
       if (bookingPay) {
         const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST());
         if (!r.ok) return c.json({ received: true, paid: false }, 500);
+        // 入金確定で領収書を自動発行（#41・冪等）
+        if (r.groupId) {
+          try {
+            await createDocumentForGroup(c.env.DB, r.groupId, 'receipt');
+          } catch {
+            /* 書類発行失敗は決済処理に影響させない */
+          }
+        }
         return c.json({ received: true, paid: true, groupId: r.groupId });
       }
       const result = await fulfillTicketPurchase(c.env.DB, session.id, nowJST(), todayJST(), addDaysJST);

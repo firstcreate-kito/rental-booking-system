@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { paypalConfigured, capturePaypalOrder } from '../lib/paypal';
-import { getBookingPaymentBySession, markBookingPaymentPaid, getBookingSummaryForGroup } from '../db/repository';
+import { getBookingPaymentBySession, markBookingPaymentPaid, getBookingSummaryForGroup, createDocumentForGroup } from '../db/repository';
 import { nowJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -30,6 +30,12 @@ app.post('/capture', async (c) => {
     const cap = await capturePaypalOrder(c.env, orderId);
     if (cap.completed) {
       await markBookingPaymentPaid(c.env.DB, orderId, nowJST());
+      // 入金確定で領収書を自動発行（#41・冪等）
+      try {
+        await createDocumentForGroup(c.env.DB, pay.group_id, 'receipt');
+      } catch {
+        /* 書類発行失敗は決済処理に影響させない */
+      }
       const booking = await getBookingSummaryForGroup(c.env.DB, pay.group_id);
       return c.json({ status: 'paid', booking });
     }

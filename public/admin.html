@@ -292,6 +292,27 @@
 
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
 
+      <h2>事業者情報（請求書・領収書の発行元）</h2>
+      <div class="muted">請求書・領収書に印字される発行元情報です。適格請求書（インボイス）対応のため登録番号・振込先も入力できます。</div>
+      <div class="grid" style="margin-top:8px">
+        <div><label>事業者名（会社名・屋号）</label><input id="iss_name" placeholder="レンタルスペースALBE" /></div>
+        <div><label>郵便番号</label><input id="iss_zip" placeholder="450-0000" /></div>
+        <div><label>電話番号</label><input id="iss_tel" placeholder="052-000-0000" /></div>
+      </div>
+      <div class="grid">
+        <div style="grid-column:1/-1"><label>住所</label><input id="iss_address" placeholder="名古屋市中村区…" /></div>
+      </div>
+      <div class="grid">
+        <div><label>メールアドレス</label><input id="iss_email" placeholder="info@space-albe.com" /></div>
+        <div><label>適格請求書発行事業者 登録番号</label><input id="iss_reg" placeholder="T1234567890123" /></div>
+      </div>
+      <div><label>お振込先（請求書に表示・複数行可）</label><textarea id="iss_bank" rows="3" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px" placeholder="○○銀行 △△支店 普通 1234567&#10;口座名義 カ）..."></textarea></div>
+      <div><label>備考（書類下部に表示・任意）</label><input id="iss_note" placeholder="※お問い合わせは上記までお願いいたします。" /></div>
+      <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn sm" onclick="saveIssuer()">保存</button></div>
+      <div class="msg" id="issMsg"></div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
+
       <h2>祝日・全体休業日</h2>
       <div class="muted">全スペース共通。祝日/独自休日は「土日祝料金」、休業は「予約不可」になります。</div>
       <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
@@ -830,6 +851,10 @@ async function loadBookings() {
     } else if (b.status === 'confirmed') {
       actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
+      // 請求書払い：入金確認後に領収書を発行（#41）
+      if (b.payment_method === 'invoice') {
+        actions += ' <button class="btn sm" style="background:#0d9488" onclick="issueReceipt(\'' + b.booking_number + '\')">領収書発行</button>';
+      }
     }
     const payBadge = (b.status === 'confirmed' && b.payment_status === 'unpaid')
       ? ' <span class="pill cancelled" title="カード/PayPal未入金">未入金</span>'
@@ -842,6 +867,13 @@ async function loadBookings() {
   }).join('');
 }
 function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了', active:'有効', exhausted:'使い切り', expired:'失効' }[s] || s; }
+// 領収書を発行し、書類ページを新規タブで開く（#41）
+async function issueReceipt(number) {
+  if (!confirm('予約 ' + number + ' の領収書を発行します。\n（入金確認済みの場合のみ発行してください）よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/documents/issue-receipt', jsonBody({ bookingNumber: number }));
+  if (!ok) { alert('エラー: ' + (body.error || '発行に失敗しました')); return; }
+  window.open(body.url, '_blank', 'noopener');
+}
 async function testEmail() {
   const to = prompt('テストメールの送信先アドレスを入力してください。\n※onboarding@resend.dev を使用中は、Resend登録アドレス宛のみ届きます。', (A.admin && A.admin.email) || '');
   if (!to) return;
@@ -1476,11 +1508,27 @@ async function loadCalendarMgmt() {
 async function loadContactUrl() {
   const { body } = await api('/api/admin/settings');
   document.getElementById('cfg_contact_url').value = body.contactUrl || '';
+  const iss = body.issuer || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('iss_name', iss.name); set('iss_zip', iss.zip); set('iss_tel', iss.tel);
+  set('iss_address', iss.address); set('iss_email', iss.email); set('iss_reg', iss.invoiceRegNo);
+  set('iss_bank', iss.bankInfo); set('iss_note', iss.note);
 }
 async function saveContactUrl() {
   const msg = document.getElementById('cfgMsg');
   const url = document.getElementById('cfg_contact_url').value.trim();
   const { ok, body } = await api('/api/admin/settings/contact-url', jsonBody({ url }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? '保存しました' : (body.error || '保存に失敗しました');
+}
+async function saveIssuer() {
+  const msg = document.getElementById('issMsg');
+  const val = id => document.getElementById(id).value.trim();
+  const payload = {
+    name: val('iss_name'), zip: val('iss_zip'), tel: val('iss_tel'), address: val('iss_address'),
+    email: val('iss_email'), invoiceRegNo: val('iss_reg'), bankInfo: val('iss_bank'), note: val('iss_note'),
+  };
+  const { ok, body } = await api('/api/admin/settings/issuer', jsonBody(payload, 'PUT'));
   msg.className = ok ? 'msg ok' : 'msg bad';
   msg.textContent = ok ? '保存しました' : (body.error || '保存に失敗しました');
 }

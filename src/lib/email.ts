@@ -79,6 +79,10 @@ export interface BookingEmailData {
   days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   total: number;
   status: 'confirmed' | 'tentative';
+  /** マイページURL（会員の場合。請求書・領収書のダウンロード導線に使う） */
+  mypageUrl?: string;
+  /** 請求書払いの場合 true（請求書の案内文を出す） */
+  isInvoice?: boolean;
 }
 
 function daysBlockText(days: BookingEmailData['days']): string {
@@ -105,7 +109,11 @@ export function bookingConfirmationEmail(d: BookingEmailData): { subject: string
 日時:
 ${daysBlockText(d.days)}
 合計金額（税込）: ${yen(d.total)}
-
+${
+  d.mypageUrl
+    ? `\n${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。\n${d.mypageUrl}\n`
+    : ''
+}
 ご不明な点がございましたらお問い合わせください。
 レンタルスペースALBE`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
@@ -119,6 +127,13 @@ ${daysBlockText(d.days)}
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${
+  d.mypageUrl
+    ? `<p style="margin:14px 0;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+📄 ${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。<br>
+<a href="${escapeHtml(d.mypageUrl)}" style="color:#1d4ed8;font-weight:700">マイページで書類を確認する ▶</a></p>`
+    : ''
+}
 <p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。<br>レンタルスペースALBE</p>
 </div>`;
   return { subject, html, text };

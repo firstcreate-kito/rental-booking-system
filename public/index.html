@@ -193,8 +193,9 @@
       <strong>お支払い方法</strong>
       <div id="payMethods" style="margin-top:8px"></div>
       <div id="invoiceNameWrap" class="hidden" style="margin-top:8px">
-        <label>請求書名（宛名）<span style="color:var(--bad)">*</span></label>
-        <input id="f_invoiceName" placeholder="例）株式会社アルベ 御中" />
+        <label>請求書名（宛名）<span class="muted">（任意）</span></label>
+        <input id="f_invoiceName" placeholder="例）株式会社アルベ　※未入力の場合はお申込者のお名前で発行します" />
+        <div class="muted" style="font-size:12px;margin-top:4px">会社名などの宛名がある場合はご入力ください。未入力の場合はお申込者のお名前で請求書・領収書を発行します。</div>
       </div>
       <div class="muted" id="payNote" style="font-size:12px;margin-top:6px"></div>
     </div>
@@ -872,8 +873,8 @@ async function submitBooking() {
   if (!paymentMethod) { msg.textContent = 'お支払い方法を選択してください'; msg.classList.remove('hidden'); return; }
   let invoiceName = '';
   if (paymentMethod === 'invoice') {
+    // 請求書名は任意（未入力ならお申込者名で発行）
     invoiceName = document.getElementById('f_invoiceName').value.trim();
-    if (!invoiceName) { msg.textContent = '請求書名（宛名）を入力してください'; msg.classList.remove('hidden'); return; }
   }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),

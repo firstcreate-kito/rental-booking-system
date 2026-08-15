@@ -16,6 +16,7 @@ import {
   getMemberTickets,
   getUsableTicketsForSpace,
   getSystemSetting,
+  getDocumentsForCustomer,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { nowJST, todayJST } from '../lib/clock';
@@ -84,6 +85,20 @@ app.get('/tickets', async (c) => {
   const tickets = await getMemberTickets(c.env.DB, c.get('customer').id, todayJST());
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
   return c.json({ tickets, contactUrl });
+});
+
+/** GET /api/mypage/documents 会員の書類（請求書・領収書）一覧（#41） */
+app.get('/documents', async (c) => {
+  const docs = await getDocumentsForCustomer(c.env.DB, c.get('customer').id);
+  return c.json({
+    documents: docs.map((d) => ({
+      type: d.type,
+      bookingNumber: d.booking_number,
+      total: d.total_amount,
+      issuedAt: d.issued_at,
+      url: '/api/documents/' + d.public_token,
+    })),
+  });
 });
 
 /** GET /api/mypage/usable-tickets?spaceId=xxx 指定スペースで使えるチケット */

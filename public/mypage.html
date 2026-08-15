@@ -101,6 +101,7 @@
       <button id="tab-points" onclick="showTab('points')">ポイント</button>
       <button id="tab-coupons" onclick="showTab('coupons')">クーポン</button>
       <button id="tab-tickets" onclick="showTab('tickets')">チケット</button>
+      <button id="tab-documents" onclick="showTab('documents')">書類</button>
       <button id="tab-favorites" onclick="showTab('favorites')">お気に入り</button>
       <button id="tab-profile" onclick="showTab('profile')">アカウント設定</button>
       <button class="btn ghost sm" style="margin-left:auto" onclick="logout()">ログアウト</button>
@@ -144,6 +145,13 @@
       <div class="muted" style="margin:6px 0 8px">予約時に選択すると、利用時間分がスペース料金に充当されます。</div>
       <div id="tkList"></div>
       <div class="muted" id="tkEmpty"></div>
+    </section>
+
+    <section id="view-documents" class="card hidden">
+      <h2>書類（請求書・領収書）</h2>
+      <div class="muted" style="margin:6px 0 8px">「表示」を開き、ブラウザの「PDFとして保存 / 印刷」からPDFで保存できます。</div>
+      <div id="docList"></div>
+      <div class="muted" id="docEmpty"></div>
     </section>
 
     <section id="view-favorites" class="card hidden">
@@ -258,13 +266,25 @@ async function submitRegister() {
 async function logout() { await api('/api/auth/logout', jsonBody({})); location.reload(); }
 
 function showTab(t) {
-  ['bookings','points','coupons','tickets','favorites','profile'].forEach(x => {
+  ['bookings','points','coupons','tickets','documents','favorites','profile'].forEach(x => {
     document.getElementById('view-'+x).classList.toggle('hidden', x!==t);
     document.getElementById('tab-'+x).classList.toggle('active', x===t);
   });
 }
 
-async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadTickets(); loadFavorites(); loadProfile(); }
+async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadTickets(); loadDocuments(); loadFavorites(); loadProfile(); }
+
+async function loadDocuments() {
+  const { body } = await api('/api/mypage/documents');
+  const docs = body.documents || [];
+  document.getElementById('docEmpty').textContent = docs.length ? '' : '発行済みの書類はありません。ご予約・お支払いが確定すると、こちらに請求書・領収書が表示されます。';
+  const typeLabel = t => t === 'receipt' ? '領収書' : '請求書';
+  document.getElementById('docList').innerHTML = docs.length ? ('<div class="tablewrap"><table>' +
+    '<tr><th>種類</th><th>予約番号</th><th>金額</th><th>発行日</th><th></th></tr>' +
+    docs.map(d => '<tr><td>' + typeLabel(d.type) + '</td><td>' + d.bookingNumber + '</td><td>' + yen(d.total) +
+      '</td><td>' + (d.issuedAt||'').slice(0,10) + '</td><td><a class="btn sm" href="' + d.url + '" target="_blank" rel="noopener">表示 / PDF保存</a></td></tr>').join('') +
+    '</table></div>') : '';
+}
 
 function bookingRow(b) {
   const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';

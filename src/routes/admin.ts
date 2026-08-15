@@ -67,8 +67,10 @@ import {
   getBookingsByGroup,
   getCancelPolicies,
   peekNextBookingSeq,
-  getSystemSetting,
   setSystemSetting,
+  getSystemSettings,
+  createDocumentForGroup,
+  listDocumentsForAdmin,
   getSpaceOptions,
   isOptionAvailableForSpace,
   getDailyOptionUsage,
@@ -1527,8 +1529,59 @@ app.delete('/campaigns/:id', requireRole('owner', 'manager'), async (c) => {
 
 /** GET /api/admin/settings 主要なサイト設定を返す */
 app.get('/settings', async (c) => {
-  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '';
-  return c.json({ contactUrl });
+  const s = await getSystemSettings(c.env.DB);
+  return c.json({
+    contactUrl: s.get('contact_url') ?? '',
+    issuer: {
+      name: s.get('issuer_name') ?? '',
+      zip: s.get('issuer_zip') ?? '',
+      address: s.get('issuer_address') ?? '',
+      tel: s.get('issuer_tel') ?? '',
+      email: s.get('issuer_email') ?? '',
+      invoiceRegNo: s.get('issuer_invoice_reg_no') ?? '',
+      bankInfo: s.get('issuer_bank_info') ?? '',
+      note: s.get('issuer_note') ?? '',
+    },
+  });
+});
+
+/** PUT /api/admin/settings/issuer 事業者情報（請求書・領収書の発行元）を更新（#41） */
+app.put('/settings/issuer', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const str = (v: unknown) => String(v ?? '').trim();
+  const map: Record<string, string> = {
+    issuer_name: str(b.name),
+    issuer_zip: str(b.zip),
+    issuer_address: str(b.address),
+    issuer_tel: str(b.tel),
+    issuer_email: str(b.email),
+    issuer_invoice_reg_no: str(b.invoiceRegNo),
+    issuer_bank_info: str(b.bankInfo),
+    issuer_note: str(b.note),
+  };
+  for (const [k, v] of Object.entries(map)) await setSystemSetting(c.env.DB, k, v);
+  return c.json({ ok: true });
+});
+
+/** GET /api/admin/documents 発行済み書類の一覧（#41） */
+app.get('/documents', requireRole('owner', 'manager'), async (c) => {
+  const rows = await listDocumentsForAdmin(c.env.DB);
+  return c.json({ documents: rows });
+});
+
+/**
+ * POST /api/admin/documents/issue-receipt  body:{ bookingNumber }
+ * 請求書払い（銀行振込）の入金確認後、管理者が領収書を発行する（#41・冪等）。
+ */
+app.post('/documents/issue-receipt', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { bookingNumber?: unknown };
+  const number = String(b.bookingNumber ?? '').trim();
+  if (!number) return c.json({ error: '予約番号は必須です' }, 400);
+  const g = await getBookingGroupByNumber(c.env.DB, number);
+  if (!g) return c.json({ error: '予約が見つかりません' }, 404);
+  const r = await createDocumentForGroup(c.env.DB, g.id, 'receipt');
+  if (!r) return c.json({ error: '領収書の発行に失敗しました' }, 500);
+  return c.json({ ok: true, url: '/api/documents/' + r.token, created: r.created });
 });
 
 /** PUT /api/admin/settings/contact-url お問い合わせURLを更新 */

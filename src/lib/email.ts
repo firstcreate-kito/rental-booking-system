@@ -204,6 +204,8 @@ export interface RescheduleEmailData {
   showAmount: boolean;
   /** 変更後のオプション（undefined=セクションを出さない / []=「なし」） */
   options?: ReadonlyArray<{ name: string; quantity: number; subtotal: number }>;
+  /** 変更前の合計金額（税込）。指定時は「変更前→変更後」と差額を表示 */
+  oldTotal?: number;
 }
 
 function optionsBlockText(options?: RescheduleEmailData['options']): string {
@@ -217,16 +219,76 @@ function optionsBlockHtml(options?: RescheduleEmailData['options']): string {
   return `<p style="margin:6px 0;color:#6b7280">オプション</p><ul style="margin:4px 0">${inner}</ul>`;
 }
 
+/** 変更前後の日程が同一かどうか（日付・開始・終了すべて一致・順不同） */
+function sameDays(a: RescheduleEmailData['oldDays'], b: RescheduleEmailData['newDays']): boolean {
+  if (a.length !== b.length) return false;
+  const key = (d: { date: string; startTime: string; endTime: string }) => `${d.date} ${d.startTime}-${d.endTime}`;
+  const sa = a.map(key).sort();
+  const sb = b.map(key).sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
+/** 差額の文言（追加請求／返金／変動なし） */
+function diffLabel(oldTotal: number, newTotal: number): string {
+  const diff = newTotal - oldTotal;
+  if (diff > 0) return `差額 +${yen(diff)}（追加のお支払いが必要です）`;
+  if (diff < 0) return `差額 -${yen(-diff)}（${yen(-diff)}をご返金いたします）`;
+  return '差額なし（金額の変更はありません）';
+}
+
+/** 金額の変更点ブロック（テキスト）。oldTotal指定かつ増減ありなら 変更前→変更後＋差額 */
+function amountBlockText(d: RescheduleEmailData): string {
+  if (!d.showAmount) return '';
+  if (d.oldTotal !== undefined && d.oldTotal !== d.total) {
+    return `\n\n【お支払い金額の変更】\n  変更前（税込）: ${yen(d.oldTotal)}\n  変更後（税込）: ${yen(d.total)}\n  ${diffLabel(d.oldTotal, d.total)}`;
+  }
+  return `\n\n変更後の合計金額（税込）: ${yen(d.total)}`;
+}
+
+/** 金額の変更点ブロック（HTML）。oldTotal指定かつ増減ありなら 変更前→変更後＋差額 */
+function amountBlockHtml(d: RescheduleEmailData): string {
+  if (!d.showAmount) return '';
+  if (d.oldTotal !== undefined && d.oldTotal !== d.total) {
+    const diff = d.total - d.oldTotal;
+    const color = diff > 0 ? '#b45309' : '#15803d';
+    return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin:12px 0;background:#f9fafb">
+<p style="margin:2px 0;color:#6b7280;font-size:13px">お支払い金額の変更</p>
+<p style="margin:2px 0">変更前（税込）: <span style="color:#9ca3af;text-decoration:line-through">${yen(d.oldTotal)}</span></p>
+<p style="margin:2px 0;font-size:18px">変更後（税込）: <strong>${yen(d.total)}</strong></p>
+<p style="margin:4px 0 0;color:${color};font-weight:600">${diffLabel(d.oldTotal, d.total)}</p>
+</div>`;
+  }
+  return `<p style="font-size:18px">変更後の合計金額（税込）: <strong>${yen(d.total)}</strong></p>`;
+}
+
+/** 変更点の要約（日時が変わったか／金額が変わったか） */
+function changeSummaryText(d: RescheduleEmailData): string {
+  const parts: string[] = [];
+  if (!sameDays(d.oldDays, d.newDays)) parts.push('ご利用日時');
+  if (d.options !== undefined) parts.push('オプション');
+  if (d.showAmount && d.oldTotal !== undefined && d.oldTotal !== d.total) parts.push('お支払い金額');
+  if (parts.length === 0) return '';
+  return `【変更点】${parts.join('・')}\n\n`;
+}
+function changeSummaryHtml(d: RescheduleEmailData): string {
+  const parts: string[] = [];
+  if (!sameDays(d.oldDays, d.newDays)) parts.push('ご利用日時');
+  if (d.options !== undefined) parts.push('オプション');
+  if (d.showAmount && d.oldTotal !== undefined && d.oldTotal !== d.total) parts.push('お支払い金額');
+  if (parts.length === 0) return '';
+  return `<p style="margin:8px 0"><span style="display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:600">変更点: ${parts.map(escapeHtml).join('・')}</span></p>`;
+}
+
 /** 日時変更のお知らせ（お客様宛） */
 export function rescheduleEmail(d: RescheduleEmailData): { subject: string; html: string; text: string } {
   const label = d.status === 'tentative' ? '仮予約（商談中）' : 'ご予約';
   const subject = `【レンタルスペースALBE】${label}の内容を変更しました（${d.bookingNumber}）`;
-  const amountText = d.showAmount ? `\n\n変更後の合計金額（税込）: ${yen(d.total)}` : '';
+  const amountText = amountBlockText(d);
   const text = `${d.customerName} 様
 
 ${label}の内容を下記の通り変更いたしました。
 
-予約番号: ${d.bookingNumber}
+${changeSummaryText(d)}予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 イベント名: ${d.eventName}
 
@@ -237,12 +299,11 @@ ${daysBlockText(d.oldDays)}
 ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}
 
 ご不明な点がございましたらお問い合わせください。`;
-  const amountHtml = d.showAmount
-    ? `<p style="font-size:18px">変更後の合計金額（税込）: <strong>${yen(d.total)}</strong></p>`
-    : '';
+  const amountHtml = amountBlockHtml(d);
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p><strong>${label}</strong>の内容を下記の通り変更いたしました。</p>
+${changeSummaryHtml(d)}
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
@@ -267,11 +328,11 @@ export function adminRescheduleEmail(d: RescheduleEmailData & { customerEmail?: 
 } {
   const label = d.status === 'tentative' ? '商談中（仮予約）' : '本予約';
   const subject = `【予約内容変更】${d.spaceName} ${d.newDays[0]?.date ?? ''}（${d.bookingNumber}）`;
-  const amountText = d.showAmount ? `\n\n変更後合計: ${yen(d.total)}` : '';
+  const amountText = amountBlockText(d);
   const contact = d.customerEmail ? `\nお客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : `\nお客様: ${d.customerName}`;
   const text = `${label}の内容が変更されました。
 
-予約番号: ${d.bookingNumber}
+${changeSummaryText(d)}予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 イベント名: ${d.eventName}
 
@@ -280,12 +341,13 @@ ${daysBlockText(d.oldDays)}
 
 【変更後の日時】
 ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}${contact}`;
-  const amountHtml = d.showAmount ? `<p>変更後合計: <strong>${yen(d.total)}</strong></p>` : '';
+  const amountHtml = amountBlockHtml(d);
   const contactHtml = d.customerEmail
     ? `${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）`
     : escapeHtml(d.customerName);
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p><strong>${label}</strong>の内容が変更されました。</p>
+${changeSummaryHtml(d)}
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>

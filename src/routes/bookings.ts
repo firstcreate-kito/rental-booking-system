@@ -1179,6 +1179,7 @@ app.post('/:number/reschedule', async (c) => {
     oldDays,
     newDays,
     total: newTotal,
+    oldTotal: g.total_amount,
     status: g.status as 'confirmed' | 'tentative',
     showAmount: g.status !== 'tentative',
   };

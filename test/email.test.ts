@@ -121,6 +121,33 @@ describe('email - 日時変更（reschedule）テンプレート', () => {
     expect(m.subject).toContain('仮予約');
     expect(m.text).not.toContain('¥21,780');
   });
+  it('oldTotal指定・増額: 変更前後の金額と差額（追加）と変更点サマリーを表示', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 32670, oldTotal: 21780, status: 'confirmed', showAmount: true,
+    });
+    expect(m.text).toContain('変更前（税込）: ¥21,780');
+    expect(m.text).toContain('変更後（税込）: ¥32,670');
+    expect(m.text).toContain('差額 +¥10,890');
+    expect(m.text).toContain('追加のお支払い');
+    expect(m.text).toContain('変更点'); // 日時・金額のサマリー
+  });
+  it('oldTotal指定・減額: 返金の差額を表示', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 10000, oldTotal: 15000, status: 'confirmed', showAmount: true,
+    });
+    expect(m.text).toContain('差額 -¥5,000');
+    expect(m.text).toContain('ご返金');
+  });
+  it('oldTotal同額: 差額ブロックを出さず単一金額のみ表示', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays: oldDays, total: 20000, oldTotal: 20000, status: 'confirmed', showAmount: true,
+    });
+    expect(m.text).toContain('変更後の合計金額（税込）: ¥20,000');
+    expect(m.text).not.toContain('差額');
+  });
   it('管理者通知: 連絡先と変更前後を含む', () => {
     const m = adminRescheduleEmail({
       bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',

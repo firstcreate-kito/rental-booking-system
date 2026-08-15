@@ -941,6 +941,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
     oldDays,
     newDays,
     total: newTotal,
+    oldTotal: g.total_amount,
     status: keepStatus as 'confirmed' | 'tentative',
     showAmount: !isTentative,
     // オプションを編集した場合のみメールに反映（未指定なら省略）

@@ -146,17 +146,18 @@
     <!-- 予約方法の選択ゲート（未ログイン時のみ表示）#55 -->
     <div id="custGate">
       <p class="muted" style="margin:0 0 12px">ご予約方法をお選びください。</p>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <button class="btn" style="padding:14px;text-align:left" onclick="chooseGuest()">
-          会員登録せずに予約する
-          <div style="font-size:12px;opacity:.9;margin-top:2px">お手軽にご予約 ／ <strong>クレジットカード決済のみ</strong></div>
-        </button>
-        <button class="btn ghost" style="padding:14px;text-align:left" onclick="chooseRegister()">
-          会員登録して予約する
-          <div style="font-size:12px;margin-top:2px">クーポン・ポイントが使えます ／ 登録後そのままご予約を続けられます</div>
+      <!-- おすすめ：会員登録して予約（目立つ） -->
+      <button class="btn" style="width:100%;padding:16px;text-align:left" onclick="chooseRegister()">
+        会員登録して予約する（おすすめ）
+        <div style="font-size:12px;opacity:.9;margin-top:2px">クーポン・ポイントが使えます ／ 登録後そのままご予約を続けられます</div>
+      </button>
+      <div class="muted" style="margin-top:10px;font-size:13px">すでに会員の方は <a href="javascript:void(0)" onclick="chooseLogin()">こちらからログイン</a></div>
+      <!-- 会員登録せずに予約（控えめ・枠なしのリンク風ボタン） -->
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);text-align:center">
+        <button onclick="chooseGuest()" style="background:none;border:none;color:var(--brand);text-decoration:underline;cursor:pointer;font-size:13px;padding:4px">
+          会員登録せずに予約する（クレジットカード決済のみ）→
         </button>
       </div>
-      <div class="muted" style="margin-top:12px;font-size:13px">すでに会員の方は <a href="javascript:void(0)" onclick="chooseLogin()">こちらからログイン</a></div>
     </div>
 
     <div id="custForm" class="hidden">

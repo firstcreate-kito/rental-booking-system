@@ -27,23 +27,28 @@ app.get('/debug', async (c) => {
     out.result = 'NOT_CONFIGURED（鍵が未登録。wrangler secret put が反映されていません）';
     return c.json(out);
   }
-  try {
-    const auth = btoa(`${id}:${sec}`);
+  // trim後の長さも表示（空白除去でどれだけ縮むか＝混入した空白の量が分かる）
+  out.trimmed = { clientIdLength: id.trim().length, secretLength: sec.trim().length };
+
+  // 認証テストを raw / trimmed の両方で実施し、どちらが通るか確認する
+  async function tryAuth(cid: string, csec: string) {
+    const auth = btoa(`${cid}:${csec}`);
     const res = await fetch(`${baseUrl}/v1/oauth2/token`, {
       method: 'POST',
       headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=client_credentials',
     });
     const text = await res.text();
-    out.authHttpStatus = res.status;
-    out.authOk = res.ok;
-    // トークン本体は伏せ、エラー説明など短い診断情報のみ抜粋
+    let body: unknown = text.slice(0, 200);
     try {
       const j = JSON.parse(text) as Record<string, unknown>;
-      out.authBody = { error: j.error, error_description: j.error_description, has_access_token: !!j.access_token };
-    } catch {
-      out.authBody = text.slice(0, 200);
-    }
+      body = { error: j.error, error_description: j.error_description, has_access_token: !!j.access_token };
+    } catch { /* テキストのまま */ }
+    return { httpStatus: res.status, ok: res.ok, body };
+  }
+  try {
+    out.authRaw = await tryAuth(id, sec);
+    out.authTrimmed = await tryAuth(id.trim(), sec.trim());
   } catch (err) {
     out.fetchError = (err as Error).message;
   }

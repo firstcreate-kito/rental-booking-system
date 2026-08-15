@@ -22,6 +22,7 @@ import {
   type ChangeRequestType,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
+import { adminRecipients } from '../lib/notify';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 
@@ -132,11 +133,12 @@ app.post('/bookings/:number/change-request', async (c) => {
       ...changeRequestReceivedEmail({ customerName: customer.contactName || 'お客様', bookingNumber: number, spaceName, type, message, proposedDays: proposed ?? undefined }),
     }),
   );
-  if (c.env.MAIL_ADMIN) {
+  const crAdmins = await adminRecipients(c.env, g.space_id);
+  if (crAdmins.length) {
     const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
     c.executionCtx.waitUntil(
       sendEmail(c.env, {
-        to: c.env.MAIL_ADMIN,
+        to: crAdmins,
         ...adminChangeRequestEmail({
           bookingNumber: number,
           spaceName,

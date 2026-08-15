@@ -21,7 +21,11 @@ import {
   getBookingsForUnpaidCustomerReminder,
   getGroupDays,
   markGroupEmailFlag,
+  getSystemSettings,
+  getBookingsForPointAward,
+  awardBookingPoints,
 } from './db/repository';
+import { pointsForAmount } from './lib/points';
 import {
   unpaidAlertEmail,
   sendEmail,
@@ -233,6 +237,22 @@ async function runThanks(env: AppBindings['Bindings']): Promise<void> {
   await markGroupEmailFlag(env.DB, 'thanks_sent_at', sent, nowJST());
 }
 
+/** 定期処理：利用完了ポイントの付与（#70）。利用日翌日以降・確定・入金済み・会員に 1%（既定）を付与。 */
+async function runPointAward(env: AppBindings['Bindings']): Promise<void> {
+  const settings = await getSystemSettings(env.DB);
+  const rate = Number(settings.get('point_rate') ?? '1');
+  if (!(rate > 0)) return; // 還元率0なら付与しない
+  const cutoff = addDaysJST(todayJST(), -1); // 利用日が昨日以前＝利用完了
+  const rows = await getBookingsForPointAward(env.DB, cutoff);
+  let awarded = 0;
+  for (const r of rows) {
+    const pts = pointsForAmount(r.total_amount, rate);
+    await awardBookingPoints(env.DB, r.id, r.customer_id, pts, nowJST());
+    if (pts > 0) awarded++;
+  }
+  console.log(`[points] rate=${rate}% targets=${rows.length} awarded=${awarded}`);
+}
+
 /** 定期メール：顧客向け未入金リマインダー（#50） */
 async function runUnpaidCustomerReminder(env: AppBindings['Bindings']): Promise<void> {
   const cutoff = addDaysJST(todayJST(), -UNPAID_CUSTOMER_REMINDER_DAYS);
@@ -265,6 +285,8 @@ export default {
       ctx.waitUntil(runUseDateReminders(env).catch(() => {}));
       ctx.waitUntil(runThanks(env).catch(() => {}));
       ctx.waitUntil(runUnpaidCustomerReminder(env).catch(() => {}));
+      // 利用完了ポイントの付与（#70）
+      ctx.waitUntil(runPointAward(env).catch(() => {}));
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
       ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
     }

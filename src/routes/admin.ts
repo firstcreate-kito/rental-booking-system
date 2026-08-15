@@ -92,7 +92,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail } from '../lib/email';
-import { notifyPaymentConfirmed } from '../lib/notify';
+import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import {
@@ -623,7 +623,8 @@ app.post('/bookings/:number/cancel', async (c) => {
       const mail = cancellationEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, cancelFee: totalFee });
       c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
     }
-    if (c.env.MAIL_ADMIN) {
+    const admins = await adminRecipients(c.env, g.space_id);
+    if (admins.length) {
       const adminMail = adminCancellationEmail({
         bookingNumber: g.booking_number,
         spaceName: sp?.name ?? '',
@@ -632,7 +633,7 @@ app.post('/bookings/:number/cancel', async (c) => {
         customerPhone: prof?.phone ? String(prof.phone) : undefined,
         cancelFee: totalFee,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...adminMail }));
       // 返金が生じる場合のみ、返金対応要アラートを発信（#63/#64）
       const paidAmount = g.payment_status === 'paid' ? g.total_amount : 0;
       const refundDue = Math.max(0, paidAmount - totalFee);
@@ -652,7 +653,7 @@ app.post('/bookings/:number/cancel', async (c) => {
           paidAmount,
           adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(g.booking_number)}`,
         });
-        c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+        c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...alert }));
       }
     }
   }
@@ -981,9 +982,10 @@ app.post('/bookings/:number/reschedule', async (c) => {
   if (custEmail) {
     c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
   }
-  if (c.env.MAIL_ADMIN) {
+  const rsAdmins = await adminRecipients(c.env, g.space_id);
+  if (rsAdmins.length) {
     const adminMail = adminRescheduleEmail({ ...mailData, customerEmail: custEmail || undefined, customerPhone: cust?.phone ? String(cust.phone) : undefined });
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...adminMail }));
     // 料金変更（差額）が出た本予約のみ、返金/追加請求の対応要アラートを発信（#62/#64）
     if (adjustment && adjustment.type !== 'zero') {
       const alert = adminPaymentActionAlertEmail({
@@ -1001,7 +1003,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
         newTotal,
         adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(number)}`,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...alert }));
     }
   }
 
@@ -1130,6 +1132,8 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       body.paymentMode === 'card_only' || body.paymentMode === 'card_konbini_bank'
         ? body.paymentMode
         : 'card_bank',
+    // スペース別の通知先メール（#72）。空欄なら本部のみに通知。
+    notifyEmail: body.notifyEmail ? String(body.notifyEmail).trim() : null,
   };
   return { input };
 }
@@ -1690,6 +1694,7 @@ app.get('/settings', async (c) => {
   const s = await getSystemSettings(c.env.DB);
   return c.json({
     contactUrl: s.get('contact_url') ?? '',
+    pointRate: Number(s.get('point_rate') ?? '1'), // ポイント還元率(%)（#70）
     issuer: {
       name: s.get('issuer_name') ?? '',
       zip: s.get('issuer_zip') ?? '',
@@ -1719,6 +1724,18 @@ app.put('/settings/issuer', requireRole('owner', 'manager'), async (c) => {
   };
   for (const [k, v] of Object.entries(map)) await setSystemSetting(c.env.DB, k, v);
   return c.json({ ok: true });
+});
+
+/** PUT /api/admin/settings/point-rate ポイント還元率(%)を更新（#70） */
+app.put('/settings/point-rate', requireRole('owner', 'manager'), async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { rate?: unknown };
+  const rate = Number(b.rate);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    return c.json({ error: '還元率は0〜100の数値で入力してください' }, 400);
+  }
+  // 小数第1位まで許容（例 1.5%）。文字列で保存。
+  await setSystemSetting(c.env.DB, 'point_rate', String(Math.round(rate * 10) / 10));
+  return c.json({ ok: true, rate: Math.round(rate * 10) / 10 });
 });
 
 /** GET /api/admin/documents 発行済み書類の一覧（#41） */

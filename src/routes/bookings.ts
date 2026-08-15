@@ -35,6 +35,7 @@ import {
   type SpaceRow,
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
+import { adminRecipients } from '../lib/notify';
 import { getOptionalCustomer } from '../middleware/auth';
 import type { PrimaryDiscount } from '../lib/discounts';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
@@ -680,9 +681,10 @@ app.post('/', async (c) => {
   if (!paymentFirst) {
     const confirm = bookingConfirmationEmail(emailData);
     c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
-    if (c.env.MAIL_ADMIN) {
+    const admins = await adminRecipients(c.env, space.id);
+    if (admins.length) {
       const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...adminMail }));
     }
   }
 
@@ -1001,7 +1003,8 @@ app.post('/:number/cancel', async (c) => {
       const mail = cancellationEmail({ bookingNumber: number, spaceName: sp?.name ?? '', customerName: custName, cancelFee: totalFee });
       c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
     }
-    if (c.env.MAIL_ADMIN) {
+    const admins = await adminRecipients(c.env, g.space_id);
+    if (admins.length) {
       const adminMail = adminCancellationEmail({
         bookingNumber: number,
         spaceName: sp?.name ?? '',
@@ -1010,7 +1013,7 @@ app.post('/:number/cancel', async (c) => {
         customerPhone: prof?.phone ? String(prof.phone) : undefined,
         cancelFee: totalFee,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...adminMail }));
       // 返金が生じる場合のみ、返金対応要アラートを発信（#63/#64）
       const paidAmount = g.payment_status === 'paid' ? g.total_amount : 0;
       const refundDue = Math.max(0, paidAmount - totalFee);
@@ -1030,7 +1033,7 @@ app.post('/:number/cancel', async (c) => {
           paidAmount,
           adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(number)}`,
         });
-        c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+        c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...alert }));
       }
     }
   }
@@ -1260,9 +1263,10 @@ app.post('/:number/reschedule', async (c) => {
   if (custEmail) {
     c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
   }
-  if (c.env.MAIL_ADMIN) {
+  const rsAdmins = await adminRecipients(c.env, space.id);
+  if (rsAdmins.length) {
     const adminMail = adminRescheduleEmail({ ...mailData, customerEmail: custEmail || undefined, customerPhone: cust?.phone ? String(cust.phone) : undefined });
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...adminMail }));
     // 料金変更（差額）が出た場合のみ、返金/追加請求の対応要アラートを発信（#62/#64）
     if (adjustment.type !== 'zero') {
       const alert = adminPaymentActionAlertEmail({
@@ -1280,7 +1284,7 @@ app.post('/:number/reschedule', async (c) => {
         newTotal,
         adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(number)}`,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...alert }));
     }
   }
 

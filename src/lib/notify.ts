@@ -14,6 +14,30 @@ import {
   adminBookingFailedEmail,
 } from './email';
 
+/**
+ * 管理者通知の宛先一覧（#72）。本部（MAIL_ADMIN）＋スペース別の通知先メールを重複なく返す。
+ * spaceId 未指定/該当なしなら本部のみ。複数人への配信はメールサーバーの転送で行う想定。
+ */
+export async function adminRecipients(env: Env, spaceId?: string | null): Promise<string[]> {
+  const set = new Set<string>();
+  if (env.MAIL_ADMIN) set.add(env.MAIL_ADMIN.trim());
+  if (spaceId) {
+    const row = await env.DB.prepare('SELECT notify_email FROM spaces WHERE id = ?')
+      .bind(spaceId)
+      .first<{ notify_email: string | null }>();
+    if (row?.notify_email) set.add(String(row.notify_email).trim());
+  }
+  return [...set].filter(Boolean);
+}
+
+/** グループのスペースIDを取得（通知先の解決用）#72 */
+async function groupSpaceId(env: Env, groupId: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT space_id FROM booking_groups WHERE id = ?')
+    .bind(groupId)
+    .first<{ space_id: string | null }>();
+  return row?.space_id ?? null;
+}
+
 /** グループの顧客連絡先（メール・氏名・電話）を取得 */
 async function customerContact(env: Env, groupId: string): Promise<{ email: string; name: string; phone?: string }> {
   const row = await env.DB.prepare('SELECT customer_id FROM booking_groups WHERE id = ?')
@@ -74,9 +98,10 @@ export async function notifyPaymentConfirmed(
       }),
     });
   }
-  if (env.MAIL_ADMIN) {
+  const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
+  if (admins.length) {
     await sendEmail(env, {
-      to: env.MAIL_ADMIN,
+      to: admins,
       ...adminPaymentConfirmedEmail({
         bookingNumber: summary.bookingNumber,
         spaceName: summary.spaceName,
@@ -110,8 +135,9 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     isInvoice: false,
   };
   if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data) });
-  if (env.MAIL_ADMIN) {
-    await sendEmail(env, { to: env.MAIL_ADMIN, ...adminNewBookingEmail({ ...data, customerEmail: email || '', customerPhone: phone }) });
+  const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
+  if (admins.length) {
+    await sendEmail(env, { to: admins, ...adminNewBookingEmail({ ...data, customerEmail: email || '', customerPhone: phone }) });
   }
 }
 
@@ -136,9 +162,10 @@ export async function notifyBookingFailed(env: Env, groupId: string, refundOk: b
       }),
     });
   }
-  if (env.MAIL_ADMIN) {
+  const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
+  if (admins.length) {
     await sendEmail(env, {
-      to: env.MAIL_ADMIN,
+      to: admins,
       ...adminBookingFailedEmail({
         bookingNumber: summary.bookingNumber,
         spaceName: summary.spaceName,

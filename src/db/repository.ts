@@ -31,6 +31,7 @@ export interface SpaceRow {
   allow_paypal: number;
   allow_invoice: number;
   payment_mode: string; // 'card_only' | 'card_bank' | 'card_konbini_bank'（#67）
+  notify_email: string | null; // スペース別の管理者通知先（#72）
 }
 
 /** 支払いモード（#67） */
@@ -60,6 +61,8 @@ export interface SpaceInput {
   isActive: boolean;
   /** 支払いモード（#67）。カード＋PayPalは全モード共通、振込/コンビニの有無で分岐 */
   paymentMode: PaymentMode;
+  /** スペース別の管理者通知先メール（#72）。空なら本部のみ。複数配信はメール転送で対応 */
+  notifyEmail?: string | null;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -103,6 +106,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     1,
     s.paymentMode === 'card_only' ? 0 : 1,
     s.paymentMode,
+    s.notifyEmail ?? null,
   ];
 }
 
@@ -113,8 +117,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
        (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
-        allow_card, allow_paypal, allow_invoice, payment_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        allow_card, allow_paypal, allow_invoice, payment_mode, notify_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -127,7 +131,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
-        allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?
+        allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -888,6 +892,58 @@ export async function adjustPoints(
       .bind(crypto.randomUUID(), customerId, logType, params.amount, balanceAfter, params.description, createdBy, now),
   ]);
   return { balanceAfter };
+}
+
+/**
+ * ポイント付与（獲得）対象の予約を取得（#70）。
+ * 利用完了（利用日の最大が cutoffDate 以前）・確定・入金済み・会員（登録済み）・未付与・有料 が条件。
+ */
+export async function getBookingsForPointAward(
+  db: D1Database,
+  cutoffDate: string,
+): Promise<Array<{ id: string; customer_id: string; total_amount: number }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id, bg.customer_id, bg.total_amount
+       FROM booking_groups bg JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.status = 'confirmed' AND bg.payment_status = 'paid'
+         AND c.is_registered = 1
+         AND bg.points_awarded_at IS NULL AND bg.total_amount > 0
+         AND (SELECT MAX(date) FROM bookings WHERE group_id = bg.id) <= ?`,
+    )
+    .bind(cutoffDate)
+    .all<{ id: string; customer_id: string; total_amount: number }>();
+  return results ?? [];
+}
+
+/**
+ * 予約1件分のポイントを付与し、付与済みに印を付ける（#70・冪等）。
+ * points が 0 でも points_awarded_at を記録して再走査を防ぐ（残高・ログは変更しない）。
+ */
+export async function awardBookingPoints(
+  db: D1Database,
+  groupId: string,
+  customerId: string,
+  points: number,
+  now: string,
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = [];
+  if (points > 0) {
+    const balanceAfter = (await getPointBalance(db, customerId)) + points;
+    stmts.push(db.prepare('UPDATE customers SET point_balance = ? WHERE id = ?').bind(balanceAfter, customerId));
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO point_log (id, customer_id, type, amount, balance_after, group_id, description, created_at)
+           VALUES (?, ?, 'earn', ?, ?, ?, '利用完了によるポイント付与', ?)`,
+        )
+        .bind(crypto.randomUUID(), customerId, points, balanceAfter, groupId, now),
+    );
+  }
+  stmts.push(
+    db.prepare('UPDATE booking_groups SET points_awarded_at = ? WHERE id = ? AND points_awarded_at IS NULL').bind(now, groupId),
+  );
+  await db.batch(stmts);
 }
 
 // --- 管理者 ---

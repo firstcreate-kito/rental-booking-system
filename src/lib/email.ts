@@ -14,7 +14,8 @@ export interface EmailEnv {
 }
 
 export interface EmailMessage {
-  to: string;
+  /** 宛先。複数指定可（スペース別通知先＋本部など）#72 */
+  to: string | string[];
   subject: string;
   html: string;
   text: string;
@@ -31,7 +32,9 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) {
     return { ok: false, skipped: true };
   }
-  if (!msg.to) return { ok: false, error: 'no recipient' };
+  // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）
+  const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
+  if (recipients.length === 0) return { ok: false, error: 'no recipient' };
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -41,7 +44,7 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
       },
       body: JSON.stringify({
         from: env.MAIL_FROM,
-        to: [msg.to],
+        to: recipients,
         subject: msg.subject,
         html: msg.html,
         text: msg.text,

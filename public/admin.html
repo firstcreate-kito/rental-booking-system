@@ -276,6 +276,10 @@
             <button type="button" class="btn ghost sm" onclick="testCalendar()">接続テスト</button>
           </div>
         </div>
+        <div><label>通知先メールアドレス（任意・提携店など）</label>
+          <input id="sp_notify" type="email" placeholder="例）partnerA@space-albe.com" />
+          <div class="muted" style="font-size:12px;margin-top:2px">このスペースの予約・変更・キャンセル通知を、本部（rental@space-albe.com）に加えてこのアドレスにも送ります。複数人へ配りたい場合は、このアドレス宛の転送設定をメールサーバー側で行ってください。空欄なら本部のみに通知します。</div>
+        </div>
         <div class="grid">
           <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
@@ -342,6 +346,16 @@
         <button class="btn sm" onclick="saveContactUrl()">保存</button>
       </div>
       <div class="msg" id="cfgMsg"></div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
+
+      <h2>ポイント還元率</h2>
+      <div class="muted">ご利用金額に対して会員に付与するポイントの割合です。ポイントは1ポイント=1円で次回以降のご予約に利用できます。付与は利用完了（利用日の翌日）に自動で行われます。0にすると付与を停止します。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
+        <div style="max-width:160px"><label>還元率（％）</label><input id="cfg_point_rate" type="number" min="0" max="100" step="0.1" placeholder="1" /></div>
+        <button class="btn sm" onclick="savePointRate()">保存</button>
+      </div>
+      <div class="msg" id="ptRateMsg"></div>
 
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
 
@@ -1036,7 +1050,7 @@ function fillSpaceForm(s) {
   document.getElementById('sp_editing').value = s ? s.id : '';
   document.getElementById('spFormTitle').textContent = s ? ('スペースを編集：' + s.name) : 'スペースを追加';
   const g = (id, v) => document.getElementById(id).value = (v ?? '');
-  g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
+  g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_notify', s?.notify_email); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
   g('sp_drh', s?.day_rate_hours); g('sp_open', s?.open_time || '08:00'); g('sp_close', s?.close_time || '22:00');
   g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
   g('sp_sort', s?.sort_order ?? 0);
@@ -1073,7 +1087,7 @@ async function saveSpace() {
   const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
   const editing = v('sp_editing');
   const payload = {
-    name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, billingType: document.getElementById('sp_billing').value,
+    name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, notifyEmail: v('sp_notify') || null, billingType: document.getElementById('sp_billing').value,
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
     openTime: v('sp_open'), closeTime: v('sp_close'), minHours: Number(v('sp_min') || 1),
     bookingHorizonDays: Number(v('sp_horizon') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),
@@ -1582,6 +1596,16 @@ async function loadCalendarMgmt() {
 async function loadContactUrl() {
   const { body } = await api('/api/admin/settings');
   document.getElementById('cfg_contact_url').value = body.contactUrl || '';
+  const pr = document.getElementById('cfg_point_rate');
+  if (pr) pr.value = (body.pointRate != null ? body.pointRate : 1);
+}
+async function savePointRate() {
+  const msg = document.getElementById('ptRateMsg');
+  const rate = Number(document.getElementById('cfg_point_rate').value);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) { msg.className='msg bad'; msg.textContent='還元率は0〜100で入力してください'; return; }
+  const { ok, body } = await api('/api/admin/settings/point-rate', jsonBody({ rate }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? ('保存しました（' + body.rate + '%）') : (body.error || '保存に失敗しました');
 }
 // 事業者情報タブ（請求書・領収書の発行元）
 async function loadIssuer() {

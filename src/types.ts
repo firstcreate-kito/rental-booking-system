@@ -31,6 +31,11 @@ export interface Env {
   PAYPAL_MODE?: string;
   /** 決済完了後の戻り先ベースURL（未設定ならリクエスト元 origin を使用） */
   PUBLIC_BASE_URL?: string;
+  /**
+   * データ保持ポリシー（#57）: 'true' のときのみ、7年経過した顧客の個人情報を
+   * 実際に匿名化する。未設定・それ以外は「ドライラン」（対象件数のログのみ・変更しない）。
+   */
+  ANONYMIZE_ENABLED?: string;
 }
 
 /** 認証済み顧客（コンテキストに載る最小情報） */

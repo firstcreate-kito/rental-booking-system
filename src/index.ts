@@ -31,6 +31,7 @@ import {
   type OverdueBooking,
 } from './lib/email';
 import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
+import { runDataRetention } from './lib/retention';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -264,6 +265,8 @@ export default {
       ctx.waitUntil(runUseDateReminders(env).catch(() => {}));
       ctx.waitUntil(runThanks(env).catch(() => {}));
       ctx.waitUntil(runUnpaidCustomerReminder(env).catch(() => {}));
+      // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
+      ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
     }
   },
 };

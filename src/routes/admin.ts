@@ -720,6 +720,31 @@ app.get('/bookings/:number', async (c) => {
 });
 
 /**
+ * PUT /api/admin/bookings/:number/payment-status 支払いステータスの手動変更（#42運用）
+ * body: { status: 'paid' | 'unpaid' | 'invoice' }
+ * 社員・身内利用など、銀行振込で予約だけ確保して入金状態を任意に切り替える運用向け。
+ * paid にした場合は領収書を自動発行（冪等）して URL を返す。
+ */
+app.put('/bookings/:number/payment-status', async (c) => {
+  const number = c.req.param('number');
+  const b = (await c.req.json().catch(() => ({}))) as { status?: unknown };
+  const status = String(b.status ?? '').trim();
+  if (!['paid', 'unpaid', 'invoice'].includes(status)) {
+    return c.json({ error: '支払いステータスが不正です' }, 400);
+  }
+  const g = await getBookingGroupByNumber(c.env.DB, number);
+  if (!g) return c.json({ error: '予約が見つかりません' }, 404);
+  await c.env.DB.prepare('UPDATE booking_groups SET payment_status = ? WHERE id = ?').bind(status, g.id).run();
+  let receiptUrl: string | null = null;
+  if (status === 'paid') {
+    // 入金済みにしたら領収書を発行（既に発行済みならそのURLを返す）
+    const r = await createDocumentForGroup(c.env.DB, g.id, 'receipt');
+    if (r) receiptUrl = '/api/documents/' + r.token;
+  }
+  return c.json({ ok: true, paymentStatus: status, receiptUrl });
+});
+
+/**
  * POST /api/admin/bookings/:number/reschedule 日時変更（管理者）
  * body: { items: [{date,startTime,endTime,isResidence?}] }
  * 管理者は受付期間（締切/受付開始）の制約を無視できる。休業日・競合は不可。

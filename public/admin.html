@@ -142,6 +142,19 @@
         </div>
         <div style="font-weight:600;font-size:13px;margin:12px 0 4px">オプション</div>
         <div id="rsOptions" class="muted" style="font-size:13px">—</div>
+        <div id="rsPayWrap" class="hidden" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">支払いステータス（任意で変更）</div>
+          <div class="row" style="gap:8px;align-items:center">
+            <select id="rs_paystatus" style="flex:1;padding:7px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+              <option value="unpaid">未入金</option>
+              <option value="paid">入金済み</option>
+              <option value="invoice">請求書払い（自社口座）</option>
+            </select>
+            <button class="btn sm" onclick="updatePayStatus()">ステータス更新</button>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:4px">※「入金済み」にすると領収書を発行し、未入金アラートの対象から外れます。社員・身内の利用など、振込予約だけ確保して手動で確定する際にご利用ください。</div>
+          <div class="msg" id="rsPayMsg" style="font-size:12px"></div>
+        </div>
         <div class="muted" style="font-size:12px;margin-top:8px">※管理者操作のため受付締切・受付開始日の制約は無視されます。休業日・他予約・Googleカレンダーとの重複・オプション在庫はチェックされます。</div>
         <div class="msg" id="rsMsg"></div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
@@ -1627,6 +1640,15 @@ async function openReschedule(number) {
   const payTxt = payLbl ? ('／' + payLbl + ((body.paymentMethod==='invoice'||body.paymentMethod==='bank_transfer') && body.invoiceName ? '（'+body.invoiceName+'）' : '')) : '';
   document.getElementById('rsInfo').textContent =
     body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）' + payTxt;
+  // 支払いステータス変更（本予約かつ金額>0のとき表示）
+  const payWrap = document.getElementById('rsPayWrap');
+  if (body.status === 'confirmed' && body.totalAmount > 0 && body.paymentStatus) {
+    document.getElementById('rs_paystatus').value = body.paymentStatus;
+    document.getElementById('rsPayMsg').textContent = '';
+    payWrap.classList.remove('hidden');
+  } else {
+    payWrap.classList.add('hidden');
+  }
   const tnote = rsTicketPaid
     ? '<div style="margin-bottom:8px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px">🎫 <strong>チケット払いの予約です。</strong>利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合はキャンセル→取り直しをお願いします。</div>'
     : '';
@@ -1661,6 +1683,20 @@ async function openReschedule(number) {
 function closeReschedule() {
   document.getElementById('rsOverlay').style.display = 'none';
   rsNumber = null;
+}
+// 支払いステータスの手動変更（社員・身内利用など）#42
+async function updatePayStatus() {
+  if (!rsNumber) return;
+  const status = document.getElementById('rs_paystatus').value;
+  const label = { unpaid: '未入金', paid: '入金済み', invoice: '請求書払い' }[status] || status;
+  const msg = document.getElementById('rsPayMsg');
+  if (!confirm('予約 ' + rsNumber + ' の支払いステータスを「' + label + '」に変更します。よろしいですか？' + (status === 'paid' ? '\n（領収書が発行されます）' : ''))) return;
+  msg.className = 'msg'; msg.textContent = '更新中…';
+  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/payment-status', jsonBody({ status }, 'PUT'));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '更新に失敗しました'; return; }
+  msg.className = 'msg ok';
+  msg.textContent = '「' + label + '」に更新しました' + (body.receiptUrl ? '（領収書を発行）' : '');
+  loadBookings(); // 一覧のバッジを更新
 }
 async function submitReschedule() {
   if (!rsNumber) return;

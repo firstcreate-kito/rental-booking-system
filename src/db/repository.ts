@@ -946,6 +946,7 @@ export async function listBookingsForAdmin(
     .prepare(
       `SELECT b.date, b.start_time, b.end_time, b.status, b.price, b.billing_mode,
               bg.booking_number, bg.event_name, bg.source, s.name AS space_name, b.space_id,
+              bg.payment_method, bg.payment_status,
               c.contact_name, c.company_name
        FROM bookings b
        JOIN booking_groups bg ON bg.id = b.group_id
@@ -1081,6 +1082,7 @@ export interface BookingGroupRow {
   created_at: string;
   payment_method: string | null;
   invoice_name: string | null;
+  payment_status: string;
 }
 
 export interface BookingRow {
@@ -1647,6 +1649,43 @@ export async function fulfillTicketPurchase(
     .bind(ticketId, now, sessionId)
     .run();
   return { ok: true, ticketId };
+}
+
+// ---------------------------------------------------------------------------
+// 予約のオンライン決済（Stripe/PayPal）#35
+// ---------------------------------------------------------------------------
+export async function createBookingPayment(
+  db: D1Database,
+  p: { id: string; groupId: string; provider: string; amount: number; sessionId: string },
+  now: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO booking_payments (id, group_id, provider, stripe_session_id, amount, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(p.id, p.groupId, p.provider, p.sessionId, p.amount, now)
+    .run();
+}
+
+export async function getBookingPaymentBySession(db: D1Database, sessionId: string) {
+  return db.prepare('SELECT * FROM booking_payments WHERE stripe_session_id = ?').bind(sessionId).first<{
+    id: string;
+    group_id: string;
+    status: string;
+  }>();
+}
+
+/** 決済完了 Webhook を受けて予約を入金済みにする（冪等） */
+export async function markBookingPaymentPaid(db: D1Database, sessionId: string, now: string): Promise<{ ok: boolean; groupId?: string; already?: boolean }> {
+  const pay = await getBookingPaymentBySession(db, sessionId);
+  if (!pay) return { ok: false };
+  if (pay.status === 'paid') return { ok: true, already: true, groupId: pay.group_id };
+  await db.batch([
+    db.prepare("UPDATE booking_payments SET status = 'paid', paid_at = ? WHERE stripe_session_id = ?").bind(now, sessionId),
+    db.prepare("UPDATE booking_groups SET payment_status = 'paid' WHERE id = ?").bind(pay.group_id),
+  ]);
+  return { ok: true, groupId: pay.group_id };
 }
 
 /** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */

@@ -863,6 +863,8 @@ async function submitBooking() {
     body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
+  // カード決済（Stripe）の場合は決済ページへ移動
+  if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   document.getElementById('doneTotal').textContent = yen(body.total);
   const payLabel = { stripe: 'クレジットカード（Stripe）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';

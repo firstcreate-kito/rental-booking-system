@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
-import { fulfillTicketPurchase } from '../db/repository';
+import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid } from '../db/repository';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -27,8 +27,15 @@ app.post('/stripe', async (c) => {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as { id?: string; payment_status?: string };
-    // payment_status が paid のときのみ発行（後払い等は対象外）
+    // payment_status が paid のときのみ処理（後払い等は対象外）
     if (session.id && session.payment_status === 'paid') {
+      // 予約のカード決済か、チケット購入かをセッションIDで判別（#35）
+      const bookingPay = await getBookingPaymentBySession(c.env.DB, session.id);
+      if (bookingPay) {
+        const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST());
+        if (!r.ok) return c.json({ received: true, paid: false }, 500);
+        return c.json({ received: true, paid: true, groupId: r.groupId });
+      }
       const result = await fulfillTicketPurchase(c.env.DB, session.id, nowJST(), todayJST(), addDaysJST);
       if (!result.ok) {
         // 発行失敗（商品欠落など）は 500 を返して Stripe に再送させる

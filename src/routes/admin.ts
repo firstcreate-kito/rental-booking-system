@@ -692,6 +692,7 @@ app.get('/bookings/:number', async (c) => {
     spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
     paymentMethod: g.payment_method,
     invoiceName: g.invoice_name,
+    paymentStatus: g.payment_status,
     ticketPaid,
     answers, // 追加質問の回答（#22）
     items: rows.map((r) => ({

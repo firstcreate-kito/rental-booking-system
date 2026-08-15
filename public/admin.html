@@ -828,8 +828,13 @@ async function loadBookings() {
       actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
     }
+    const payBadge = (b.status === 'confirmed' && b.payment_status === 'unpaid')
+      ? ' <span class="pill cancelled" title="カード/PayPal未入金">未入金</span>'
+      : (b.payment_method === 'invoice' && b.status === 'confirmed')
+      ? ' <span class="pill" style="background:#e0e7ff;color:#3730a3">請求書</span>'
+      : '';
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
-      '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + b.booking_number +
+      '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + '</td><td>' + b.booking_number +
       '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
   }).join('');
 }

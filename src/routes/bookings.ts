@@ -18,6 +18,8 @@ import {
   getTicketSpaceIds,
   getTicketUsageForGroup,
   buildTicketRescheduleStmts,
+  createBookingPayment,
+  getBookingPaymentBySession,
   getCancelPolicies,
   getOptionsByIds,
   isOptionAvailableForSpace,
@@ -55,6 +57,7 @@ import {
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { stripeConfigured, createCheckoutSession } from '../lib/stripe';
 
 const app = new Hono<AppBindings>();
 
@@ -419,6 +422,9 @@ app.post('/', async (c) => {
     if (ans) answerRows.push({ questionId: q.id, label: q.label, answer: ans });
   }
 
+  // 支払い状態（#35）: 請求書=invoice、0円(全額チケット等)=paid、カード/PayPal=unpaid（決済後にpaid）
+  const paymentStatus = paymentMethod === 'invoice' ? 'invoice' : totals.total <= 0 ? 'paid' : 'unpaid';
+
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
@@ -441,10 +447,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -619,6 +625,29 @@ app.post('/', async (c) => {
     c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
   }
 
+  // カード決済（Stripe）: 予約枠を確保できたので、決済ページを作成して誘導（#35）
+  let checkoutUrl: string | null = null;
+  if (paymentMethod === 'stripe' && totals.total > 0 && stripeConfigured(c.env)) {
+    const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+    const payId = crypto.randomUUID();
+    try {
+      const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
+        productName: `ご予約 ${bookingNumber}（${space.name}）`,
+        amountJpy: totals.total,
+        successUrl: `${origin}/pay-complete.html?type=booking&session={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
+        customerEmail: email || undefined,
+        clientReferenceId: payId,
+        metadata: { kind: 'booking', groupId, bookingNumber },
+      });
+      await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
+      checkoutUrl = session.url;
+    } catch {
+      // 決済ページ作成に失敗しても予約は確保済み（未入金）。案内はフロント側で行う。
+      checkoutUrl = null;
+    }
+  }
+
   return c.json(
     {
       bookingNumber,
@@ -633,6 +662,8 @@ app.post('/', async (c) => {
       pointsEarned: totals.pointsEarned,
       isMember: !!member,
       paymentMethod,
+      paymentStatus,
+      checkoutUrl,
       invoiceName,
       days: group.days.map((d) => ({
         date: d.date,
@@ -646,6 +677,15 @@ app.post('/', async (c) => {
     },
     201,
   );
+});
+
+/** GET /api/bookings/payment-status?session=... 予約のカード決済 反映状況（決済完了ページ用）#35 */
+app.get('/payment-status', async (c) => {
+  const sessionId = c.req.query('session');
+  if (!sessionId) return c.json({ status: 'unknown' });
+  const pay = await getBookingPaymentBySession(c.env.DB, sessionId);
+  if (!pay) return c.json({ status: 'unknown' });
+  return c.json({ status: pay.status, groupId: pay.group_id });
 });
 
 /**

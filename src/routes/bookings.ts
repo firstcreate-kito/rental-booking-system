@@ -260,6 +260,11 @@ app.post('/', async (c) => {
   if (!allowedMethods[paymentMethod]) {
     return c.json({ error: 'この施設では選択されたお支払い方法はご利用いただけません' }, 400);
   }
+  // ゲスト（未登録＝非会員）はクレジットカード即時決済のみ（#55）。
+  // 振込・請求書は入金確認や督促に本人特定が必要なため会員限定とする。
+  if (!member && paymentMethod !== 'stripe') {
+    return c.json({ error: '会員登録なしのご予約は、クレジットカード決済のみご利用いただけます。銀行振込をご希望の場合は会員登録をお願いします。', code: 'GUEST_CARD_ONLY' }, 400);
+  }
   let invoiceName: string | null = null;
   if (paymentMethod === 'invoice' || paymentMethod === 'bank_transfer') {
     // 請求書名（宛名）は任意。未入力の場合は申込者の個人名を宛名に用いる（領収書生成時にフォールバック）。#41

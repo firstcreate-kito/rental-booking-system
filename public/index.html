@@ -143,6 +143,28 @@
   <section id="view-customer" class="card hidden">
     <h2>お客様情報</h2>
 
+    <!-- 予約方法の選択ゲート（未ログイン時のみ表示）#55 -->
+    <div id="custGate">
+      <p class="muted" style="margin:0 0 12px">ご予約方法をお選びください。</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn" style="padding:14px;text-align:left" onclick="chooseGuest()">
+          会員登録せずに予約する
+          <div style="font-size:12px;opacity:.9;margin-top:2px">お手軽にご予約 ／ <strong>クレジットカード決済のみ</strong></div>
+        </button>
+        <button class="btn ghost" style="padding:14px;text-align:left" onclick="chooseRegister()">
+          会員登録して予約する
+          <div style="font-size:12px;margin-top:2px">クーポン・ポイントが使えます ／ 登録後そのままご予約を続けられます</div>
+        </button>
+      </div>
+      <div class="muted" style="margin-top:12px;font-size:13px">すでに会員の方は <a href="javascript:void(0)" onclick="chooseLogin()">こちらからログイン</a></div>
+    </div>
+
+    <div id="custForm" class="hidden">
+    <!-- ゲスト（カード決済のみ）の注意書き -->
+    <div id="guestNote" class="hidden" style="background:#fff8e6;border:1px solid #f0c36d;color:#a15c00;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+      会員登録なしのご予約は、<strong>クレジットカード決済のみ</strong>のご利用となります。銀行振込をご希望の場合は、前の画面から「会員登録して予約する」をお選びください。
+    </div>
+
     <!-- 会員ログイン（クーポン・ポイント利用） -->
     <div class="card" id="loginBox" style="background:#f0f6ff;border-color:#c7ddff">
       <div id="loginForm">
@@ -253,6 +275,7 @@
       <button class="btn" id="submitBtn" onclick="submitBooking()">この内容で予約する</button>
     </div>
     <div id="submitMsg" class="notice hidden" style="margin-top:12px"></div>
+    </div><!-- /#custForm -->
   </section>
 
   <!-- 完了 -->
@@ -340,6 +363,10 @@ async function loadSpaces() {
       '<div class="rate">' + rate + '　営業 ' + s.openTime + '–' + s.closeTime + '</div>' +
       '<div class="rate">最低利用 ' + s.minHours + '時間' + (s.dayRateHours ? '／1日料金あり' : '') + '</div></div>';
   }).join('');
+  // 会員登録から復帰（?resume=1）：保存した予約途中の状態を復元して続きから（#55）
+  if (new URLSearchParams(location.search).get('resume') === '1') {
+    if (await resumeBookingFromRegister()) return;
+  }
   // 部屋ごとの固有URL: ?space=<id> があればその部屋へ直接入る（公式サイト埋め込み用）
   const wanted = new URLSearchParams(location.search).get('space');
   if (wanted) {
@@ -347,6 +374,54 @@ async function loadSpaces() {
     if (match) { S.deepLinked = true; selectSpace(match.id); return; }
   }
   show('view-spaces');
+}
+
+// 会員登録完了→「予約を続ける」で戻ってきたときの復元（#55）
+async function resumeBookingFromRegister() {
+  let state = null, token = null;
+  try {
+    state = JSON.parse(localStorage.getItem('albe_resume_booking') || 'null');
+    token = localStorage.getItem('albe_resume_token');
+  } catch (e) {}
+  localStorage.removeItem('albe_resume_booking');
+  localStorage.removeItem('albe_resume_token');
+  history.replaceState(null, '', location.pathname); // ?resume=1 をURLから除去
+  if (!state || !state.spaceId) return false;
+  const sp = S.spaces.find(s => s.id === state.spaceId);
+  if (!sp) return false;
+  // 登録直後のトークンでログイン状態を復元
+  if (token) {
+    S.token = token;
+    const pr = await api('/api/mypage/profile', { headers: authHeaders() });
+    if (pr.ok && pr.body.profile) {
+      const p = pr.body.profile;
+      S.member = { id: p.id, email: p.email, contactName: p.contact_name };
+      document.getElementById('memberName').textContent = p.contact_name || p.email;
+      document.getElementById('ptBal').textContent = p.point_balance ?? 0;
+      const nm = (p.contact_name || '').trim();
+      if (nm) { const parts = nm.split(/[\s　]+/); document.getElementById('f_lastName').value = parts[0] || ''; document.getElementById('f_firstName').value = parts.slice(1).join(' '); }
+      document.getElementById('f_email').value = p.email || '';
+      document.getElementById('f_phone').value = p.phone || '';
+      document.getElementById('loginForm').classList.add('hidden');
+      document.getElementById('memberBox').classList.remove('hidden');
+    }
+  }
+  // スペース・カート・オプション選択を復元
+  S.space = sp;
+  S.cart = Array.isArray(state.cart) ? state.cart : [];
+  S.optQty = state.optQty || {};
+  document.getElementById('calSpaceName').textContent = sp.name;
+  // オプション一覧を読み込んで料金サマリーを正しく表示
+  try {
+    if (S.cart.length) {
+      const { body } = await api('/api/spaces/' + sp.id + '/options?date=' + S.cart[0].date);
+      S.options = body.options || [];
+    }
+  } catch (e) {}
+  if (!S.cart.length) { show('view-spaces'); return true; } // 万一カートが空なら通常フローへ
+  await loadUsableTickets();
+  goCustomer(); // 会員モードでお客様情報画面へ（続きから）
+  return true;
 }
 
 function backToSpaces() { S.space = null; S.cart = []; show('view-spaces'); setStep(0); }
@@ -691,10 +766,45 @@ async function goCustomer() {
   // 前回の送信メッセージが残らないよう、画面を開くたびに必ずクリア
   const sm = document.getElementById('submitMsg');
   sm.textContent = ''; sm.classList.add('hidden');
+  // 予約方法ゲートの出し分け：会員ログイン済み or 既に選択済みなら直接フォーム、未選択ならゲート
+  if (S.member) { applyCustMode('member'); }
+  else if (S.custMode) { applyCustMode(S.custMode); }
+  else { showCustGate(); }
   await renderQuestions();
   await loadUsableTickets();
   renderPayment();
   await recomputeSummary();
+}
+function showCustGate() {
+  document.getElementById('custGate').classList.remove('hidden');
+  document.getElementById('custForm').classList.add('hidden');
+}
+// 予約方法を確定してフォームを表示（guest / member）
+function applyCustMode(mode) {
+  S.custMode = mode;
+  document.getElementById('custGate').classList.add('hidden');
+  document.getElementById('custForm').classList.remove('hidden');
+  const isGuest = mode === 'guest';
+  // ゲスト：ログイン枠を隠す（クーポン等は使えない）／会員導線：ログイン枠を表示
+  document.getElementById('loginBox').classList.toggle('hidden', isGuest);
+  document.getElementById('guestNote').classList.toggle('hidden', !isGuest);
+}
+function chooseGuest() { applyCustMode('guest'); renderPayment(); recomputeSummary(); }
+function chooseLogin() {
+  applyCustMode('member');
+  // ログインフォームを確実に表示（未ログイン状態）
+  document.getElementById('loginForm').classList.remove('hidden');
+  document.getElementById('memberBox').classList.add('hidden');
+  renderPayment();
+}
+// 会員登録して予約：予約途中の状態を保存し、登録ページへ（登録後に復帰できる）
+function chooseRegister() {
+  try {
+    localStorage.setItem('albe_resume_booking', JSON.stringify({
+      spaceId: S.space && S.space.id, cart: S.cart, optQty: S.optQty, ts: Date.now(),
+    }));
+  } catch (e) {}
+  location.href = 'mypage.html?from=booking';
 }
 
 // スペース別の追加質問（#22）を読み込み・表示
@@ -715,6 +825,17 @@ async function renderQuestions() {
 const PAY_INVOICE_DEADLINE_DAYS = 5;
 function renderPayment() {
   const sp = S.space || {};
+  // ゲスト（非会員）はクレジットカード即時決済のみ（#55）。振込・請求書は会員限定。
+  const isGuest = !S.member;
+  if (isGuest) {
+    const cardHtml = sp.allowCard
+      ? '<label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="paymethod" value="stripe" style="width:auto" checked onchange="onPayMethodChange()"> Stripe（各種クレジットカード・Apple Pay・コンビニ払い）</label>'
+      : '<div class="muted">この施設はクレジットカード決済に対応していません。会員登録のうえ、他のお支払い方法をご利用ください。</div>';
+    document.getElementById('payMethods').innerHTML = cardHtml;
+    document.getElementById('invoiceNameWrap').classList.add('hidden');
+    document.getElementById('payNote').textContent = '会員登録なしのご予約は、クレジットカード決済のみのご利用となります。';
+    return;
+  }
   const methods = [];
   if (sp.allowCard) methods.push({ v: 'stripe', label: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）' });
   if (sp.allowPaypal) methods.push({ v: 'paypal', label: 'PayPal' });
@@ -782,6 +903,7 @@ async function memberLogin() {
     if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = pr.body.profile.phone || '';
   }
   await loadUsableTickets();
+  renderPayment(); // 会員になったので振込等も選べるように更新（#55）
   recomputeSummary();
 }
 function memberLogout() {
@@ -791,6 +913,7 @@ function memberLogout() {
   document.getElementById('ticketRow').classList.add('hidden');
   document.getElementById('ticketBuyPrompt').classList.add('hidden');
   clearTicketSel();
+  renderPayment(); // 非会員に戻ったのでカード決済のみに更新（#55）
   recomputeSummary();
 }
 function clearTicketSel() { const t = document.getElementById('d_ticket'); if (t) t.value = ''; }

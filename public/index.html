@@ -692,7 +692,7 @@ function renderPayment() {
     const dis = invoiceTooClose ? ' disabled' : '';
     const grey = invoiceTooClose ? 'color:#9ca3af' : '';
     const checked = methods.length === 0 && !invoiceTooClose ? ' checked' : '';
-    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer" style="width:auto"' + dis + checked + ' onchange="onPayMethodChange()"> 銀行振込（Stripe：各種銀行・ゆうちょ）</label>';
+    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer" style="width:auto"' + dis + checked + ' onchange="onPayMethodChange()"> 銀行振込（Stripe収納代行：各種銀行・ゆうちょ）</label>';
   }
   document.getElementById('payMethods').innerHTML = html ||
     '<div class="muted">この施設のお支払い方法が設定されていません。店舗までお問い合わせください。</div>';
@@ -886,7 +886,7 @@ async function submitBooking() {
   if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
-  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe）', invoice: '請求書払い' }[body.paymentMethod] || '';
+  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' }[body.paymentMethod] || '';
   const dt = (S.cart || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
   let payCell = payLabel || '—';
   if ((body.paymentMethod === 'bank_transfer' || body.paymentMethod === 'invoice') && body.invoiceName) payCell += '（宛名：' + body.invoiceName + '）';

@@ -48,7 +48,7 @@ const token = q.get('token'); // PayPal は承認後 ?token=ORDER_ID を付与�
 const num = q.get('num');
 const $ = id => document.getElementById(id);
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
-const payLabel = m => ({ stripe:'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal:'PayPal', bank_transfer:'銀行振込（Stripe）', invoice:'請求書払い' }[m] || '');
+const payLabel = m => ({ stripe:'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal:'PayPal', bank_transfer:'銀行振込（Stripe収納代行）', invoice:'請求書払い' }[m] || '');
 
 function base(icon, title, msg) {
   $('icon').textContent = icon; $('title').textContent = title; $('msg').textContent = msg;

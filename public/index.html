@@ -76,6 +76,14 @@
   .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 13px; }
   .done { text-align: center; padding: 30px 10px; }
   .done .num { font-size: 24px; font-weight: 700; color: var(--brand); }
+  .done .done-icon { font-size: 48px; line-height: 1; }
+  .done .num-label { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .done-details { text-align: left; border: 1px solid var(--line); border-radius: 10px; margin: 16px auto 4px; max-width: 460px; overflow: hidden; }
+  .done-details .row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; font-size: 14px; border-top: 1px solid var(--line); }
+  .done-details .row:first-child { border-top: 0; }
+  .done-details .k { color: var(--muted); flex: 0 0 auto; }
+  .done-details .v { text-align: right; font-weight: 600; }
+  .done-details .total .v { color: var(--brand); font-size: 16px; }
 </style>
 </head>
 <body>
@@ -208,10 +216,13 @@
   <!-- 完了 -->
   <section id="view-done" class="card hidden">
     <div class="done">
-      <div>ご予約ありがとうございます</div>
+      <div class="done-icon">✅</div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px">ご予約ありがとうございます</div>
+      <div class="muted" id="doneLead" style="margin-top:4px">ご予約が確定しました。確認メールをお送りします。</div>
+      <div class="num-label">予約番号</div>
       <div class="num" id="doneNum"></div>
-      <div class="muted">合計 <span id="doneTotal"></span>（税込）</div>
-      <div class="muted" id="donePay" style="margin-top:6px"></div>
+      <div class="done-details" id="doneDetails"></div>
+      <div class="muted" id="donePay" style="margin-top:10px;font-size:13px"></div>
       <div style="margin-top:20px"><button class="btn" onclick="location.reload()">最初に戻る</button></div>
     </div>
   </section>
@@ -869,15 +880,25 @@ async function submitBooking() {
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動
   if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
-  document.getElementById('doneTotal').textContent = yen(body.total);
+  // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
   const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
-  let payTxt = payLabel ? ('お支払い方法：' + payLabel) : '';
-  if (body.paymentMethod === 'invoice' && body.invoiceName) payTxt += '（請求書名：' + body.invoiceName + '）';
-  // オンライン決済なのに決済ページを作れなかった場合は理由を表示（診断用）
+  const dt = (S.cart || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
+  let payCell = payLabel || '—';
+  if (body.paymentMethod === 'invoice' && body.invoiceName) payCell += '（請求書名：' + body.invoiceName + '）';
+  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const rows = [
+    ['スペース', esc(S.space && S.space.name)],
+    ['ご利用日時', dt],
+    ['イベント名', esc(event) || '—'],
+    ['お支払い方法', payCell],
+  ];
+  let html = rows.map(r => '<div class="row"><span class="k">' + r[0] + '</span><span class="v">' + (r[1] || '—') + '</span></div>').join('');
+  html += '<div class="row total"><span class="k">合計（税込）</span><span class="v">' + yen(body.total) + '</span></div>';
+  document.getElementById('doneDetails').innerHTML = html;
+  // オンライン決済の補足（作成失敗時のみ理由を表示）
+  let payTxt = '';
   if ((body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') && body.checkoutError) {
-    payTxt += '　※オンライン決済ページを作成できませんでした（' + body.checkoutError + '）。当日または別途ご案内となります。';
-  } else if (body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') {
-    payTxt += '　※オンライン決済は現在準備中のため、当日または別途ご案内となります（テスト表示）';
+    payTxt = '※オンライン決済ページを作成できませんでした（' + body.checkoutError + '）。当日または別途ご案内となります。';
   }
   document.getElementById('donePay').textContent = payTxt;
   show('view-done'); setStep(5);

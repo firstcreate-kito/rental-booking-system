@@ -353,7 +353,10 @@
           <div><label>単位ラベル（例:台/脚/袋）</label><input id="op_unitlabel" /></div>
         </div>
         <div class="grid">
-          <div><label>総在庫数（空欄=無制限）</label><input id="op_stock" type="number" /></div>
+          <div>
+            <label>総在庫数</label><input id="op_stock" type="number" />
+            <label style="display:flex;gap:6px;align-items:center;margin:6px 0 0;font-size:12px;font-weight:normal;color:var(--muted)"><input type="checkbox" id="op_unlimited" style="width:auto" onchange="toggleStockField()"> サービス系（在庫無制限）</label>
+          </div>
           <div><label>1予約あたり上限（空欄=なし）</label><input id="op_maxqty" type="number" /></div>
           <div><label>並び順</label><input id="op_sort" type="number" value="0" /></div>
         </div>
@@ -1422,23 +1425,35 @@ function fillOptionForm(o) {
   document.getElementById('op_type').value = o?.type || 'toggle';
   document.getElementById('op_pricetype').value = o?.price_type || 'free';
   document.getElementById('op_active').checked = o ? !!o.is_active : true;
+  // 在庫がNULL（＝無制限）ならサービス系チェックON。新規もデフォルト無制限。
+  document.getElementById('op_unlimited').checked = !o || o.stock_total == null;
+  toggleStockField();
   renderSpaceChecks(o?.space_ids);
   document.getElementById('optMsg').textContent = '';
   document.getElementById('optForm').classList.remove('hidden');
 }
 function newOption() { fillOptionForm(null); }
 function editOption(id) { fillOptionForm(adminOptions.find(o => o.id === id)); }
+// サービス系（在庫無制限）チェックで在庫入力を無効化・クリア
+function toggleStockField() {
+  const unlimited = document.getElementById('op_unlimited').checked;
+  const stock = document.getElementById('op_stock');
+  stock.disabled = unlimited;
+  if (unlimited) stock.value = '';
+  stock.style.background = unlimited ? '#f1f1f1' : '';
+}
 async function saveOption() {
   const msg = document.getElementById('optMsg');
   const v = id => document.getElementById(id).value.trim();
   const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
   const spaceIds = Array.from(document.querySelectorAll('.op-space:checked')).map(el => el.value);
   const editing = v('op_editing');
+  const unlimited = document.getElementById('op_unlimited').checked;
   const payload = {
     name: v('op_name'), category: v('op_category') || 'その他',
     type: document.getElementById('op_type').value, priceType: document.getElementById('op_pricetype').value,
     unitPrice: Number(v('op_price') || 0), unitLabel: v('op_unitlabel') || null,
-    stockTotal: numOrNull('op_stock'), maxQty: numOrNull('op_maxqty'), sortOrder: Number(v('op_sort') || 0),
+    stockTotal: unlimited ? null : numOrNull('op_stock'), maxQty: numOrNull('op_maxqty'), sortOrder: Number(v('op_sort') || 0),
     scope: 'per_group', isActive: document.getElementById('op_active').checked, spaceIds,
   };
   const res = editing

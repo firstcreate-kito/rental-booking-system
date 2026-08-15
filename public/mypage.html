@@ -94,7 +94,7 @@
       <input id="r_firstName" placeholder="名" style="flex:1" />
     </div>
     <label>メールアドレス *</label><input id="r_email" type="email" />
-    <label>電話番号 *</label><input id="r_phone" />
+    <label>電話番号 *</label><input id="r_phone" inputmode="tel" placeholder="例）052-485-5975（ハイフンありでご入力ください）" />
     <label>会社名（任意）</label><input id="r_company" />
     <label>パスワード *（8文字以上）</label><input id="r_pass" type="password" />
     <label>パスワード（確認）*</label><input id="r_pass2" type="password" onkeydown="if(event.key==='Enter')submitRegister()" />
@@ -185,7 +185,7 @@
       <h2>基本情報</h2>
       <div class="grid2">
         <div><label>お名前</label><input id="pf_name" /></div>
-        <div><label>電話番号</label><input id="pf_phone" /></div>
+        <div><label>電話番号</label><input id="pf_phone" inputmode="tel" placeholder="例）052-485-5975（ハイフンあり）" /></div>
         <div><label>会社名</label><input id="pf_company" /></div>
         <div><label>郵便番号</label><input id="pf_postal" /></div>
         <div style="grid-column:1/-1"><label>住所</label><input id="pf_address" /></div>
@@ -261,6 +261,8 @@ async function api(path, opts) {
   return { ok:r.ok, status:r.status, body:j };
 }
 const jsonBody = (obj, method) => ({ method: method||'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
+// 電話番号はハイフンありで統一（例：052-485-5975 / 090-1234-5678）
+const isValidPhone = p => /^[0-9]{2,4}-[0-9]{2,4}-[0-9]{3,4}$/.test(p);
 const statusLabel = s => ({confirmed:'本予約',cancelled:'キャンセル',completed:'完了',active:'有効',exhausted:'消化済',expired:'失効'}[s]||s);
 
 async function login() {
@@ -314,6 +316,7 @@ async function submitRegister() {
   const password = document.getElementById('r_pass').value;
   const password2 = document.getElementById('r_pass2').value;
   if (!lastName || !firstName || !email || !phone || !password) { msg.textContent = 'お名前（姓・名）・メール・電話・パスワードは必須です'; return; }
+  if (!isValidPhone(phone)) { msg.textContent = '電話番号はハイフンありでご入力ください（例：052-485-5975）'; return; }
   if (password.length < 8) { msg.textContent = 'パスワードは8文字以上にしてください'; return; }
   if (password !== password2) { msg.textContent = 'パスワード（確認）が一致しません'; return; }
   const { ok, body } = await api('/api/auth/register', jsonBody({ email, password, contactName, phone, companyName: companyName || undefined }));
@@ -537,9 +540,11 @@ async function loadProfile() {
 }
 async function saveProfile() {
   const msg = document.getElementById('pfMsg');
+  const phone = document.getElementById('pf_phone').value.trim();
+  if (phone && !isValidPhone(phone)) { msg.className = 'msg bad'; msg.textContent = '電話番号はハイフンありでご入力ください（例：052-485-5975）'; return; }
   const { ok, body } = await api('/api/mypage/profile', jsonBody({
     contactName: document.getElementById('pf_name').value.trim(),
-    phone: document.getElementById('pf_phone').value.trim(),
+    phone: phone,
     companyName: document.getElementById('pf_company').value.trim(),
     postalCode: document.getElementById('pf_postal').value.trim(),
     address: document.getElementById('pf_address').value.trim(),

@@ -632,6 +632,9 @@ function optionsPayload() {
 async function goCustomer() {
   setStep(4);
   show('view-customer');
+  // 前回の送信メッセージが残らないよう、画面を開くたびに必ずクリア
+  const sm = document.getElementById('submitMsg');
+  sm.textContent = ''; sm.classList.add('hidden');
   await renderQuestions();
   await loadUsableTickets();
   renderPayment();

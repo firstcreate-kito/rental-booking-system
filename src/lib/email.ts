@@ -984,3 +984,100 @@ ${d.adminNote ? `<p style="margin:6px 0;color:#6b7280">担当者より</p><p sty
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ---------------------------------------------------------------------------
+// 決済先行フローの「不成立・返金」通知（#68）
+// ---------------------------------------------------------------------------
+
+/** 予約不成立（満室）・返金のお知らせ（お客様宛） */
+export function bookingFailedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  total: number;
+  paymentMethod: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】ご予約が成立しませんでした（ご返金いたします）`;
+  const refundNote =
+    d.paymentMethod === 'paypal'
+      ? 'PayPalでのお支払いは確定しておりませんので、ご請求は発生いたしません。'
+      : 'お支払いいただいた代金は全額ご返金いたします（クレジットカードの場合、数日〜1週間程度で明細に反映されます）。';
+  const text = `${d.customerName} 様
+
+このたびは「${d.spaceName}」へのご予約をいただき、ありがとうございました。
+大変申し訳ございませんが、ご決済の直前に他のお客様のご予約が確定したため、
+下記のご予約は成立いたしませんでした。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+ご希望日時:
+${daysBlockText(d.days)}
+金額（税込）: ${yen(d.total)}
+
+${refundNote}
+
+ご不便をおかけし誠に申し訳ございません。別の日時・スペースでのご予約を
+心よりお待ちしております。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>このたびは「<strong>${escapeHtml(d.spaceName)}</strong>」へのご予約をいただき、ありがとうございました。<br>
+大変申し訳ございませんが、ご決済の直前に他のお客様のご予約が確定したため、下記のご予約は<strong>成立いたしませんでした</strong>。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td>${escapeHtml(d.bookingNumber)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">金額（税込）</td><td>${yen(d.total)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">ご希望日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:10px 14px">${escapeHtml(refundNote)}</p>
+<p style="color:#6b7280;font-size:13px">ご不便をおかけし誠に申し訳ございません。別の日時・スペースでのご予約を心よりお待ちしております。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 予約不成立（満室）・返金の管理者通知 */
+export function adminBookingFailedEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  total: number;
+  paymentMethod: string;
+  customerName: string;
+  customerEmail?: string;
+  refundOk: boolean;
+}): { subject: string; html: string; text: string } {
+  const subject = `【予約不成立・返金】${d.spaceName}（${d.bookingNumber}）`;
+  const payLbl = paymentMethodStatusLabel(d.paymentMethod);
+  const refundLine = d.paymentMethod === 'paypal'
+    ? 'PayPal：未キャプチャのため課金なし（対応不要）'
+    : d.refundOk
+      ? '返金：自動返金を実行しました（Stripe）'
+      : '返金：⚠自動返金に失敗しました。Stripe管理画面から手動で返金してください。';
+  const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}）` : d.customerName;
+  const text = `決済は成立しましたが、枠が埋まっていたため予約は不成立です。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+日時:
+${daysBlockText(d.days)}
+金額（税込）: ${yen(d.total)}
+支払い方法: ${payLbl}
+お客様: ${contact}
+
+${refundLine}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>決済は成立しましたが、枠が埋まっていたため予約は不成立</strong>です。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td>${escapeHtml(d.bookingNumber)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">金額（税込）</td><td>${yen(d.total)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い方法</td><td>${escapeHtml(payLbl)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="background:${d.refundOk || d.paymentMethod === 'paypal' ? '#f0fdf4' : '#fff8e6'};border:1px solid ${d.refundOk || d.paymentMethod === 'paypal' ? '#bbf7d0' : '#f0c36d'};border-radius:8px;padding:10px 14px">${escapeHtml(refundLine)}</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

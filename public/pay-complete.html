@@ -95,6 +95,10 @@ async function run() {
       if (r.ok && j.status === 'paid') {
         base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
         renderDetails(j.booking);
+      } else if (j.status === 'failed') {
+        base('⚠️', 'ご予約が成立しませんでした', 'ご決済の直前に他のお客様のご予約が確定したため、今回のご予約は成立しませんでした。PayPalでのお支払いは確定しておりませんのでご請求は発生いたしません。');
+        renderDetails(j.booking);
+        setWarn('大変申し訳ございません。別の日時・スペースで改めてご予約をお願いいたします。');
       } else {
         base('⚠️', 'お支払いを確定できませんでした', j.error || 'お手数ですが、もう一度お試しいただくか店舗までお問い合わせください。');
       }
@@ -118,7 +122,8 @@ async function run() {
     renderDetails(booking);
     return;
   }
-  // 予約のカード決済（成功で戻ってきた）
+  // 予約のカード決済（成功で戻ってきた）＝決済先行（#68）
+  // 入金後にサーバが空きを再確認して「成立(paid)」または「不成立・返金(failed)」を確定する。
   if (type === 'booking' && session) {
     let lastBooking = null;
     for (let i = 0; i < 12; i++) {
@@ -130,10 +135,16 @@ async function run() {
         renderDetails(j.booking);
         return;
       }
+      if (j.status === 'failed') {
+        base('⚠️', 'ご予約が成立しませんでした', 'ご決済の直前に他のお客様のご予約が確定したため、今回のご予約は成立しませんでした。お支払いいただいた代金は自動で全額返金いたします（カード会社の処理により反映まで数日かかる場合があります）。');
+        renderDetails(j.booking || lastBooking);
+        setWarn('大変申し訳ございません。別の日時・スペースで改めてご予約をお願いいたします。ご不明点は店舗までお問い合わせください。');
+        return;
+      }
       await new Promise(res => setTimeout(res, 1500));
     }
-    // 反映待ち（Webhookが少し遅れている場合）
-    base('✅', 'お支払いを受け付けました', 'ご予約は確定しています。反映まで少しお時間がかかる場合があります。');
+    // 反映待ち（Webhookが少し遅れている場合）。成立/不成立はまだ確定していない。
+    base('⏳', 'お支払いを受け付けました', 'ただいまご予約の最終確認をしています。確定しましたら確認メールをお送りします。マイページでも状況をご確認いただけます。');
     renderDetails(lastBooking);
     return;
   }

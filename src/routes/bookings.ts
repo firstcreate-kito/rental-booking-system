@@ -12,6 +12,7 @@ import {
   isBlacklisted,
   getCustomerByEmail,
   getBookingGroupByNumber,
+  getBookingGroupById,
   getBookingsByGroup,
   getSpaceQuestions,
   getTicketForCustomer,
@@ -457,6 +458,12 @@ app.post('/', async (c) => {
   // 支払い状態（#35）: 請求書=invoice、0円(全額チケット等)=paid、カード/PayPal=unpaid（決済後にpaid）
   const paymentStatus = paymentMethod === 'invoice' ? 'invoice' : totals.total <= 0 ? 'paid' : 'unpaid';
 
+  // 決済先行フロー（#68）: カード/PayPal（有料）は「pending」で作成し、カレンダーには書かない。
+  //   入金確定時に空きを再確認して confirmed へ昇格（埋まっていたら不成立＋返金）。
+  //   銀行振込・請求書・0円は従来どおり confirmed（＝送信時に枠を仮押さえ）。
+  const paymentFirst = (paymentMethod === 'stripe' || paymentMethod === 'paypal') && totals.total > 0;
+  const initialStatus = paymentFirst ? 'pending' : 'confirmed';
+
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
@@ -480,9 +487,9 @@ app.post('/', async (c) => {
       db
         .prepare(
           `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, initialStatus, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -492,7 +499,7 @@ app.post('/', async (c) => {
           .prepare(
             `INSERT INTO bookings
              (id, group_id, space_id, date, start_time, end_time, billable_hours, billing_mode, is_residence, rate, price, status, source)
-             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web'
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web'
              WHERE NOT EXISTS (
                SELECT 1 FROM bookings b
                WHERE b.space_id = ? AND b.date = ?
@@ -512,6 +519,7 @@ app.post('/', async (c) => {
             day.isResidence ? 1 : 0,
             day.rate,
             day.price,
+            initialStatus,
             space.id,
             item.date,
             item.startTime,
@@ -639,8 +647,9 @@ app.post('/', async (c) => {
   }
 
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
-  // Googleカレンダー（予約台帳の正）へリッチ内容で書き込み＋イベントID保存（#54関連）
-  const gcalResult = await syncBookingCalendarEvents(c.env, groupId, origin);
+  // Googleカレンダー（予約台帳の正）へリッチ内容で書き込み＋イベントID保存（#54関連）。
+  // 決済先行（#68）の pending はここでは書き込まない（入金確定時に確定・書き込み）。
+  const gcalResult = paymentFirst ? { warning: null } : await syncBookingCalendarEvents(c.env, groupId, origin);
 
   // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
   // 失敗しても予約は成立させる（バックグラウンド送信）。
@@ -665,11 +674,14 @@ app.post('/', async (c) => {
     mypageUrl: member ? `${origin}/mypage.html` : undefined,
     isInvoice: paymentMethod === 'invoice',
   };
-  const confirm = bookingConfirmationEmail(emailData);
-  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
-  if (c.env.MAIL_ADMIN) {
-    const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+  // 決済先行（#68）の pending では、予約確認メールは入金確定時に送る（ここでは送らない）。
+  if (!paymentFirst) {
+    const confirm = bookingConfirmationEmail(emailData);
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
+    if (c.env.MAIL_ADMIN) {
+      const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+    }
   }
 
   // オンライン決済: 予約枠を確保できたので、決済ページを作成して誘導（#35）
@@ -800,7 +812,12 @@ app.get('/payment-status', async (c) => {
   const pay = await getBookingPaymentBySession(c.env.DB, sessionId);
   if (!pay) return c.json({ status: 'unknown' });
   const booking = await getBookingSummaryForGroup(c.env.DB, pay.group_id);
-  return c.json({ status: pay.status, groupId: pay.group_id, booking });
+  // 決済先行（#68）：グループ状態で成立/不成立を判定。failed=満室で不成立・返金。
+  const g = await getBookingGroupById(c.env.DB, pay.group_id);
+  let status = pay.status;
+  if (g?.status === 'failed') status = 'failed';
+  else if (g?.status === 'pending') status = 'processing'; // 入金確定・確定待ち
+  return c.json({ status, groupId: pay.group_id, booking });
 });
 
 /**

@@ -9,6 +9,8 @@ import {
   adminRescheduleEmail,
   adminPaymentActionAlertEmail,
   paymentMethodStatusLabel,
+  bookingFailedEmail,
+  adminBookingFailedEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -214,5 +216,72 @@ describe('email - 返金/追加請求 管理者アラート（#62/#63/#64）', (
     expect(m.text).toContain('既収金額（税込）: ¥10,000');
     expect(m.text).toContain('キャンセル料（税込）: ¥8,000');
     expect(m.text).toContain('返金が必要です');
+  });
+});
+
+describe('email - 決済先行 不成立・返金（#68）', () => {
+  it('お客様向け（カード）: 満室で不成立・全額返金の旨を明記', () => {
+    const m = bookingFailedEmail({
+      customerName: '山田',
+      bookingNumber: 'B10',
+      spaceName: '名駅フリースペース',
+      days: sampleDays,
+      total: 4840,
+      paymentMethod: 'stripe',
+    });
+    expect(m.subject).toContain('成立しませんでした');
+    expect(m.text).toContain('成立いたしませんでした');
+    expect(m.text).toContain('全額ご返金いたします');
+    expect(m.text).toContain('¥4,840');
+  });
+  it('お客様向け（PayPal）: 未確定のため請求なしの旨', () => {
+    const m = bookingFailedEmail({
+      customerName: '山田',
+      bookingNumber: 'B10',
+      spaceName: 'S',
+      days: sampleDays,
+      total: 4840,
+      paymentMethod: 'paypal',
+    });
+    expect(m.text).toContain('ご請求は発生いたしません');
+  });
+  it('管理者向け（カード・自動返金成功）: 自動返金実行を明記', () => {
+    const m = adminBookingFailedEmail({
+      bookingNumber: 'B10',
+      spaceName: 'S',
+      days: sampleDays,
+      total: 4840,
+      paymentMethod: 'stripe',
+      customerName: '山田',
+      customerEmail: 'y@z.jp',
+      refundOk: true,
+    });
+    expect(m.subject).toContain('予約不成立');
+    expect(m.text).toContain('自動返金を実行しました');
+    expect(m.text).toContain('y@z.jp');
+  });
+  it('管理者向け（カード・自動返金失敗）: 手動返金を促す', () => {
+    const m = adminBookingFailedEmail({
+      bookingNumber: 'B10',
+      spaceName: 'S',
+      days: sampleDays,
+      total: 4840,
+      paymentMethod: 'stripe',
+      customerName: '山田',
+      refundOk: false,
+    });
+    expect(m.text).toContain('手動で返金');
+  });
+  it('管理者向け（PayPal）: 未キャプチャで対応不要', () => {
+    const m = adminBookingFailedEmail({
+      bookingNumber: 'B10',
+      spaceName: 'S',
+      days: sampleDays,
+      total: 4840,
+      paymentMethod: 'paypal',
+      customerName: '山田',
+      refundOk: false,
+    });
+    expect(m.text).toContain('対応不要');
   });
 });

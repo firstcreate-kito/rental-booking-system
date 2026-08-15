@@ -1,5 +1,37 @@
-import { describe, it, expect } from 'vitest';
-import { buildCheckoutBody, buildBankTransferBody, verifyStripeWebhook } from '../src/lib/stripe';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { buildCheckoutBody, buildBankTransferBody, verifyStripeWebhook, refundPayment } from '../src/lib/stripe';
+
+describe('refundPayment（#68 決済先行の自動返金）', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('payment_intent を指定して /v1/refunds に POST し、成功で ok=true', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 're_1', status: 'succeeded' }), { status: 200 }),
+    );
+    const r = await refundPayment('sk_test_x', 'pi_123');
+    expect(r.ok).toBe(true);
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toBe('https://api.stripe.com/v1/refunds');
+    expect(new URLSearchParams(String(init?.body)).get('payment_intent')).toBe('pi_123');
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer sk_test_x');
+  });
+
+  it('Stripe がエラーを返したら ok=false でメッセージを保持（例外にしない）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: 'charge already refunded' } }), { status: 400 }),
+    );
+    const r = await refundPayment('sk_test_x', 'pi_123');
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('already refunded');
+  });
+
+  it('ネットワーク例外でも ok=false（決済フローを止めない）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
+    const r = await refundPayment('sk_test_x', 'pi_123');
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('network down');
+  });
+});
 
 describe('buildBankTransferBody', () => {
   it('customer_balance / jp_bank_transfer の必須パラメータを含む', () => {

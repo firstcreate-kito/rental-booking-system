@@ -4,7 +4,29 @@
  */
 import type { Env } from '../types';
 import { getBookingSummaryForGroup, getCustomerProfile } from '../db/repository';
-import { sendEmail, paymentConfirmedEmail, adminPaymentConfirmedEmail } from './email';
+import {
+  sendEmail,
+  paymentConfirmedEmail,
+  adminPaymentConfirmedEmail,
+  bookingConfirmationEmail,
+  adminNewBookingEmail,
+  bookingFailedEmail,
+  adminBookingFailedEmail,
+} from './email';
+
+/** グループの顧客連絡先（メール・氏名・電話）を取得 */
+async function customerContact(env: Env, groupId: string): Promise<{ email: string; name: string; phone?: string }> {
+  const row = await env.DB.prepare('SELECT customer_id FROM booking_groups WHERE id = ?')
+    .bind(groupId)
+    .first<{ customer_id: string | null }>();
+  if (!row?.customer_id) return { email: '', name: 'お客様' };
+  const prof = (await getCustomerProfile(env.DB, row.customer_id)) as { email?: string; contact_name?: string; phone?: string } | null;
+  return {
+    email: prof?.email ? String(prof.email) : '',
+    name: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+    phone: prof?.phone ? String(prof.phone) : undefined,
+  };
+}
 
 const PAY_LABEL: Record<string, string> = {
   stripe: 'クレジットカード等（Stripe）',
@@ -62,6 +84,70 @@ export async function notifyPaymentConfirmed(
         paymentMethodLabel: PAY_LABEL[summary.paymentMethod || ''] || summary.paymentMethod || '—',
         customerName: name,
         customerEmail: email || undefined,
+      }),
+    });
+  }
+}
+
+/**
+ * 決済先行フローで予約が「成立」したときの確認メール（お客様＋管理者）#68。
+ * 通常の新規予約確認メールと同じ内容を、入金確定のタイミングで送る。
+ */
+export async function notifyBookingEstablished(env: Env, groupId: string): Promise<void> {
+  const summary = await getBookingSummaryForGroup(env.DB, groupId);
+  if (!summary) return;
+  const { email, name, phone } = await customerContact(env, groupId);
+  const origin = env.PUBLIC_BASE_URL || '';
+  const data = {
+    bookingNumber: summary.bookingNumber,
+    spaceName: summary.spaceName,
+    eventName: summary.eventName,
+    customerName: name,
+    days: summary.items,
+    total: summary.total,
+    status: 'confirmed' as const,
+    mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+    isInvoice: false,
+  };
+  if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data) });
+  if (env.MAIL_ADMIN) {
+    await sendEmail(env, { to: env.MAIL_ADMIN, ...adminNewBookingEmail({ ...data, customerEmail: email || '', customerPhone: phone }) });
+  }
+}
+
+/**
+ * 決済先行フローで枠が埋まっていて「不成立・返金」になったときの通知（お客様＋管理者）#68。
+ */
+export async function notifyBookingFailed(env: Env, groupId: string, refundOk: boolean): Promise<void> {
+  const summary = await getBookingSummaryForGroup(env.DB, groupId);
+  if (!summary) return;
+  const { email, name } = await customerContact(env, groupId);
+  const method = summary.paymentMethod || 'stripe';
+  if (email) {
+    await sendEmail(env, {
+      to: email,
+      ...bookingFailedEmail({
+        customerName: name,
+        bookingNumber: summary.bookingNumber,
+        spaceName: summary.spaceName,
+        days: summary.items,
+        total: summary.total,
+        paymentMethod: method,
+      }),
+    });
+  }
+  if (env.MAIL_ADMIN) {
+    await sendEmail(env, {
+      to: env.MAIL_ADMIN,
+      ...adminBookingFailedEmail({
+        bookingNumber: summary.bookingNumber,
+        spaceName: summary.spaceName,
+        days: summary.items,
+        total: summary.total,
+        paymentMethod: method,
+        customerName: name,
+        customerEmail: email || undefined,
+        refundOk,
       }),
     });
   }

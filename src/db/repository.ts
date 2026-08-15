@@ -642,6 +642,7 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
        LEFT JOIN bookings b ON b.group_id = bg.id
        LEFT JOIN spaces s ON s.id = bg.space_id
        WHERE bg.customer_id = ?
+         AND bg.status NOT IN ('pending','failed')
        GROUP BY bg.id
        ORDER BY bg.created_at DESC`,
     )
@@ -936,6 +937,8 @@ export async function listBookingsForAdmin(
     binds.push(filters.spaceId);
   }
   const today = filters.todayYmd;
+  // 決済先行の pending / 不成立 failed は一覧に出さない（#68）
+  conds.push("b.status NOT IN ('pending','failed')");
   if (filters.status) {
     // 明示的なステータス指定が最優先（後方互換）
     conds.push('b.status = ?');
@@ -1126,6 +1129,61 @@ export async function getBookingGroupByNumber(
     .prepare('SELECT * FROM booking_groups WHERE booking_number = ?')
     .bind(bookingNumber)
     .first<BookingGroupRow>();
+}
+
+/** IDでスペース予約グループを取得（決済先行フローの確定処理で使用）#68 */
+export async function getBookingGroupById(db: D1Database, id: string): Promise<BookingGroupRow | null> {
+  return db.prepare('SELECT * FROM booking_groups WHERE id = ?').bind(id).first<BookingGroupRow>();
+}
+
+/**
+ * pending の予約を「重複が無ければ」確定（confirmed）に昇格する（#68・決済先行）。
+ * 一部の日でも他の confirmed/tentative と重複したら昇格せず conflict を返す（全日程 all-or-nothing）。
+ */
+export async function promoteBookingGroupToConfirmed(
+  db: D1Database,
+  groupId: string,
+): Promise<{ promoted: boolean; conflict: boolean }> {
+  const cnt = await db
+    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE group_id = ? AND status = 'pending'")
+    .bind(groupId)
+    .first<{ n: number }>();
+  const total = cnt?.n ?? 0;
+  if (total === 0) {
+    const g = await db.prepare('SELECT status FROM booking_groups WHERE id = ?').bind(groupId).first<{ status: string }>();
+    return { promoted: g?.status === 'confirmed', conflict: false };
+  }
+  // 重複の無い pending 行だけを confirmed に上げる（他グループの confirmed/tentative と非重複）
+  const res = await db
+    .prepare(
+      `UPDATE bookings SET status = 'confirmed'
+       WHERE group_id = ? AND status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM bookings b2
+           WHERE b2.space_id = bookings.space_id AND b2.date = bookings.date
+             AND b2.group_id <> bookings.group_id
+             AND b2.status IN ('confirmed','tentative')
+             AND bookings.start_time < b2.end_time AND b2.start_time < bookings.end_time
+         )`,
+    )
+    .bind(groupId)
+    .run();
+  const changed = res.meta.changes ?? 0;
+  if (changed < total) {
+    // 全日程が取れなければ不成立：上げた分を pending に戻す（呼び出し側で failed に）
+    await db.prepare("UPDATE bookings SET status = 'pending' WHERE group_id = ? AND status = 'confirmed'").bind(groupId).run();
+    return { promoted: false, conflict: true };
+  }
+  await db.prepare("UPDATE booking_groups SET status = 'confirmed' WHERE id = ?").bind(groupId).run();
+  return { promoted: true, conflict: false };
+}
+
+/** pending の予約を「不成立（failed）」にして返金済みを記録（#68） */
+export async function failBookingGroup(db: D1Database, groupId: string): Promise<void> {
+  await db.batch([
+    db.prepare("UPDATE booking_groups SET status = 'failed', payment_status = 'refunded' WHERE id = ? AND status = 'pending'").bind(groupId),
+    db.prepare("UPDATE bookings SET status = 'failed' WHERE group_id = ? AND status = 'pending'").bind(groupId),
+  ]);
 }
 
 export async function getBookingsByGroup(db: D1Database, groupId: string): Promise<BookingRow[]> {

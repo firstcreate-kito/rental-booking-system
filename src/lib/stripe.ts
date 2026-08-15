@@ -15,6 +15,27 @@ export function stripeConfigured(env: Env): boolean {
   return !!(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 }
 
+/**
+ * 決済を全額返金する（#68・決済先行フローで枠が埋まっていた場合）。
+ * payment_intent 単位で返金。成功可否を返す（失敗しても例外にせず false）。
+ */
+export async function refundPayment(secretKey: string, paymentIntentId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const body = new URLSearchParams();
+    body.set('payment_intent', paymentIntentId);
+    const res = await fetch('https://api.stripe.com/v1/refunds', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const json = (await res.json()) as { id?: string; error?: { message?: string } };
+    if (!res.ok || !json.id) return { ok: false, error: json.error?.message || `refund failed (${res.status})` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 export interface CheckoutParams {
   /** 商品名（Stripe の決済ページに表示） */
   productName: string;

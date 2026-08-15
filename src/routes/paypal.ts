@@ -1,59 +1,10 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
-import { paypalConfigured, capturePaypalOrder, paypalBaseUrl } from '../lib/paypal';
+import { paypalConfigured, capturePaypalOrder } from '../lib/paypal';
 import { getBookingPaymentBySession, markBookingPaymentPaid, getBookingSummaryForGroup } from '../db/repository';
 import { nowJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
-
-/**
- * GET /api/paypal/debug  PayPal認証の診断（一時・原因特定後に削除）。
- * Secret値は出さず、設定の有無・文字数・接続先モード・PayPalの生レスポンスのみ返す。
- * Basic認証の内側なので外部からは見えない。
- */
-app.get('/debug', async (c) => {
-  const env = c.env as unknown as { PAYPAL_CLIENT_ID?: string; PAYPAL_CLIENT_SECRET?: string; PAYPAL_MODE?: string };
-  const id = env.PAYPAL_CLIENT_ID ?? '';
-  const sec = env.PAYPAL_CLIENT_SECRET ?? '';
-  const baseUrl = paypalBaseUrl(env);
-  const out: Record<string, unknown> = {
-    mode: env.PAYPAL_MODE ? env.PAYPAL_MODE : '(未設定→sandbox)',
-    baseUrl,
-    // Client IDは半公開情報（通常ブラウザにも渡る）なので先頭/末尾のみ表示。Secretは長さのみ。
-    clientId: { set: !!id, length: id.length, head: id.slice(0, 8), tail: id.slice(-4), hasSpace: /\s/.test(id) },
-    secret: { set: !!sec, length: sec.length, hasSpace: /\s/.test(sec) },
-  };
-  if (!id || !sec) {
-    out.result = 'NOT_CONFIGURED（鍵が未登録。wrangler secret put が反映されていません）';
-    return c.json(out);
-  }
-  // trim後の長さも表示（空白除去でどれだけ縮むか＝混入した空白の量が分かる）
-  out.trimmed = { clientIdLength: id.trim().length, secretLength: sec.trim().length };
-
-  // 認証テストを raw / trimmed の両方で実施し、どちらが通るか確認する
-  async function tryAuth(cid: string, csec: string) {
-    const auth = btoa(`${cid}:${csec}`);
-    const res = await fetch(`${baseUrl}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=client_credentials',
-    });
-    const text = await res.text();
-    let body: unknown = text.slice(0, 200);
-    try {
-      const j = JSON.parse(text) as Record<string, unknown>;
-      body = { error: j.error, error_description: j.error_description, has_access_token: !!j.access_token };
-    } catch { /* テキストのまま */ }
-    return { httpStatus: res.status, ok: res.ok, body };
-  }
-  try {
-    out.authRaw = await tryAuth(id, sec);
-    out.authTrimmed = await tryAuth(id.trim(), sec.trim());
-  } catch (err) {
-    out.fetchError = (err as Error).message;
-  }
-  return c.json(out);
-});
 
 /**
  * POST /api/paypal/capture  body:{orderId}

@@ -692,22 +692,23 @@ function renderPayment() {
     const dis = invoiceTooClose ? ' disabled' : '';
     const grey = invoiceTooClose ? 'color:#9ca3af' : '';
     const checked = methods.length === 0 && !invoiceTooClose ? ' checked' : '';
-    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="invoice" style="width:auto"' + dis + checked + ' onchange="onPayMethodChange()"> 請求書払い</label>';
+    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer" style="width:auto"' + dis + checked + ' onchange="onPayMethodChange()"> 銀行振込（Stripe：各種銀行・ゆうちょ）</label>';
   }
   document.getElementById('payMethods').innerHTML = html ||
     '<div class="muted">この施設のお支払い方法が設定されていません。店舗までお問い合わせください。</div>';
   let note = '';
   if (sp.allowInvoice) {
-    note = '※請求書払いはご利用日の' + PAY_INVOICE_DEADLINE_DAYS + '日前までの受付となります。';
-    if (invoiceTooClose) note += '（ご利用日まで' + PAY_INVOICE_DEADLINE_DAYS + '日を切っているため、請求書払いはお選びいただけません）';
+    note = '※銀行振込は、お申込み後に表示される振込専用口座へお振込みください（お客様ごとに発行）。ご入金確認後に予約が確定し、領収書を発行します。ご利用日の' + PAY_INVOICE_DEADLINE_DAYS + '日前までの受付です。';
+    if (invoiceTooClose) note += '（ご利用日まで' + PAY_INVOICE_DEADLINE_DAYS + '日を切っているため、銀行振込はお選びいただけません）';
   }
   document.getElementById('payNote').textContent = note;
   onPayMethodChange();
 }
 function onPayMethodChange() {
   const sel = document.querySelector('input[name="paymethod"]:checked');
-  const isInvoice = sel && sel.value === 'invoice';
-  document.getElementById('invoiceNameWrap').classList.toggle('hidden', !isInvoice);
+  // 銀行振込のときのみ「請求書名（宛名）」欄を表示（領収書の宛名に使用）
+  const isBank = sel && sel.value === 'bank_transfer';
+  document.getElementById('invoiceNameWrap').classList.toggle('hidden', !isBank);
 }
 function selectedPayMethod() {
   const sel = document.querySelector('input[name="paymethod"]:checked');
@@ -872,8 +873,8 @@ async function submitBooking() {
   const paymentMethod = selectedPayMethod();
   if (!paymentMethod) { msg.textContent = 'お支払い方法を選択してください'; msg.classList.remove('hidden'); return; }
   let invoiceName = '';
-  if (paymentMethod === 'invoice') {
-    // 請求書名は任意（未入力ならお申込者名で発行）
+  if (paymentMethod === 'bank_transfer') {
+    // 請求書名（宛名）は任意（未入力ならお申込者名で領収書を発行）
     invoiceName = document.getElementById('f_invoiceName').value.trim();
   }
   document.getElementById('submitBtn').disabled = true;
@@ -885,10 +886,10 @@ async function submitBooking() {
   if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
-  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
+  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe）', invoice: '請求書払い' }[body.paymentMethod] || '';
   const dt = (S.cart || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
   let payCell = payLabel || '—';
-  if (body.paymentMethod === 'invoice' && body.invoiceName) payCell += '（請求書名：' + body.invoiceName + '）';
+  if ((body.paymentMethod === 'bank_transfer' || body.paymentMethod === 'invoice') && body.invoiceName) payCell += '（宛名：' + body.invoiceName + '）';
   const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const rows = [
     ['スペース', esc(S.space && S.space.name)],

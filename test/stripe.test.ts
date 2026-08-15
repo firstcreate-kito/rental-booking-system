@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { buildCheckoutBody, verifyStripeWebhook } from '../src/lib/stripe';
+import { buildCheckoutBody, buildBankTransferBody, verifyStripeWebhook } from '../src/lib/stripe';
+
+describe('buildBankTransferBody', () => {
+  it('customer_balance / jp_bank_transfer の必須パラメータを含む', () => {
+    const body = buildBankTransferBody({
+      productName: 'ご予約 20260901-001',
+      amountJpy: 9680,
+      successUrl: 'https://x/ok',
+      cancelUrl: 'https://x/ng',
+      customerId: 'cus_123',
+      clientReferenceId: 'pay1',
+      metadata: { kind: 'booking', groupId: 'g1' },
+    });
+    const p = new URLSearchParams(body);
+    expect(p.get('mode')).toBe('payment');
+    expect(p.get('customer')).toBe('cus_123');
+    expect(p.get('payment_method_types[0]')).toBe('customer_balance');
+    expect(p.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
+    expect(p.get('payment_method_options[customer_balance][bank_transfer][type]')).toBe('jp_bank_transfer');
+    expect(p.get('line_items[0][price_data][currency]')).toBe('jpy');
+    expect(p.get('line_items[0][price_data][unit_amount]')).toBe('9680');
+    expect(p.get('metadata[groupId]')).toBe('g1');
+  });
+});
 
 /** テスト内で正しい Stripe-Signature ヘッダを生成する（本番の Stripe と同じ HMAC-SHA256） */
 async function signPayload(payload: string, secret: string, t: number): Promise<string> {

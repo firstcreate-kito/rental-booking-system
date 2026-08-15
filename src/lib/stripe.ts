@@ -74,6 +74,76 @@ export async function createCheckoutSession(secretKey: string, params: CheckoutP
 }
 
 // ---------------------------------------------------------------------------
+// 銀行振込（customer_balance / jp_bank_transfer）#42
+// ---------------------------------------------------------------------------
+
+/**
+ * Stripe Customer を作成して ID を返す。
+ * customer_balance（銀行振込）の Checkout は Customer が必須のため。
+ */
+export async function createStripeCustomer(
+  secretKey: string,
+  info: { email?: string; name?: string },
+): Promise<string> {
+  const body = new URLSearchParams();
+  if (info.email) body.set('email', info.email);
+  if (info.name) body.set('name', info.name);
+  const res = await fetch('https://api.stripe.com/v1/customers', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const json = (await res.json()) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !json.id) throw new Error(json.error?.message || `Stripe customer error (${res.status})`);
+  return json.id;
+}
+
+export interface BankTransferCheckoutParams extends CheckoutParams {
+  /** customer_balance は Customer 必須 */
+  customerId: string;
+}
+
+/**
+ * 銀行振込（jp_bank_transfer）の Checkout Session ボディを組み立てる（純関数・テスト可能）。
+ * お客様には振込専用の仮想口座が案内され、入金確定は async_payment_succeeded で通知される。
+ */
+export function buildBankTransferBody(p: BankTransferCheckoutParams): string {
+  const body = new URLSearchParams();
+  body.set('mode', 'payment');
+  body.set('success_url', p.successUrl);
+  body.set('cancel_url', p.cancelUrl);
+  body.set('client_reference_id', p.clientReferenceId);
+  body.set('customer', p.customerId);
+  body.set('payment_method_types[0]', 'customer_balance');
+  body.set('payment_method_options[customer_balance][funding_type]', 'bank_transfer');
+  body.set('payment_method_options[customer_balance][bank_transfer][type]', 'jp_bank_transfer');
+  body.set('line_items[0][quantity]', '1');
+  body.set('line_items[0][price_data][currency]', 'jpy');
+  body.set('line_items[0][price_data][unit_amount]', String(p.amountJpy));
+  body.set('line_items[0][price_data][product_data][name]', p.productName);
+  for (const [k, v] of Object.entries(p.metadata)) {
+    body.set(`metadata[${k}]`, v);
+    body.set(`payment_intent_data[metadata][${k}]`, v);
+  }
+  return body.toString();
+}
+
+/** 銀行振込の Checkout Session を作成し、案内ページ URL を返す。 */
+export async function createBankTransferCheckout(
+  secretKey: string,
+  params: BankTransferCheckoutParams,
+): Promise<CheckoutSession> {
+  const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: buildBankTransferBody(params),
+  });
+  const json = (await res.json()) as { id?: string; url?: string; error?: { message?: string } };
+  if (!res.ok || !json.id || !json.url) throw new Error(json.error?.message || `Stripe error (${res.status})`);
+  return { id: json.id, url: json.url };
+}
+
+// ---------------------------------------------------------------------------
 // Webhook 署名検証（Stripe-Signature: t=...,v1=...）
 // ---------------------------------------------------------------------------
 function hex(buf: ArrayBuffer): string {

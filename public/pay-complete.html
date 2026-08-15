@@ -48,7 +48,7 @@ const token = q.get('token'); // PayPal は承認後 ?token=ORDER_ID を付与�
 const num = q.get('num');
 const $ = id => document.getElementById(id);
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
-const payLabel = m => ({ stripe:'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal:'PayPal', invoice:'請求書払い' }[m] || '');
+const payLabel = m => ({ stripe:'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal:'PayPal', bank_transfer:'銀行振込（Stripe）', invoice:'請求書払い' }[m] || '');
 
 function base(icon, title, msg) {
   $('icon').textContent = icon; $('title').textContent = title; $('msg').textContent = msg;
@@ -96,6 +96,21 @@ async function run() {
     } catch (e) {
       base('⚠️', 'お支払いの確認に失敗しました', 'お手数ですが、ご予約状況は店舗までご確認ください。');
     }
+    return;
+  }
+  // 銀行振込（Stripe）: 戻り時点では未入金。振込先確認 → 入金後に確定・領収書発行。
+  if (type === 'booking' && session && q.get('method') === 'bank') {
+    let booking = null;
+    const r = await fetch('/api/bookings/payment-status?session=' + encodeURIComponent(session));
+    const j = await r.json().catch(() => ({}));
+    booking = j.booking;
+    if (j.status === 'paid') {
+      base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。領収書はマイページからダウンロードいただけます。');
+    } else {
+      base('🏦', 'お振込先をご確認ください', 'ご予約を確保しました。表示された振込専用口座へお振込みください。ご入金の確認後に予約が確定し、領収書を発行します。');
+      setWarn('お振込みは前ページに表示された「専用口座」宛にお願いします。ご入金確認まで数営業日かかる場合があります。ご予約は確保されています。');
+    }
+    renderDetails(booking);
     return;
   }
   // 予約のカード決済（成功で戻ってきた）

@@ -59,7 +59,7 @@ import {
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
-import { stripeConfigured, createCheckoutSession } from '../lib/stripe';
+import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout } from '../lib/stripe';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
 
 const app = new Hono<AppBindings>();
@@ -234,25 +234,30 @@ app.post('/', async (c) => {
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
   const today = todayJST();
 
-  // 支払い方法の検証（#38）: 施設ごとの許可・請求書名必須・請求書の5日前締切
+  // 支払い方法の検証（#38/#42）: 施設ごとの許可・振込の締切
+  // allow_invoice フラグは「銀行振込（Stripe）」の受付可否を表す。
+  // 公開予約では bank_transfer（Stripe銀行振込）を使い、invoice（自社口座請求書）は
+  // 管理者の代理予約など特別対応でのみ使用する。
   const allowedMethods: Record<string, boolean> = {
     stripe: !!space.allow_card,
     paypal: !!space.allow_paypal,
+    bank_transfer: !!space.allow_invoice,
     invoice: !!space.allow_invoice,
   };
   const paymentMethod =
     String(body.paymentMethod ?? '').trim() ||
-    (space.allow_card ? 'stripe' : space.allow_paypal ? 'paypal' : 'invoice');
+    (space.allow_card ? 'stripe' : space.allow_paypal ? 'paypal' : 'bank_transfer');
   if (!allowedMethods[paymentMethod]) {
     return c.json({ error: 'この施設では選択されたお支払い方法はご利用いただけません' }, 400);
   }
   let invoiceName: string | null = null;
-  if (paymentMethod === 'invoice') {
-    // 請求書名（宛名）は任意。未入力の場合は申込者の個人名を宛名に用いる（書類生成時にフォールバック）。#41
+  if (paymentMethod === 'invoice' || paymentMethod === 'bank_transfer') {
+    // 請求書名（宛名）は任意。未入力の場合は申込者の個人名を宛名に用いる（領収書生成時にフォールバック）。#41
     invoiceName = String(body.invoiceName ?? '').trim() || null;
+    // 銀行振込は入金までに日数がかかるため、ご利用日まで一定の猶予を必須とする。
     const earliestDate = [...body.items].map((i) => i.date).sort()[0];
     if (earliestDate < addDaysJST(today, INVOICE_DEADLINE_DAYS)) {
-      return c.json({ error: `請求書払いはご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済等をご利用ください。` }, 400);
+      return c.json({ error: `銀行振込はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
     }
   }
 
@@ -689,6 +694,34 @@ app.post('/', async (c) => {
       } catch (err) {
         checkoutUrl = null;
         checkoutError = 'paypal_error: ' + (err as Error).message;
+      }
+    }
+  } else if (paymentMethod === 'bank_transfer' && totals.total > 0) {
+    // Stripe 銀行振込（customer_balance / jp_bank_transfer）#42
+    // お客様に振込専用の仮想口座を案内 → 入金確定は async_payment_succeeded(webhook) で処理し領収書を自動発行。
+    if (!stripeConfigured(c.env)) {
+      checkoutError = 'stripe_not_configured';
+    } else {
+      const payId = crypto.randomUUID();
+      try {
+        const customerId = await createStripeCustomer(c.env.STRIPE_SECRET_KEY!, {
+          email: email || undefined,
+          name: invoiceName || contactName || undefined,
+        });
+        const session = await createBankTransferCheckout(c.env.STRIPE_SECRET_KEY!, {
+          productName: `ご予約 ${bookingNumber}（${space.name}）`,
+          amountJpy: totals.total,
+          successUrl: `${origin}/pay-complete.html?type=booking&method=bank&session={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
+          customerId,
+          clientReferenceId: payId,
+          metadata: { kind: 'booking', groupId, bookingNumber },
+        });
+        await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
+        checkoutUrl = session.url;
+      } catch (err) {
+        checkoutUrl = null;
+        checkoutError = 'bank_transfer_error: ' + (err as Error).message;
       }
     }
   }

@@ -866,14 +866,19 @@ async function submitBooking() {
     body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
-  // カード決済（Stripe）の場合は決済ページへ移動
+  // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動
   if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   document.getElementById('doneTotal').textContent = yen(body.total);
   const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
   let payTxt = payLabel ? ('お支払い方法：' + payLabel) : '';
   if (body.paymentMethod === 'invoice' && body.invoiceName) payTxt += '（請求書名：' + body.invoiceName + '）';
-  if (body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') payTxt += '　※オンライン決済は現在準備中のため、当日または別途ご案内となります（テスト表示）';
+  // オンライン決済なのに決済ページを作れなかった場合は理由を表示（診断用）
+  if ((body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') && body.checkoutError) {
+    payTxt += '　※オンライン決済ページを作成できませんでした（' + body.checkoutError + '）。当日または別途ご案内となります。';
+  } else if (body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') {
+    payTxt += '　※オンライン決済は現在準備中のため、当日または別途ご案内となります（テスト表示）';
+  }
   document.getElementById('donePay').textContent = payTxt;
   show('view-done'); setStep(5);
 }

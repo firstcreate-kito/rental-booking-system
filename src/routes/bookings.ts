@@ -630,41 +630,53 @@ app.post('/', async (c) => {
   // オンライン決済: 予約枠を確保できたので、決済ページを作成して誘導（#35）
   // どちらも checkoutUrl を返し、フロントは同じ処理でリダイレクトする。
   let checkoutUrl: string | null = null;
+  // 決済ページ作成が失敗した場合の理由（診断用にフロントへ返す）。
+  let checkoutError: string | null = null;
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
-  if (paymentMethod === 'stripe' && totals.total > 0 && stripeConfigured(c.env)) {
-    const payId = crypto.randomUUID();
-    try {
-      const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
-        productName: `ご予約 ${bookingNumber}（${space.name}）`,
-        amountJpy: totals.total,
-        successUrl: `${origin}/pay-complete.html?type=booking&session={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
-        customerEmail: email || undefined,
-        clientReferenceId: payId,
-        metadata: { kind: 'booking', groupId, bookingNumber },
-      });
-      await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
-      checkoutUrl = session.url;
-    } catch {
-      // 決済ページ作成に失敗しても予約は確保済み（未入金）。案内はフロント側で行う。
-      checkoutUrl = null;
+  if (paymentMethod === 'stripe' && totals.total > 0) {
+    if (!stripeConfigured(c.env)) {
+      checkoutError = 'stripe_not_configured';
+    } else {
+      const payId = crypto.randomUUID();
+      try {
+        const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
+          productName: `ご予約 ${bookingNumber}（${space.name}）`,
+          amountJpy: totals.total,
+          successUrl: `${origin}/pay-complete.html?type=booking&session={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
+          customerEmail: email || undefined,
+          clientReferenceId: payId,
+          metadata: { kind: 'booking', groupId, bookingNumber },
+        });
+        await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
+        checkoutUrl = session.url;
+      } catch (err) {
+        // 決済ページ作成に失敗しても予約は確保済み（未入金）。案内はフロント側で行う。
+        checkoutUrl = null;
+        checkoutError = 'stripe_error: ' + (err as Error).message;
+      }
     }
-  } else if (paymentMethod === 'paypal' && totals.total > 0 && paypalConfigured(c.env)) {
-    const payId = crypto.randomUUID();
-    try {
-      const order = await createPaypalOrder(c.env, {
-        amountJpy: totals.total,
-        referenceId: groupId,
-        invoiceId: payId,
-        returnUrl: `${origin}/pay-complete.html?type=booking&provider=paypal`,
-        cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
-        brandName: 'レンタルスペースALBE',
-      });
-      // PayPalの注文IDを stripe_session_id 列に保存（外部決済の照合キーとして流用）
-      await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'paypal', amount: totals.total, sessionId: order.orderId }, now);
-      checkoutUrl = order.approveUrl;
-    } catch {
-      checkoutUrl = null;
+  } else if (paymentMethod === 'paypal' && totals.total > 0) {
+    if (!paypalConfigured(c.env)) {
+      checkoutError = 'paypal_not_configured';
+    } else {
+      const payId = crypto.randomUUID();
+      try {
+        const order = await createPaypalOrder(c.env, {
+          amountJpy: totals.total,
+          referenceId: groupId,
+          invoiceId: payId,
+          returnUrl: `${origin}/pay-complete.html?type=booking&provider=paypal`,
+          cancelUrl: `${origin}/pay-complete.html?type=booking&status=cancel&num=${encodeURIComponent(bookingNumber)}`,
+          brandName: 'レンタルスペースALBE',
+        });
+        // PayPalの注文IDを stripe_session_id 列に保存（外部決済の照合キーとして流用）
+        await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'paypal', amount: totals.total, sessionId: order.orderId }, now);
+        checkoutUrl = order.approveUrl;
+      } catch (err) {
+        checkoutUrl = null;
+        checkoutError = 'paypal_error: ' + (err as Error).message;
+      }
     }
   }
 
@@ -684,6 +696,7 @@ app.post('/', async (c) => {
       paymentMethod,
       paymentStatus,
       checkoutUrl,
+      checkoutError,
       invoiceName,
       days: group.days.map((d) => ({
         date: d.date,

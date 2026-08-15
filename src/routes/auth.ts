@@ -12,7 +12,7 @@ import {
 } from '../db/repository';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST } from '../lib/clock';
-import { sendEmail, passwordResetEmail } from '../lib/email';
+import { sendEmail, passwordResetEmail, welcomeEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
 
@@ -67,6 +67,15 @@ app.post('/register', async (c) => {
 
   const token = generateToken();
   await createSession(db, token, customerId, sessionExpiry(), now);
+
+  // 会員登録完了（ウェルカム）メール（#51）。失敗しても登録は成立させる。
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  c.executionCtx.waitUntil(
+    sendEmail(c.env, {
+      to: email,
+      ...welcomeEmail({ customerName: contactName, mypageUrl: `${origin}/mypage.html`, bookingUrl: `${origin}/` }),
+    }),
+  );
   return c.json({ token, customer: { id: customerId, email, contactName } }, 201);
 });
 

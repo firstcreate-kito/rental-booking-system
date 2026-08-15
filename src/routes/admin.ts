@@ -87,7 +87,8 @@ import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmai
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
+import { notifyPaymentConfirmed } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, promoteBookingCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import {
@@ -625,18 +626,25 @@ app.post('/bookings/:number/cancel', async (c) => {
   const cancelSpace = await getSpaceById(db, g.space_id);
   await deleteBookingFromCalendar(c.env, cancelSpace?.google_calendar_id ?? null, bookings.map((b) => b.google_event_id));
 
-  // キャンセル確認メール（お客様宛）
+  // キャンセル確認メール（お客様宛）＋管理者通知（#48）
   if (g.customer_id) {
     const [prof, sp] = await Promise.all([getCustomerProfile(db, g.customer_id), getSpaceById(db, g.space_id)]);
     const to = prof?.email ? String(prof.email) : '';
+    const custName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
     if (to) {
-      const mail = cancellationEmail({
+      const mail = cancellationEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, cancelFee: totalFee });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+    }
+    if (c.env.MAIL_ADMIN) {
+      const adminMail = adminCancellationEmail({
         bookingNumber: g.booking_number,
         spaceName: sp?.name ?? '',
-        customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+        customerName: custName,
+        customerEmail: to || undefined,
+        customerPhone: prof?.phone ? String(prof.phone) : undefined,
         cancelFee: totalFee,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
     }
   }
 
@@ -740,6 +748,8 @@ app.put('/bookings/:number/payment-status', async (c) => {
     // 入金済みにしたら領収書を発行（既に発行済みならそのURLを返す）
     const r = await createDocumentForGroup(c.env.DB, g.id, 'receipt');
     if (r) receiptUrl = '/api/documents/' + r.token;
+    // 入金確認・予約確定メール（お客様＋管理者）#49。失敗しても処理は継続。
+    c.executionCtx.waitUntil(notifyPaymentConfirmed(c.env, g.id, receiptUrl).catch(() => {}));
   }
   return c.json({ ok: true, paymentStatus: status, receiptUrl });
 });

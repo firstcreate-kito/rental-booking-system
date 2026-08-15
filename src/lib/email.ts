@@ -414,3 +414,180 @@ ${rows}
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ---------------------------------------------------------------------------
+// 追加の通知メール（#48/#49/#51/#52/#53）
+// ---------------------------------------------------------------------------
+
+export interface DaysList {
+  days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+}
+
+/** 入金確認・予約確定メール（お客様宛）#49 — 銀行振込の入金確認時など */
+export function paymentConfirmedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  eventName: string;
+  days: DaysList['days'];
+  total: number;
+  receiptUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】ご入金を確認し、ご予約が確定しました（${d.bookingNumber}）`;
+  const receiptText = d.receiptUrl ? `\n領収書はこちらからダウンロードいただけます。\n${d.receiptUrl}\n` : '';
+  const text = `${d.customerName} 様
+
+ご入金を確認いたしました。以下のご予約が正式に確定しました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+日時:
+${daysBlockText(d.days)}
+合計金額（税込）: ${yen(d.total)}
+${receiptText}
+当日のご来店をお待ちしております。`;
+  const receiptHtml = d.receiptUrl
+    ? `<p style="margin:14px 0;padding:12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px">📄 領収書をご用意しました。<br><a href="${escapeHtml(d.receiptUrl)}" style="color:#047857;font-weight:700">領収書を表示・保存する ▶</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご入金を確認いたしました。以下のご予約が<strong>正式に確定</strong>しました。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${receiptHtml}
+<p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 入金確認 管理者通知メール #49 */
+export function adminPaymentConfirmedEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  total: number;
+  paymentMethodLabel: string;
+  customerName: string;
+  customerEmail?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【入金確認】${d.spaceName}（${d.bookingNumber}）`;
+  const text = `入金が確認され、予約が確定しました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+金額: ${yen(d.total)}
+お支払い方法: ${d.paymentMethodLabel}
+お客様: ${d.customerName}${d.customerEmail ? '（' + d.customerEmail + '）' : ''}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>入金が確認され、予約が確定しました。</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">金額</td><td>${yen(d.total)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(d.paymentMethodLabel)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}${d.customerEmail ? '（' + escapeHtml(d.customerEmail) + '）' : ''}</td></tr>
+</table>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** キャンセル 管理者通知メール #48 */
+export function adminCancellationEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  cancelFee: number;
+}): { subject: string; html: string; text: string } {
+  const subject = `【キャンセル】${d.spaceName}（${d.bookingNumber}）`;
+  const feeLine = d.cancelFee > 0 ? `キャンセル料（税込）: ${yen(d.cancelFee)}` : 'キャンセル料なし';
+  const text = `予約がキャンセルされました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+${feeLine}
+お客様: ${d.customerName}${d.customerEmail ? '（' + d.customerEmail + (d.customerPhone ? ' / ' + d.customerPhone : '') + '）' : ''}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>予約がキャンセルされました。</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">キャンセル料</td><td>${d.cancelFee > 0 ? yen(d.cancelFee) : 'なし'}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}${d.customerEmail ? '（' + escapeHtml(d.customerEmail) + (d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : '') + '）' : ''}</td></tr>
+</table>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 会員登録完了（ウェルカム）メール #51 */
+export function welcomeEmail(d: { customerName: string; mypageUrl?: string; bookingUrl?: string }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const subject = '【レンタルスペースALBE】会員登録が完了しました';
+  const links =
+    (d.mypageUrl ? `\nマイページ: ${d.mypageUrl}` : '') + (d.bookingUrl ? `\nご予約: ${d.bookingUrl}` : '');
+  const text = `${d.customerName} 様
+
+会員登録が完了しました。ありがとうございます。
+マイページから、ご予約・ポイント・クーポン・回数券・書類（請求書/領収書）をご確認いただけます。
+${links}
+
+ご利用をお待ちしております。`;
+  const btn = d.mypageUrl
+    ? `<p style="margin:18px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページを開く</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p><strong>会員登録が完了しました。</strong>ありがとうございます。<br>マイページから、ご予約・ポイント・クーポン・回数券・書類（請求書/領収書）をご確認いただけます。</p>
+${btn}
+<p style="color:#6b7280;font-size:13px">ご利用をお待ちしております。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** チケット（回数券）購入完了メール #52 */
+export function ticketPurchaseEmail(d: {
+  customerName: string;
+  productName: string;
+  totalHours: number;
+  validUntil: string;
+  amount: number;
+  mypageUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】回数券のご購入が完了しました`;
+  const text = `${d.customerName} 様
+
+回数券のご購入が完了しました。
+
+商品名: ${d.productName}
+利用可能時間: ${d.totalHours}時間
+有効期限: ${d.validUntil}
+ご購入金額（税込）: ${yen(d.amount)}
+${d.mypageUrl ? `\nマイページ「チケット」でご確認いただけます。\n${d.mypageUrl}\n` : ''}
+ご予約時に選択すると、利用時間分がスペース料金に充当されます。`;
+  const btn = d.mypageUrl
+    ? `<p style="margin:16px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページで確認する</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p><strong>回数券のご購入が完了しました。</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">商品名</td><td><strong>${escapeHtml(d.productName)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">利用可能時間</td><td>${d.totalHours}時間</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">有効期限</td><td>${escapeHtml(d.validUntil)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご購入金額（税込）</td><td>${yen(d.amount)}</td></tr>
+</table>
+${btn}
+<p style="color:#6b7280;font-size:13px">ご予約時に選択すると、利用時間分がスペース料金に充当されます。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

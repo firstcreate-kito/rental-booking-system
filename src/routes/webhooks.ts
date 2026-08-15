@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
-import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup } from '../db/repository';
+import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, getBookingSummaryForGroup, getCustomerProfile } from '../db/repository';
+import { sendEmail, ticketPurchaseEmail } from '../lib/email';
+import { notifyPaymentConfirmed } from '../lib/notify';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -38,12 +40,24 @@ app.post('/stripe', async (c) => {
         const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST());
         if (!r.ok) return c.json({ received: true, paid: false }, 500);
         // 入金確定で領収書を自動発行（#41・冪等）
+        let receiptPath: string | null = null;
         if (r.groupId) {
           try {
-            await createDocumentForGroup(c.env.DB, r.groupId, 'receipt');
+            const doc = await createDocumentForGroup(c.env.DB, r.groupId, 'receipt');
+            if (doc) receiptPath = '/api/documents/' + doc.token;
           } catch {
             /* 書類発行失敗は決済処理に影響させない */
           }
+          // 銀行振込の入金確認＝予約確定メール（#49）。カード即時決済は予約確認済みのため対象外。
+          const groupId = r.groupId;
+          c.executionCtx.waitUntil(
+            (async () => {
+              const summary = await getBookingSummaryForGroup(c.env.DB, groupId);
+              if (summary?.paymentMethod === 'bank_transfer') {
+                await notifyPaymentConfirmed(c.env, groupId, receiptPath);
+              }
+            })().catch(() => {}),
+          );
         }
         return c.json({ received: true, paid: true, groupId: r.groupId });
       }
@@ -51,6 +65,29 @@ app.post('/stripe', async (c) => {
       if (!result.ok) {
         // 発行失敗（商品欠落など）は 500 を返して Stripe に再送させる
         return c.json({ received: true, fulfilled: false, reason: result.reason }, 500);
+      }
+      // チケット購入完了メール（#52）。再配信（already）や情報欠落時は送らない。
+      if (!result.already && result.customerId && result.productName) {
+        const info = result;
+        c.executionCtx.waitUntil(
+          (async () => {
+            const prof = (await getCustomerProfile(c.env.DB, info.customerId!)) as { email?: string; contact_name?: string } | null;
+            const to = prof?.email ? String(prof.email) : '';
+            if (!to) return;
+            const origin = c.env.PUBLIC_BASE_URL || '';
+            await sendEmail(c.env, {
+              to,
+              ...ticketPurchaseEmail({
+                customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+                productName: info.productName!,
+                totalHours: info.totalHours ?? 0,
+                validUntil: info.validUntil ?? '',
+                amount: info.amount ?? 0,
+                mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+              }),
+            });
+          })().catch(() => {}),
+        );
       }
       return c.json({ received: true, fulfilled: true, ticketId: result.ticketId });
     }

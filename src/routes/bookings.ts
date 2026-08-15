@@ -57,7 +57,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout } from '../lib/stripe';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
@@ -938,18 +938,25 @@ app.post('/:number/cancel', async (c) => {
   const cancelSpace = await getSpaceById(db, g.space_id);
   await deleteBookingFromCalendar(c.env, cancelSpace?.google_calendar_id ?? null, bookings.map((b) => b.google_event_id));
 
-  // キャンセル確認メール（お客様宛。会員/ゲスト問わず customer_id があれば送信）
+  // キャンセル確認メール（お客様宛。会員/ゲスト問わず customer_id があれば送信）＋管理者通知（#48）
   if (g.customer_id) {
     const [prof, sp] = await Promise.all([getCustomerProfile(db, g.customer_id), getSpaceById(db, g.space_id)]);
     const to = prof?.email ? String(prof.email) : '';
+    const custName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
     if (to) {
-      const mail = cancellationEmail({
+      const mail = cancellationEmail({ bookingNumber: number, spaceName: sp?.name ?? '', customerName: custName, cancelFee: totalFee });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+    }
+    if (c.env.MAIL_ADMIN) {
+      const adminMail = adminCancellationEmail({
         bookingNumber: number,
         spaceName: sp?.name ?? '',
-        customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+        customerName: custName,
+        customerEmail: to || undefined,
+        customerPhone: prof?.phone ? String(prof.phone) : undefined,
         cancelFee: totalFee,
       });
-      c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
     }
   }
 

@@ -1602,7 +1602,17 @@ export async function fulfillTicketPurchase(
   now: string,
   today: string,
   addDaysISO: (dateISO: string, days: number) => string,
-): Promise<{ ok: boolean; already?: boolean; ticketId?: string; reason?: string }> {
+): Promise<{
+  ok: boolean;
+  already?: boolean;
+  ticketId?: string;
+  reason?: string;
+  customerId?: string;
+  productName?: string;
+  totalHours?: number;
+  validUntil?: string;
+  amount?: number;
+}> {
   const purchase = await getPurchaseBySession(db, sessionId);
   if (!purchase) return { ok: false, reason: 'purchase not found' };
   if (purchase.status === 'paid') return { ok: true, already: true, ticketId: purchase.ticket_id ?? undefined };
@@ -1648,7 +1658,15 @@ export async function fulfillTicketPurchase(
     .prepare("UPDATE ticket_purchases SET status = 'paid', ticket_id = ?, paid_at = ? WHERE stripe_session_id = ?")
     .bind(ticketId, now, sessionId)
     .run();
-  return { ok: true, ticketId };
+  return {
+    ok: true,
+    ticketId,
+    customerId: purchase.customer_id,
+    productName: product.name,
+    totalHours: product.total_hours,
+    validUntil,
+    amount: (purchase as { amount?: number }).amount,
+  };
 }
 
 // ---------------------------------------------------------------------------

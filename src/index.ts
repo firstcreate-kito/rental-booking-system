@@ -12,8 +12,9 @@ import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
 import documents from './routes/documents';
-import { getOverdueUnpaidBookings, markUnpaidAlertSent } from './db/repository';
+import { getOverdueUnpaidBookings, markUnpaidAlertSent, getBookingsMissingCalendarEvent } from './db/repository';
 import { unpaidAlertEmail, sendEmail, type OverdueBooking } from './lib/email';
+import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -158,9 +159,23 @@ async function runUnpaidAlert(env: AppBindings['Bindings']): Promise<{ count: nu
   return { count: overdue.length };
 }
 
+/**
+ * 定期実行（Cron）: Googleカレンダー取りこぼし補完（#25/#27）。
+ * 書き込み失敗で google_event_id が未設定の予約を検出し、GCalへ再作成する。
+ * これで「D1にはあるがGCalに無い」状態が解消され、外部からの二重予約を防ぐ。
+ */
+async function runCalendarReconcile(env: AppBindings['Bindings']): Promise<{ created: number; failed: number }> {
+  const rows = await getBookingsMissingCalendarEvent(env.DB, todayJST());
+  return reconcileMissingCalendarEvents(env, rows);
+}
+
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledController, env: AppBindings['Bindings'], ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runUnpaidAlert(env));
+  async scheduled(event: ScheduledController, env: AppBindings['Bindings'], ctx: ExecutionContext): Promise<void> {
+    // GCal取りこぼし補完は毎回（5分間隔）実行。未入金アラートは1日1回のみ。
+    ctx.waitUntil(runCalendarReconcile(env));
+    if (event.cron === '0 0 * * *') {
+      ctx.waitUntil(runUnpaidAlert(env));
+    }
   },
 };

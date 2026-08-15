@@ -1866,6 +1866,51 @@ export async function getOverdueUnpaidBookings(db: D1Database, cutoffDate: strin
   return results ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// Googleカレンダー取りこぼし補完（#25/#27）
+// ---------------------------------------------------------------------------
+
+export interface MissingCalendarBookingRow {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  booking_number: string;
+  event_name: string;
+  google_calendar_id: string | null;
+  contact_name: string | null;
+}
+
+/**
+ * GoogleカレンダーのイベントIDが未設定のまま（書き込み失敗）の予約を返す（Cron用）。
+ * 対象: confirmed/tentative の未来日、カレンダーID設定済みのスペース。
+ */
+export async function getBookingsMissingCalendarEvent(
+  db: D1Database,
+  today: string,
+  limit = 100,
+): Promise<MissingCalendarBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT b.id, b.date, b.start_time, b.end_time, b.status,
+              bg.booking_number, bg.event_name,
+              s.google_calendar_id, c.contact_name
+       FROM bookings b
+       JOIN booking_groups bg ON bg.id = b.group_id
+       JOIN spaces s ON s.id = bg.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE b.google_event_id IS NULL
+         AND b.status IN ('confirmed', 'tentative')
+         AND b.date >= ?
+         AND s.google_calendar_id IS NOT NULL AND s.google_calendar_id <> ''
+       ORDER BY b.date ASC LIMIT ?`,
+    )
+    .bind(today, limit)
+    .all<MissingCalendarBookingRow>();
+  return results ?? [];
+}
+
 /** アラート送信済みとして記録（重複送信防止） */
 export async function markUnpaidAlertSent(db: D1Database, groupIds: string[], now: string): Promise<void> {
   if (!groupIds.length) return;

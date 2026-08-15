@@ -704,6 +704,9 @@ app.get('/bookings/:number', async (c) => {
     status: g.status,
     eventName: g.event_name,
     spaceName: space?.name ?? '',
+    spaceId: g.space_id,
+    openTime: space?.open_time ?? null,
+    closeTime: space?.close_time ?? null,
     totalAmount: g.total_amount,
     spaceFee: g.total_amount - currentOptionsTotal, // スペース料金（オプションを除いた分）
     paymentMethod: g.payment_method,

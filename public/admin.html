@@ -1686,11 +1686,18 @@ async function openReschedule(number, prefillItems) {
   const tnote = rsTicketPaid
     ? '<div style="margin-bottom:8px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px">🎫 <strong>チケット払いの予約です。</strong>利用時間（合計時間数）は変更できません。日付・開始時刻の移動のみ可能です。時間数を変えたい場合はキャンセル→取り直しをお願いします。</div>'
     : '';
+  // 開始・終了は営業時間内の30分刻みドロップダウン（#65）。現在値が営業時間外でも保持する。
+  const rsTs = adminTimes(body.openTime ? body.openTime.slice(0, 5) : '08:00', body.closeTime ? body.closeTime.slice(0, 5) : '22:00');
+  const rsOpts = (list, cur) => {
+    const opts = list.slice();
+    if (cur && !opts.includes(cur)) { opts.push(cur); opts.sort(); }
+    return opts.map(t => '<option' + (t === cur ? ' selected' : '') + '>' + t + '</option>').join('');
+  };
   document.getElementById('rsSlots').innerHTML = tnote + (body.items || []).map((it, i) =>
     '<div class="grid" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">' +
       '<div><label>日付</label><input type="date" class="rs-date" value="' + it.date + '" /></div>' +
-      '<div><label>開始</label><input class="rs-start" value="' + it.startTime + '" placeholder="10:00" /></div>' +
-      '<div><label>終了</label><input class="rs-end" value="' + it.endTime + '" placeholder="18:00" /></div>' +
+      '<div><label>開始</label><select class="rs-start">' + rsOpts(rsTs.slice(0, -1), it.startTime) + '</select></div>' +
+      '<div><label>終了</label><select class="rs-end">' + rsOpts(rsTs.slice(1), it.endTime) + '</select></div>' +
     '</div>'
   ).join('');
   // 変更リクエスト承認時：お客様の希望日時をスロットへ反映（存在する枠だけ上書き）

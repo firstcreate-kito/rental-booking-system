@@ -392,6 +392,15 @@ function buildCrTimeOptions(spaceId) {
   start.innerHTML = sHtml;
   end.innerHTML = eHtml;
 }
+// selectに指定値が無ければ追加して選択（現在値が営業時間外でも保持）
+function ensureCrOption(id, val) {
+  if (!val) return;
+  const sel = document.getElementById(id);
+  if (![...sel.options].some(o => o.value === val)) {
+    const o = document.createElement('option'); o.value = val; o.textContent = val; sel.appendChild(o);
+  }
+  sel.value = val;
+}
 async function openChangeReq(number, spaceName, spaceId) {
   _crNum = number;
   await ensureSpaces();
@@ -403,6 +412,16 @@ async function openChangeReq(number, spaceName, spaceId) {
   document.getElementById('cr_start').value = '';
   document.getElementById('cr_end').value = '';
   document.getElementById('cr_msg').value = '';
+  // 現在の予約日時を「ご希望の日時」の初期値にセット（多くは前後の微調整のため）#66
+  try {
+    const { ok, body } = await api('/api/bookings/' + encodeURIComponent(number));
+    const d = (body.days || [])[0];
+    if (ok && d) {
+      document.getElementById('cr_date').value = d.date || '';
+      ensureCrOption('cr_start', (d.start_time || '').slice(0, 5));
+      ensureCrOption('cr_end', (d.end_time || '').slice(0, 5));
+    }
+  } catch (e) {}
   const res = document.getElementById('cr_result'); res.textContent = ''; res.className = 'msg';
   document.getElementById('cr_submit').disabled = false;
   crToggle();

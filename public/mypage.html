@@ -135,6 +135,14 @@
         <tbody id="bkBody"></tbody>
       </table></div>
       <div class="muted" id="bkEmpty"></div>
+      <!-- 過去のご利用（利用日が経過した予約）#56 -->
+      <div id="bkPastWrap" class="hidden" style="margin-top:16px">
+        <button id="bkPastToggle" class="btn ghost sm" onclick="togglePast()" style="margin-bottom:8px"></button>
+        <div id="bkPastList" class="hidden tablewrap"><table>
+          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
+          <tbody id="bkPastBody"></tbody>
+        </table></div>
+      </div>
       <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
         <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
         <div id="bkArchiveList" class="hidden tablewrap"><table>
@@ -465,6 +473,12 @@ function toggleArchive() {
   document.getElementById('bkArchiveToggle').textContent =
     (hidden ? '▸ キャンセル済みを表示' : '▾ キャンセル済みを隠す') + '（' + (window._bkCancelledCount || 0) + '件）';
 }
+function togglePast() {
+  const list = document.getElementById('bkPastList');
+  const hidden = list.classList.toggle('hidden');
+  document.getElementById('bkPastToggle').textContent =
+    (hidden ? '▸ 過去のご利用を表示' : '▾ 過去のご利用を隠す') + '（' + (window._bkPastCount || 0) + '件）';
+}
 // スペースの営業時間（open/close）を取得してキャッシュ（変更リクエストの時刻候補に使う）
 async function ensureSpaces() {
   if (M.spaceMap) return M.spaceMap;
@@ -477,11 +491,26 @@ async function loadBookings() {
   ensureSpaces(); // 時刻候補用に先読み（await不要・バックグラウンド）
   const { body } = await api('/api/mypage/bookings');
   const rows = body.bookings || [];
-  // アクティブ（キャンセル以外）とキャンセル済み（アーカイブ）に分離
-  const active = rows.filter(b => b.status !== 'cancelled');
+  const today = new Date().toISOString().slice(0, 10);
+  // 予約を「進行中（これから利用）」「過去のご利用（利用日経過）」「キャンセル済み」に分離（#56）
   const cancelled = rows.filter(b => b.status === 'cancelled');
-  document.getElementById('bkEmpty').textContent = active.length ? '' : 'まだ予約はありません';
-  document.getElementById('bkBody').innerHTML = active.map(bookingRow).join('');
+  const notCancelled = rows.filter(b => b.status !== 'cancelled');
+  const upcoming = notCancelled.filter(b => (b.last_date || '') >= today);
+  const past = notCancelled.filter(b => (b.last_date || '') < today);
+  document.getElementById('bkEmpty').textContent = upcoming.length ? '' : 'これからのご予約はありません';
+  document.getElementById('bkBody').innerHTML = upcoming.map(bookingRow).join('');
+  // 過去のご利用（アーカイブ）
+  window._bkPastCount = past.length;
+  const pastWrap = document.getElementById('bkPastWrap');
+  if (past.length) {
+    pastWrap.classList.remove('hidden');
+    document.getElementById('bkPastBody').innerHTML = past.map(bookingRow).join('');
+    document.getElementById('bkPastList').classList.add('hidden');
+    document.getElementById('bkPastToggle').textContent = '▸ 過去のご利用を表示（' + past.length + '件）';
+  } else {
+    pastWrap.classList.add('hidden');
+  }
+  // キャンセル済み（アーカイブ）
   window._bkCancelledCount = cancelled.length;
   const wrap = document.getElementById('bkArchiveWrap');
   if (cancelled.length) {

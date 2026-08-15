@@ -914,7 +914,7 @@ export async function deleteAdminSession(db: D1Database, token: string): Promise
 /** 管理者向け予約一覧（フィルタ: 期間・スペース・ステータス） */
 export async function listBookingsForAdmin(
   db: D1Database,
-  filters: { from?: string; to?: string; spaceId?: string; status?: string; view?: 'active' | 'archive' },
+  filters: { from?: string; to?: string; spaceId?: string; status?: string; view?: 'active' | 'archive' | 'past'; todayYmd?: string },
 ) {
   const conds: string[] = [];
   const binds: unknown[] = [];
@@ -930,6 +930,7 @@ export async function listBookingsForAdmin(
     conds.push('b.space_id = ?');
     binds.push(filters.spaceId);
   }
+  const today = filters.todayYmd;
   if (filters.status) {
     // 明示的なステータス指定が最優先（後方互換）
     conds.push('b.status = ?');
@@ -937,9 +938,20 @@ export async function listBookingsForAdmin(
   } else if (filters.view === 'archive') {
     // アーカイブ（キャンセル済み）のみ
     conds.push("b.status = 'cancelled'");
-  } else if (filters.view === 'active') {
-    // アクティブ（初期表示）：キャンセル済みは除外
+  } else if (filters.view === 'past') {
+    // 利用済み（過去日・キャンセル以外）#56
     conds.push("b.status != 'cancelled'");
+    if (today) {
+      conds.push('b.date < ?');
+      binds.push(today);
+    }
+  } else if (filters.view === 'active') {
+    // アクティブ（初期表示）：キャンセル済みを除外し、利用日が本日以降のみ #56
+    conds.push("b.status != 'cancelled'");
+    if (today) {
+      conds.push('b.date >= ?');
+      binds.push(today);
+    }
   }
   const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
   const { results } = await db
@@ -953,7 +965,7 @@ export async function listBookingsForAdmin(
        LEFT JOIN spaces s ON s.id = b.space_id
        LEFT JOIN customers c ON c.id = bg.customer_id
        ${where}
-       ORDER BY b.date, b.start_time`,
+       ORDER BY b.date ${filters.view === 'past' ? 'DESC' : 'ASC'}, b.start_time`,
     )
     .bind(...binds)
     .all();

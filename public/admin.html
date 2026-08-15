@@ -109,6 +109,7 @@
       </div>
       <div class="row" style="gap:8px;margin:8px 0 4px">
         <button id="bv-active" class="btn sm" onclick="setBookingView('active')">予約中</button>
+        <button id="bv-past" class="btn ghost sm" onclick="setBookingView('past')">利用済み（過去）</button>
         <button id="bv-archive" class="btn ghost sm" onclick="setBookingView('archive')">キャンセル済み（アーカイブ）</button>
       </div>
       <div class="grid">
@@ -857,9 +858,10 @@ let bookingView = 'active';
 function setBookingView(v) {
   bookingView = v;
   document.getElementById('bv-active').className = 'btn sm' + (v === 'active' ? '' : ' ghost');
+  document.getElementById('bv-past').className = 'btn sm' + (v === 'past' ? '' : ' ghost');
   document.getElementById('bv-archive').className = 'btn sm' + (v === 'archive' ? '' : ' ghost');
-  // アーカイブ表示では状態フィルタは不要（すべてキャンセル済み）
-  document.getElementById('f_status_wrap').style.display = v === 'archive' ? 'none' : '';
+  // 状態フィルタは「予約中」でのみ有効（利用済み・キャンセル済みは対象が固定）
+  document.getElementById('f_status_wrap').style.display = v === 'active' ? '' : 'none';
   loadBookings();
 }
 // JSTの本日日付（YYYY-MM-DD）。過去日判定に使用。

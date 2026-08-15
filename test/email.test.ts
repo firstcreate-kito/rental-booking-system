@@ -7,6 +7,8 @@ import {
   adminNewBookingEmail,
   rescheduleEmail,
   adminRescheduleEmail,
+  adminPaymentActionAlertEmail,
+  paymentMethodStatusLabel,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -132,6 +134,27 @@ describe('email - 日時変更（reschedule）テンプレート', () => {
     expect(m.text).toContain('追加のお支払い');
     expect(m.text).toContain('変更点'); // 日時・金額のサマリー
   });
+  it('お客様向け: 差額がある時のみ「担当者から別途連絡」の案内文を付す', () => {
+    const withDiff = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 32670, oldTotal: 21780, status: 'confirmed', showAmount: true,
+    });
+    expect(withDiff.text).toContain('※差額については別途ご連絡差し上げますので担当者からのメールをお待ちくださいませ。');
+    expect(withDiff.html).toContain('担当者からのメールをお待ちくださいませ');
+    // 差額なしのときは案内文を出さない
+    const noDiff = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays: oldDays, total: 20000, oldTotal: 20000, status: 'confirmed', showAmount: true,
+    });
+    expect(noDiff.text).not.toContain('担当者からのメールをお待ち');
+  });
+  it('管理者向けメールには「担当者から別途連絡」の案内文を付さない', () => {
+    const am = adminRescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 32670, oldTotal: 21780, status: 'confirmed', showAmount: true,
+    });
+    expect(am.text).not.toContain('担当者からのメールをお待ち');
+  });
   it('oldTotal指定・減額: 返金の差額を表示', () => {
     const m = rescheduleEmail({
       bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
@@ -157,5 +180,39 @@ describe('email - 日時変更（reschedule）テンプレート', () => {
     expect(m.text).toContain('c@d.jp');
     expect(m.text).toContain('2026-09-10');
     expect(m.text).toContain('2026-09-15');
+  });
+});
+
+describe('email - 返金/追加請求 管理者アラート（#62/#63/#64）', () => {
+  it('支払い方法＋入金状況ラベル（振込・未入金/入金済み）', () => {
+    expect(paymentMethodStatusLabel('bank_transfer', 'unpaid')).toBe('銀行振込（Stripe収納代行）（未入金）');
+    expect(paymentMethodStatusLabel('bank_transfer', 'paid')).toBe('銀行振込（Stripe収納代行）（入金済み）');
+    expect(paymentMethodStatusLabel('stripe', 'paid')).toContain('Stripe');
+    expect(paymentMethodStatusLabel(null)).toBe('不明');
+  });
+  it('予約変更・追加請求: 金額・支払い方法・内訳を明記', () => {
+    const m = adminPaymentActionAlertEmail({
+      kind: 'reschedule', action: 'surcharge', amount: 4840,
+      bookingNumber: 'B9', spaceName: '名駅フリースペース', customerName: '山田',
+      paymentMethod: 'bank_transfer', paymentStatus: 'unpaid', oldTotal: 10000, newTotal: 14840,
+    });
+    expect(m.subject).toContain('追加請求');
+    expect(m.subject).toContain('¥4,840');
+    expect(m.text).toContain('銀行振込（Stripe収納代行）（未入金）');
+    expect(m.text).toContain('変更前の合計（税込）: ¥10,000');
+    expect(m.text).toContain('変更後の合計（税込）: ¥14,840');
+    expect(m.text).toContain('追加のお支払い');
+  });
+  it('キャンセル・返金: 既収金額とキャンセル料と返金額を明記', () => {
+    const m = adminPaymentActionAlertEmail({
+      kind: 'cancel', action: 'refund', amount: 2000,
+      bookingNumber: 'B8', spaceName: 'S', customerName: '佐藤',
+      paymentMethod: 'stripe', paymentStatus: 'paid', cancelFee: 8000, paidAmount: 10000,
+    });
+    expect(m.subject).toContain('返金');
+    expect(m.subject).toContain('¥2,000');
+    expect(m.text).toContain('既収金額（税込）: ¥10,000');
+    expect(m.text).toContain('キャンセル料（税込）: ¥8,000');
+    expect(m.text).toContain('返金が必要です');
   });
 });

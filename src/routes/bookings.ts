@@ -57,7 +57,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout } from '../lib/stripe';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
@@ -959,6 +959,27 @@ app.post('/:number/cancel', async (c) => {
         cancelFee: totalFee,
       });
       c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+      // 返金が生じる場合のみ、返金対応要アラートを発信（#63/#64）
+      const paidAmount = g.payment_status === 'paid' ? g.total_amount : 0;
+      const refundDue = Math.max(0, paidAmount - totalFee);
+      if (refundDue > 0) {
+        const alert = adminPaymentActionAlertEmail({
+          kind: 'cancel',
+          action: 'refund',
+          amount: refundDue,
+          bookingNumber: number,
+          spaceName: sp?.name ?? '',
+          customerName: custName,
+          customerEmail: to || undefined,
+          customerPhone: prof?.phone ? String(prof.phone) : undefined,
+          paymentMethod: g.payment_method,
+          paymentStatus: g.payment_status,
+          cancelFee: totalFee,
+          paidAmount,
+          adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(number)}`,
+        });
+        c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+      }
     }
   }
 
@@ -1190,6 +1211,25 @@ app.post('/:number/reschedule', async (c) => {
   if (c.env.MAIL_ADMIN) {
     const adminMail = adminRescheduleEmail({ ...mailData, customerEmail: custEmail || undefined, customerPhone: cust?.phone ? String(cust.phone) : undefined });
     c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...adminMail }));
+    // 料金変更（差額）が出た場合のみ、返金/追加請求の対応要アラートを発信（#62/#64）
+    if (adjustment.type !== 'zero') {
+      const alert = adminPaymentActionAlertEmail({
+        kind: 'reschedule',
+        action: adjustment.type === 'surcharge' ? 'surcharge' : 'refund',
+        amount: adjustment.amount,
+        bookingNumber: number,
+        spaceName: space.name,
+        customerName: custName,
+        customerEmail: custEmail || undefined,
+        customerPhone: cust?.phone ? String(cust.phone) : undefined,
+        paymentMethod: g.payment_method,
+        paymentStatus: g.payment_status,
+        oldTotal: g.total_amount,
+        newTotal,
+        adminUrl: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/admin.html?booking=${encodeURIComponent(number)}`,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: c.env.MAIL_ADMIN, ...alert }));
+    }
   }
 
   return c.json({

@@ -236,27 +236,32 @@ function diffLabel(oldTotal: number, newTotal: number): string {
   return '差額なし（金額の変更はありません）';
 }
 
+/** お客様向け：差額の下に添える案内文（追加請求・返金いずれも担当者から別途連絡する旨） */
+const DIFF_FOLLOWUP_NOTE = '※差額については別途ご連絡差し上げますので担当者からのメールをお待ちくださいませ。';
+
 /** 金額の変更点ブロック（テキスト）。oldTotal指定かつ増減ありなら 変更前→変更後＋差額 */
-function amountBlockText(d: RescheduleEmailData): string {
+function amountBlockText(d: RescheduleEmailData, forCustomer = false): string {
   if (!d.showAmount) return '';
   if (d.oldTotal !== undefined && d.oldTotal !== d.total) {
-    return `\n\n【お支払い金額の変更】\n  変更前（税込）: ${yen(d.oldTotal)}\n  変更後（税込）: ${yen(d.total)}\n  ${diffLabel(d.oldTotal, d.total)}`;
+    const note = forCustomer ? `\n  ${DIFF_FOLLOWUP_NOTE}` : '';
+    return `\n\n【お支払い金額の変更】\n  変更前（税込）: ${yen(d.oldTotal)}\n  変更後（税込）: ${yen(d.total)}\n  ${diffLabel(d.oldTotal, d.total)}${note}`;
   }
   return `\n\n変更後の合計金額（税込）: ${yen(d.total)}`;
 }
 
 /** 金額の変更点ブロック（HTML）。oldTotal指定かつ増減ありなら 変更前→変更後＋差額 */
-function amountBlockHtml(d: RescheduleEmailData): string {
+function amountBlockHtml(d: RescheduleEmailData, forCustomer = false): string {
   if (!d.showAmount) return '';
   if (d.oldTotal !== undefined && d.oldTotal !== d.total) {
     const diff = d.total - d.oldTotal;
     const color = diff > 0 ? '#b45309' : '#15803d';
+    const note = forCustomer ? `<p style="margin:6px 0 0;color:#6b7280;font-size:13px">${DIFF_FOLLOWUP_NOTE}</p>` : '';
     return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin:12px 0;background:#f9fafb">
 <p style="margin:2px 0;color:#6b7280;font-size:13px">お支払い金額の変更</p>
 <p style="margin:2px 0">変更前（税込）: <span style="color:#9ca3af;text-decoration:line-through">${yen(d.oldTotal)}</span></p>
 <p style="margin:2px 0;font-size:18px">変更後（税込）: <strong>${yen(d.total)}</strong></p>
 <p style="margin:4px 0 0;color:${color};font-weight:600">${diffLabel(d.oldTotal, d.total)}</p>
-</div>`;
+${note}</div>`;
   }
   return `<p style="font-size:18px">変更後の合計金額（税込）: <strong>${yen(d.total)}</strong></p>`;
 }
@@ -283,7 +288,7 @@ function changeSummaryHtml(d: RescheduleEmailData): string {
 export function rescheduleEmail(d: RescheduleEmailData): { subject: string; html: string; text: string } {
   const label = d.status === 'tentative' ? '仮予約（商談中）' : 'ご予約';
   const subject = `【レンタルスペースALBE】${label}の内容を変更しました（${d.bookingNumber}）`;
-  const amountText = amountBlockText(d);
+  const amountText = amountBlockText(d, true);
   const text = `${d.customerName} 様
 
 ${label}の内容を下記の通り変更いたしました。
@@ -299,7 +304,7 @@ ${daysBlockText(d.oldDays)}
 ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}
 
 ご不明な点がございましたらお問い合わせください。`;
-  const amountHtml = amountBlockHtml(d);
+  const amountHtml = amountBlockHtml(d, true);
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p><strong>${label}</strong>の内容を下記の通り変更いたしました。</p>
@@ -584,6 +589,89 @@ ${feeLine}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">キャンセル料</td><td>${d.cancelFee > 0 ? yen(d.cancelFee) : 'なし'}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}${d.customerEmail ? '（' + escapeHtml(d.customerEmail) + (d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : '') + '）' : ''}</td></tr>
 </table>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 支払い方法＋入金状況のラベル（返金処理の判断材料）#64 */
+export function paymentMethodStatusLabel(method: string | null, status?: string | null): string {
+  const m =
+    ({ stripe: 'Stripe（カード・Apple Pay・コンビニ）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' } as Record<string, string>)[method ?? ''] ||
+    method ||
+    '不明';
+  if (!status) return m;
+  const s = ({ paid: '入金済み', unpaid: '未入金', invoice: '請求書払い（未収）' } as Record<string, string>)[status] || status;
+  return `${m}（${s}）`;
+}
+
+/**
+ * 管理者向け：返金／追加請求の対応要アラート（#62/#63/#64）。
+ * 予約変更で差額が出た場合・キャンセルで返金が生じる場合のみ発信する
+ * （料金変動なし・返金ゼロのときは呼び出さない）。支払い方法と入金状況を明記し、
+ * 返金処理をどう行えばよいか一目で分かるようにする。
+ */
+export function adminPaymentActionAlertEmail(d: {
+  kind: 'reschedule' | 'cancel';
+  action: 'surcharge' | 'refund'; // 追加請求 or 返金
+  amount: number; // 対応が必要な金額（絶対値・税込）
+  bookingNumber: string;
+  spaceName: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  paymentMethod: string | null;
+  paymentStatus?: string | null;
+  oldTotal?: number; // reschedule
+  newTotal?: number; // reschedule
+  cancelFee?: number; // cancel
+  paidAmount?: number; // cancel（既収金額）
+  adminUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const actionLabel = d.action === 'surcharge' ? '追加請求' : '返金';
+  const kindLabel = d.kind === 'reschedule' ? '予約変更' : 'キャンセル';
+  const payLabel = paymentMethodStatusLabel(d.paymentMethod, d.paymentStatus);
+  const subject = `【要対応・${actionLabel}】${actionLabel} ${yen(d.amount)}／${kindLabel}（${d.bookingNumber}）`;
+
+  // 内訳（変更 or キャンセルで出し分け）
+  const breakdownLines: string[] = [];
+  if (d.kind === 'reschedule' && d.oldTotal != null && d.newTotal != null) {
+    breakdownLines.push(`変更前の合計（税込）: ${yen(d.oldTotal)}`);
+    breakdownLines.push(`変更後の合計（税込）: ${yen(d.newTotal)}`);
+  }
+  if (d.kind === 'cancel') {
+    if (d.paidAmount != null) breakdownLines.push(`既収金額（税込）: ${yen(d.paidAmount)}`);
+    if (d.cancelFee != null) breakdownLines.push(`キャンセル料（税込）: ${yen(d.cancelFee)}`);
+  }
+  const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
+  const guide =
+    d.action === 'refund'
+      ? '※返金が必要です。上記の支払い方法・入金状況をご確認のうえ、返金処理をお願いします。未入金の場合は請求額の調整で対応してください。'
+      : '※追加のお支払いが必要です。支払い方法・入金状況をご確認のうえ、追加請求の手続きをお願いします。';
+
+  const text = `${kindLabel}にともない、${actionLabel}の対応が必要です。
+
+■ ${actionLabel}金額（税込）: ${yen(d.amount)}
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+お客様: ${contact}
+支払い方法: ${payLabel}
+${breakdownLines.length ? '\n【内訳】\n' + breakdownLines.map((l) => '  ' + l).join('\n') + '\n' : ''}
+${guide}${d.adminUrl ? `\n\n管理画面: ${d.adminUrl}` : ''}`;
+
+  const amountColor = d.action === 'surcharge' ? '#b45309' : '#15803d';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>${escapeHtml(kindLabel)}</strong>にともない、<strong style="color:${amountColor}">${escapeHtml(actionLabel)}の対応が必要</strong>です。</p>
+<p style="font-size:20px;margin:8px 0;color:${amountColor}"><strong>${escapeHtml(actionLabel)} ${yen(d.amount)}</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い方法</td><td><strong>${escapeHtml(payLabel)}</strong></td></tr>
+</table>
+${breakdownLines.length ? '<p style="margin:6px 0;color:#6b7280">内訳</p><ul style="margin:4px 0">' + breakdownLines.map((l) => '<li>' + escapeHtml(l) + '</li>').join('') + '</ul>' : ''}
+<p style="background:#fff8e6;border:1px solid #f0c36d;color:#a15c00;border-radius:8px;padding:10px 14px;font-size:13px">${escapeHtml(guide)}</p>
+${d.adminUrl ? `<p style="margin:16px 0"><a href="${escapeHtml(d.adminUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">管理画面で確認</a></p>` : ''}
 </div>`;
   return withSignature({ subject, html, text });
 }

@@ -13,6 +13,7 @@ const app = new Hono<AppBindings>();
 const PAY_LABEL: Record<string, string> = {
   stripe: 'クレジットカード等（Stripe）',
   paypal: 'PayPal',
+  bank_transfer: '銀行振込（Stripe収納代行）',
   invoice: '銀行振込（請求書払い）',
 };
 

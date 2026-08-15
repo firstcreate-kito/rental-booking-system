@@ -24,6 +24,32 @@ describe('buildBankTransferBody', () => {
   });
 });
 
+describe('buildCheckoutBody - 支払い手段の明示指定（#67）', () => {
+  const base = {
+    productName: 'ご予約 20260901-001',
+    amountJpy: 4840,
+    successUrl: 'https://x/ok',
+    cancelUrl: 'https://x/ng',
+    clientReferenceId: 'pay1',
+    metadata: { kind: 'booking', groupId: 'g1' },
+  };
+  it('paymentMethodTypes 未指定なら payment_method_types を出さない（自動判定）', () => {
+    const p = new URLSearchParams(buildCheckoutBody(base));
+    expect(p.get('payment_method_types[0]')).toBeNull();
+  });
+  it("['card'] 指定でカードのみ（コンビニ除外）", () => {
+    const p = new URLSearchParams(buildCheckoutBody({ ...base, paymentMethodTypes: ['card'] }));
+    expect(p.get('payment_method_types[0]')).toBe('card');
+    expect(p.get('payment_method_types[1]')).toBeNull();
+  });
+  it("['card','konbini'] 指定でコンビニも含む＋有効期限を設定", () => {
+    const p = new URLSearchParams(buildCheckoutBody({ ...base, paymentMethodTypes: ['card', 'konbini'], konbiniExpiresAfterDays: 3 }));
+    expect(p.get('payment_method_types[0]')).toBe('card');
+    expect(p.get('payment_method_types[1]')).toBe('konbini');
+    expect(p.get('payment_method_options[konbini][expires_after_days]')).toBe('3');
+  });
+});
+
 /** テスト内で正しい Stripe-Signature ヘッダを生成する（本番の Stripe と同じ HMAC-SHA256） */
 async function signPayload(payload: string, secret: string, t: number): Promise<string> {
   const key = await crypto.subtle.importKey(

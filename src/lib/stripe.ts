@@ -27,6 +27,13 @@ export interface CheckoutParams {
   metadata: Record<string, string>;
   /** 内部購入ID（client_reference_id） */
   clientReferenceId: string;
+  /**
+   * 決済手段の明示指定（#67）。未指定なら Stripe の自動判定（ダッシュボード設定）。
+   * 例：['card']（カードのみ／コンビニ除外）、['card','konbini']（カード＋コンビニ）。
+   */
+  paymentMethodTypes?: string[];
+  /** コンビニ払込票の有効期限（日）。konbini 指定時のみ有効。 */
+  konbiniExpiresAfterDays?: number;
 }
 
 /**
@@ -47,6 +54,13 @@ export function buildCheckoutBody(p: CheckoutParams): string {
     body.set(`metadata[${k}]`, v);
     // payment_intent にもメタデータを引き継ぐ（照合用）
     body.set(`payment_intent_data[metadata][${k}]`, v);
+  }
+  // 決済手段を明示する場合（#67）。指定時は自動判定に頼らず列挙する。
+  if (p.paymentMethodTypes && p.paymentMethodTypes.length) {
+    p.paymentMethodTypes.forEach((t, i) => body.set(`payment_method_types[${i}]`, t));
+    if (p.paymentMethodTypes.includes('konbini') && p.konbiniExpiresAfterDays) {
+      body.set('payment_method_options[konbini][expires_after_days]', String(p.konbiniExpiresAfterDays));
+    }
   }
   return body.toString();
 }

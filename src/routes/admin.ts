@@ -1124,9 +1124,11 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     blockName: body.blockName ? String(body.blockName) : null,
     sortOrder: Number(body.sortOrder ?? 0),
     isActive: body.isActive !== false,
-    allowCard: body.allowCard !== false, // 既定でカード決済可
-    allowPaypal: body.allowPaypal === true, // 既定でPayPalは無効
-    allowInvoice: body.allowInvoice === true, // 既定で請求書払いは無効
+    // 支払いモード（#67）。未指定は card_bank（②）を既定に。
+    paymentMode:
+      body.paymentMode === 'card_only' || body.paymentMode === 'card_konbini_bank'
+        ? body.paymentMode
+        : 'card_bank',
   };
   return { input };
 }

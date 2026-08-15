@@ -52,13 +52,19 @@ function toPublicSpace(s: SpaceRow) {
     allowCard: !!s.allow_card,
     allowPaypal: !!s.allow_paypal,
     allowInvoice: !!s.allow_invoice,
+    paymentMode: s.payment_mode, // 支払いモード（#67）
   };
+}
+
+/** コンビニ払いが本番で有効か（Stripeダッシュボード設定済み・#39/#67）。既定OFF。 */
+function konbiniEnabled(env: AppBindings['Bindings']): boolean {
+  return String(env.STRIPE_KONBINI_ENABLED ?? '').toLowerCase() === 'true';
 }
 
 /** GET /api/spaces スペース一覧 */
 app.get('/', async (c) => {
   const spaces = await getActiveSpaces(c.env.DB);
-  return c.json({ spaces: spaces.map(toPublicSpace) });
+  return c.json({ spaces: spaces.map(toPublicSpace), konbiniEnabled: konbiniEnabled(c.env) });
 });
 
 /** GET /api/spaces/:id 単一スペース */

@@ -32,6 +32,8 @@ VALUES
 
 -- 支払い方法（#38）: 既定はカード決済のみ。法人利用の多い施設は請求書払いも有効化。
 UPDATE spaces SET allow_invoice = 1 WHERE id IN ('albe-hall-nagoya', 'meieki-free');
+-- 支払いモード（#67）：カード・PayPalは全モード共通ON、振込ONなら②、なしは①（本番マイグレーションと同じ整合）
+UPDATE spaces SET allow_card = 1, allow_paypal = 1, payment_mode = CASE WHEN allow_invoice = 1 THEN 'card_bank' ELSE 'card_only' END;
 
 -- 北岡崎倉庫スペース: 土日祝のみ営業・最長7時間・時間料金5500円のみ（1日料金なし）。
 --   平日は貸出なし(weekday_available=0, weekday_rate=NULL)。

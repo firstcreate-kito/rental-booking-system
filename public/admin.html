@@ -296,13 +296,13 @@
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked style="width:auto"> 土日祝に予約可</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked style="width:auto"> 公開する</label>
         </div>
-        <label style="margin-top:10px">お支払い方法（お客様が選べる決済手段）</label>
-        <div class="row" style="gap:18px;margin-top:4px">
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_card" checked style="width:auto"> Stripe（各種クレジットカード・Apple Pay・コンビニ払い）</label>
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_paypal" style="width:auto"> PayPal</label>
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_invoice" style="width:auto"> 銀行振込（Stripe収納代行）</label>
+        <label style="margin-top:10px">お支払い方法（プリセット）</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_only" style="width:auto;margin-top:3px"> <span>① クレジットカード決済のみ<br><span class="muted" style="font-size:12px">カード（Stripe）＋PayPal。直前まで予約可。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="width:auto;margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用5日前まで（直前は非表示）。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="width:auto;margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニ・銀行振込とも利用5日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
         </div>
-        <div class="muted" style="font-size:12px">※銀行振込（Stripe収納代行）は、お客様ごとに振込専用口座を発行し、入金確認後に予約確定・領収書を自動発行します。ご利用日の5日前まで受付（直前予約は不可）。</div>
+        <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行し、ご利用日の5日前までの受付です。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -1031,9 +1031,10 @@ function fillSpaceForm(s) {
   document.getElementById('sp_wda').checked = s ? !!s.weekday_available : true;
   document.getElementById('sp_wea').checked = s ? !!s.weekend_available : true;
   document.getElementById('sp_active').checked = s ? !!s.is_active : true;
-  document.getElementById('sp_card').checked = s ? !!s.allow_card : true;
-  document.getElementById('sp_paypal').checked = s ? !!s.allow_paypal : false;
-  document.getElementById('sp_invoice').checked = s ? !!s.allow_invoice : false;
+  // 支払いモード（#67）。旧データ（payment_mode 未設定）は allow_invoice から推定。
+  const mode = s ? (s.payment_mode || (s.allow_invoice ? 'card_bank' : 'card_only')) : 'card_bank';
+  const modeEl = document.querySelector('input[name="sp_paymode"][value="' + mode + '"]');
+  if (modeEl) modeEl.checked = true;
   document.getElementById('spMsg').textContent = '';
   document.getElementById('spForm').classList.remove('hidden');
 }
@@ -1067,9 +1068,7 @@ async function saveSpace() {
     weekdayAvailable: document.getElementById('sp_wda').checked,
     weekendAvailable: document.getElementById('sp_wea').checked,
     isActive: document.getElementById('sp_active').checked,
-    allowCard: document.getElementById('sp_card').checked,
-    allowPaypal: document.getElementById('sp_paypal').checked,
-    allowInvoice: document.getElementById('sp_invoice').checked,
+    paymentMode: (document.querySelector('input[name="sp_paymode"]:checked') || {}).value || 'card_bank',
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing

@@ -359,6 +359,7 @@ async function loadSpaces() {
   setStep(0);
   const { body } = await api('/api/spaces');
   S.spaces = body.spaces || [];
+  S.konbiniEnabled = !!body.konbiniEnabled; // コンビニ払いが本番で有効か（#67/#39）
   document.getElementById('spaceGrid').innerHTML = S.spaces.map(s => {
     const rate = s.weekdayRate ? (yen(s.weekdayRate) + '/時〜') : '要問合せ';
     return '<div class="space" onclick="selectSpace(\'' + s.id + '\')"><h3>' + s.name + '</h3>' +
@@ -827,20 +828,6 @@ async function renderQuestions() {
 const PAY_INVOICE_DEADLINE_DAYS = 5;
 function renderPayment() {
   const sp = S.space || {};
-  // ゲスト（非会員）はクレジットカード即時決済のみ（#55）。振込・請求書は会員限定。
-  const isGuest = !S.member;
-  if (isGuest) {
-    const cardHtml = sp.allowCard
-      ? '<label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="paymethod" value="stripe" style="width:auto" checked onchange="onPayMethodChange()"> Stripe（各種クレジットカード・Apple Pay・コンビニ払い）</label>'
-      : '<div class="muted">この施設はクレジットカード決済に対応していません。会員登録のうえ、他のお支払い方法をご利用ください。</div>';
-    document.getElementById('payMethods').innerHTML = cardHtml;
-    document.getElementById('invoiceNameWrap').classList.add('hidden');
-    document.getElementById('payNote').textContent = '会員登録なしのご予約は、クレジットカード決済のみのご利用となります。';
-    return;
-  }
-  const methods = [];
-  if (sp.allowCard) methods.push({ v: 'stripe', label: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）' });
-  if (sp.allowPaypal) methods.push({ v: 'paypal', label: 'PayPal' });
   // 最も早い利用日までの日数
   const earliest = (S.cart || []).map(c => c.date).sort()[0];
   let daysUntil = 999;
@@ -849,6 +836,23 @@ function renderPayment() {
     const d = new Date(earliest + 'T00:00:00');
     daysUntil = Math.round((d - t) / 86400000);
   }
+  // カード欄のラベル：モード③＋会員＋利用5日以上＋本番でコンビニ有効化済みのときだけ「コンビニ払い」を明記（#67）
+  const konbiniShown = !!S.konbiniEnabled && sp.paymentMode === 'card_konbini_bank' && !!S.member && daysUntil >= PAY_INVOICE_DEADLINE_DAYS;
+  const cardLabel = 'Stripe（各種クレジットカード・Apple Pay' + (konbiniShown ? '・コンビニ払い' : '') + '）';
+  // ゲスト（非会員）はクレジットカード即時決済のみ（#55）。振込・コンビニは会員限定。
+  const isGuest = !S.member;
+  if (isGuest) {
+    const cardHtml = sp.allowCard
+      ? '<label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="paymethod" value="stripe" style="width:auto" checked onchange="onPayMethodChange()"> Stripe（各種クレジットカード・Apple Pay）</label>'
+      : '<div class="muted">この施設はクレジットカード決済に対応していません。会員登録のうえ、他のお支払い方法をご利用ください。</div>';
+    document.getElementById('payMethods').innerHTML = cardHtml;
+    document.getElementById('invoiceNameWrap').classList.add('hidden');
+    document.getElementById('payNote').textContent = '会員登録なしのご予約は、クレジットカード決済のみのご利用となります。';
+    return;
+  }
+  const methods = [];
+  if (sp.allowCard) methods.push({ v: 'stripe', label: cardLabel });
+  if (sp.allowPaypal) methods.push({ v: 'paypal', label: 'PayPal' });
   const invoiceTooClose = daysUntil < PAY_INVOICE_DEADLINE_DAYS;
   let html = methods.map((m, i) =>
     '<label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="paymethod" value="' + m.v + '" style="width:auto"' + (i === 0 ? ' checked' : '') + ' onchange="onPayMethodChange()"> ' + m.label + '</label>').join('');

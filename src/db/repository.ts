@@ -30,7 +30,11 @@ export interface SpaceRow {
   allow_card: number;
   allow_paypal: number;
   allow_invoice: number;
+  payment_mode: string; // 'card_only' | 'card_bank' | 'card_konbini_bank'（#67）
 }
+
+/** 支払いモード（#67） */
+export type PaymentMode = 'card_only' | 'card_bank' | 'card_konbini_bank';
 
 /** スペース作成/更新の入力 */
 export interface SpaceInput {
@@ -54,9 +58,8 @@ export interface SpaceInput {
   blockName?: string | null;
   sortOrder: number;
   isActive: boolean;
-  allowCard: boolean;
-  allowPaypal: boolean;
-  allowInvoice: boolean;
+  /** 支払いモード（#67）。カード＋PayPalは全モード共通、振込/コンビニの有無で分岐 */
+  paymentMode: PaymentMode;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -95,9 +98,11 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.blockName ?? null,
     s.sortOrder,
     s.isActive ? 1 : 0,
-    s.allowCard ? 1 : 0,
-    s.allowPaypal ? 1 : 0,
-    s.allowInvoice ? 1 : 0,
+    // カード・PayPalは全モード共通でON。振込は card_only 以外で許可（コンビニはCheckout側で制御）#67
+    1,
+    1,
+    s.paymentMode === 'card_only' ? 0 : 1,
+    s.paymentMode,
   ];
 }
 
@@ -108,8 +113,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
        (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
-        allow_card, allow_paypal, allow_invoice)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        allow_card, allow_paypal, allow_invoice, payment_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -122,7 +127,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
-        allow_card = ?, allow_paypal = ?, allow_invoice = ?
+        allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)

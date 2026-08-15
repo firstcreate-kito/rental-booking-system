@@ -682,6 +682,13 @@ app.post('/', async (c) => {
       checkoutError = 'stripe_not_configured';
     } else {
       const payId = crypto.randomUUID();
+      // コンビニ払いの可否（#67）：モード③かつ会員かつ利用5日前以上、さらに本番で有効化済み(env)のときのみ。
+      // ゲストや直前(<5日)はカードのみ（未入金リスク回避）。それ以外はカードのみを明示してコンビニを除外。
+      const konbiniReady = String(c.env.STRIPE_KONBINI_ENABLED ?? '').toLowerCase() === 'true';
+      const earliestUse = [...body.items].map((i) => i.date).sort()[0];
+      const leadDays = daysBetween(today, earliestUse);
+      const konbiniOk =
+        konbiniReady && space.payment_mode === 'card_konbini_bank' && !!member && leadDays >= INVOICE_DEADLINE_DAYS;
       try {
         const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
           productName: `ご予約 ${bookingNumber}（${space.name}）`,
@@ -691,6 +698,8 @@ app.post('/', async (c) => {
           customerEmail: email || undefined,
           clientReferenceId: payId,
           metadata: { kind: 'booking', groupId, bookingNumber },
+          paymentMethodTypes: konbiniOk ? ['card', 'konbini'] : ['card'],
+          konbiniExpiresAfterDays: konbiniOk ? 3 : undefined,
         });
         await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
         checkoutUrl = session.url;

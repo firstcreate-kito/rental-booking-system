@@ -23,6 +23,8 @@ export interface Env {
   /** Stripe 決済（チケット購入）。SECRET_KEY と WEBHOOK_SECRET 両方セット時のみ有効 */
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  /** コンビニ払いを本番で有効化（Stripeダッシュボード設定済みのとき 'true'）#67/#39 */
+  STRIPE_KONBINI_ENABLED?: string;
   /** PayPal 決済。CLIENT_ID と CLIENT_SECRET 両方セット時のみ有効。MODE は 'sandbox'(既定)/'live' */
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;

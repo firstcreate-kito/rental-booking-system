@@ -209,9 +209,9 @@
       <label>ご希望の日時（分かる範囲でOK）</label>
       <div class="row" style="gap:8px;flex-wrap:wrap">
         <input id="cr_date" type="date" style="flex:1;min-width:140px" />
-        <input id="cr_start" type="time" step="1800" style="width:110px" />
+        <select id="cr_start" style="width:110px"></select>
         <span style="align-self:center">〜</span>
-        <input id="cr_end" type="time" step="1800" style="width:110px" />
+        <select id="cr_end" style="width:110px"></select>
       </div>
     </div>
     <div style="margin-bottom:10px">
@@ -341,8 +341,26 @@ function bookingRow(b) {
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
+// 30分刻みの時刻オプションを生成（それ以外の時刻は選べない）
+function buildCrTimeOptions() {
+  const start = document.getElementById('cr_start');
+  const end = document.getElementById('cr_end');
+  if (start.options.length && end.options.length) return; // 生成済み
+  const opt = v => '<option value="' + v + '">' + (v || '--:--') + '</option>';
+  let sHtml = opt(''), eHtml = opt('');
+  for (let m = 0; m <= 24 * 60; m += 30) {
+    const hh = String(Math.floor(m / 60)).padStart(2, '0');
+    const mm = String(m % 60).padStart(2, '0');
+    const t = hh + ':' + mm;
+    if (m < 24 * 60) sHtml += opt(t);   // 開始：00:00〜23:30
+    if (m > 0) eHtml += opt(t);         // 終了：00:30〜24:00
+  }
+  start.innerHTML = sHtml;
+  end.innerHTML = eHtml;
+}
 function openChangeReq(number, spaceName) {
   _crNum = number;
+  buildCrTimeOptions();
   document.getElementById('cr_num').textContent = number;
   document.getElementById('cr_space').textContent = spaceName || '';
   document.getElementById('cr_type').value = 'reschedule';

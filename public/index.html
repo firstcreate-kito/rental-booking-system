@@ -151,7 +151,11 @@
         会員登録して予約する（おすすめ）
         <div style="font-size:12px;opacity:.9;margin-top:2px">クーポン・ポイントが使えます ／ 登録後そのままご予約を続けられます</div>
       </button>
-      <div class="muted" style="margin-top:10px;font-size:13px">すでに会員の方は <a href="javascript:void(0)" onclick="chooseLogin()">こちらからログイン</a></div>
+      <!-- すでに会員の方（登録ボタンと同等の大きさ） -->
+      <button class="btn ghost" style="width:100%;padding:16px;text-align:left;margin-top:10px" onclick="chooseLogin()">
+        すでに会員の方はこちらからログイン
+        <div style="font-size:12px;margin-top:2px">ログインしてクーポン・ポイントを使う</div>
+      </button>
       <!-- 会員登録せずに予約（控えめ・枠なしのリンク風ボタン） -->
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);text-align:center">
         <button onclick="chooseGuest()" style="background:none;border:none;color:var(--brand);text-decoration:underline;cursor:pointer;font-size:13px;padding:4px">

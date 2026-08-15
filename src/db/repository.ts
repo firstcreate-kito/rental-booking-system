@@ -456,6 +456,47 @@ export async function isBlacklisted(
   return !!row;
 }
 
+/**
+ * 予約受付を拒否すべきか（ブラックリスト判定）#69。
+ * 顧客リストで is_blocked=1 の顧客に「メール または 電話」が一致するか、
+ * 旧 blacklist 表に該当があれば拒否する。会員・ゲスト双方に適用。
+ * メール／電話のどちらか一方でも一致すれば拒否（連絡先を変えた再予約も捕捉）。
+ */
+export async function isBookingBlocked(
+  db: D1Database,
+  email: string,
+  phone: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS hit FROM customers WHERE is_blocked = 1 AND (email = ?1 OR phone = ?2)
+       UNION ALL
+       SELECT 1 AS hit FROM blacklist WHERE (type = 'email' AND value = ?1) OR (type = 'phone' AND value = ?2)
+       LIMIT 1`,
+    )
+    .bind(email, phone)
+    .first<{ hit: number }>();
+  return !!row;
+}
+
+/** 顧客のブラックリスト状態を設定（管理画面のチェックボックス）#69 */
+export async function setCustomerBlocked(
+  db: D1Database,
+  customerId: string,
+  blocked: boolean,
+  reason: string | null,
+  adminId: string | null,
+  now: string,
+): Promise<{ ok: boolean }> {
+  const res = await db
+    .prepare(
+      `UPDATE customers SET is_blocked = ?, blocked_reason = ?, blocked_at = ?, blocked_by = ? WHERE id = ?`,
+    )
+    .bind(blocked ? 1 : 0, blocked ? reason : null, blocked ? now : null, blocked ? adminId : null, customerId)
+    .run();
+  return { ok: (res.meta?.changes ?? 0) > 0 };
+}
+
 /** 顧客をメールで検索。なければ null */
 export async function getCustomerByEmail(
   db: D1Database,
@@ -588,7 +629,7 @@ export async function getCustomerProfile(db: D1Database, customerId: string) {
   return db
     .prepare(
       `SELECT id, email, company_name, contact_name, phone, postal_code, address, invoice_number,
-              status_id, point_balance, is_registered, created_at, last_login_at
+              status_id, point_balance, is_registered, is_blocked, blocked_reason, created_at, last_login_at
        FROM customers WHERE id = ?`,
     )
     .bind(customerId)

@@ -9,7 +9,7 @@ import {
   getSpaceBookingsOnDate,
   getOccupyingIntervalsExcludingGroup,
   getSystemSettings,
-  isBlacklisted,
+  isBookingBlocked,
   getCustomerByEmail,
   getBookingGroupByNumber,
   getBookingGroupById,
@@ -65,7 +65,7 @@ import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
 
 const app = new Hono<AppBindings>();
 
-const BLACKLIST_MESSAGE = '申し訳ございませんが、ご予約をお受けすることができません。';
+const BLACKLIST_MESSAGE = '予約が拒否されました。';
 
 /** DBのキャンペーン行を適用判定用の候補に変換 */
 function toCampaignCandidates(
@@ -236,8 +236,10 @@ app.post('/', async (c) => {
   // 会員ログインの有無（クーポン/ポイントは会員のみ）
   const member = await getOptionalCustomer(c);
 
-  // ブラックリストチェック（ゲストのみ。会員は登録済みアカウント）
-  if (!member && (await isBlacklisted(db, email, phone))) {
+  // ブラックリストチェック（#69）。会員・ゲスト双方に適用。
+  // メール または 電話 のどちらかがブロック対象に一致したら予約を受け付けない
+  // （連絡先を変えての再予約も、どちらか一方が一致すれば捕捉する）。
+  if (await isBookingBlocked(db, email, phone)) {
     return c.json({ error: BLACKLIST_MESSAGE }, 403);
   }
 

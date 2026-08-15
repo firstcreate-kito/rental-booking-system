@@ -31,6 +31,7 @@ import {
   issueCoupon,
   adjustPoints,
   getCustomerProfile,
+  setCustomerBlocked,
   getPointBalanceAndLog,
   getMemberCoupons,
   getMemberTickets,
@@ -1422,6 +1423,21 @@ app.post('/customers/:id/points', requireRole('owner', 'manager'), async (c) => 
     nowJST(),
   );
   return c.json({ balanceAfter });
+});
+
+/** POST /api/admin/customers/:id/block ブラックリスト設定（owner/manager）#69
+ *  body:{ blocked:boolean, reason?:string }。blocked=true でこの顧客からの予約を拒否。
+ *  メール／電話のどちらか一致でも予約は拒否される（予約API側の isBookingBlocked）。 */
+app.post('/customers/:id/block', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const profile = await getCustomerProfile(c.env.DB, id);
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const blocked = body.blocked === true;
+  const reason = body.reason ? String(body.reason).trim() : null;
+  const r = await setCustomerBlocked(c.env.DB, id, blocked, reason, c.get('admin').id, nowJST());
+  if (!r.ok) return c.json({ error: '更新に失敗しました' }, 500);
+  return c.json({ blocked });
 });
 
 // ---------------------------------------------------------------------------

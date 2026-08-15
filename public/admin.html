@@ -599,6 +599,19 @@
         </div>
         <div class="muted" id="csInfo"></div>
 
+        <!-- ブラックリスト（アンウェルカムゲスト）#69 -->
+        <div class="card" id="csBlockBox" style="margin:12px 0 0;background:#fff">
+          <label class="row" style="gap:8px;align-items:flex-start;cursor:pointer;margin:0">
+            <input type="checkbox" id="cs_blocked" onchange="toggleBlocked()" style="margin-top:3px;width:18px;height:18px" />
+            <span>
+              <strong>ブラックリスト（予約をお断りする）</strong>
+              <div class="muted" style="font-size:12px">チェックすると、この顧客からの予約は受け付けません。<strong>メールアドレスまたは電話番号のどちらか</strong>が一致する予約もお断りします（連絡先を変えた再予約も拒否）。</div>
+            </span>
+          </label>
+          <div style="margin-top:8px"><input id="cs_block_reason" placeholder="理由（任意・管理用メモ）" /></div>
+          <div class="msg" id="csBlockMsg"></div>
+        </div>
+
         <div class="grid2" style="margin-top:14px">
           <!-- ポイント付与 -->
           <div class="card" style="margin:0">
@@ -1238,7 +1251,7 @@ async function searchCustomers() {
   const rows = body.customers || [];
   document.getElementById('csEmpty').textContent = rows.length ? '' : '該当する顧客がいません';
   document.getElementById('csBody').innerHTML = rows.map(c =>
-    '<tr><td>' + (c.contact_name||'') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
+    '<tr><td>' + (c.contact_name||'') + (c.is_blocked ? ' <span class="pill bad" style="font-size:11px">ブラックリスト</span>' : '') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
     (c.is_registered ? '会員' : 'ゲスト') + '</td><td><button class="btn ghost sm" onclick="selectCustomer(\'' + c.id + '\')">特典操作</button></td></tr>').join('');
 }
 function toggleNewCustomer(show) {
@@ -1269,7 +1282,11 @@ async function selectCustomer(id) {
   selectedCustomer = id;
   const p = body.profile;
   document.getElementById('csName').textContent = (p.contact_name||'') + ' さん';
-  document.getElementById('csInfo').textContent = (p.email||'') + '　' + (p.is_registered ? '会員' : 'ゲスト');
+  document.getElementById('csInfo').textContent = (p.email||'') + '　' + (p.phone||'') + '　' + (p.is_registered ? '会員' : 'ゲスト');
+  // ブラックリスト状態を反映（#69）
+  document.getElementById('cs_blocked').checked = !!p.is_blocked;
+  document.getElementById('cs_block_reason').value = p.blocked_reason || '';
+  document.getElementById('csBlockMsg').textContent = '';
   document.getElementById('csPts').textContent = body.points.balance;
   document.getElementById('csCoupons').innerHTML = (body.coupons||[]).map(c => {
     const off = c.discount_type === 'percent' ? (c.discount_value+'%') : yen(c.discount_value);
@@ -1288,6 +1305,19 @@ async function selectCustomer(id) {
   const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1);
   document.getElementById('tk_until').value = oneYear.toISOString().slice(0, 10);
   document.getElementById('csDetail').classList.remove('hidden');
+}
+async function toggleBlocked() {
+  const cb = document.getElementById('cs_blocked');
+  const blocked = cb.checked;
+  const reason = document.getElementById('cs_block_reason').value.trim();
+  const msg = document.getElementById('csBlockMsg');
+  if (blocked && !confirm('この顧客をブラックリストに登録します。今後この顧客（メール／電話が一致する予約を含む）からの予約は拒否されます。よろしいですか？')) {
+    cb.checked = false; return;
+  }
+  const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/block', jsonBody({ blocked, reason }));
+  if (!ok) { cb.checked = !blocked; msg.className='msg bad'; msg.textContent = body.error || '更新に失敗しました'; return; }
+  msg.className='msg ok'; msg.textContent = blocked ? 'ブラックリストに登録しました' : 'ブラックリストを解除しました';
+  await searchCustomers(); // 一覧の表示を更新
 }
 async function submitPoints() {
   const msg = document.getElementById('ptMsg2');

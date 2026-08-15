@@ -12,8 +12,24 @@ import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
 import documents from './routes/documents';
-import { getOverdueUnpaidBookings, markUnpaidAlertSent, getBookingsMissingCalendarEvent } from './db/repository';
-import { unpaidAlertEmail, sendEmail, type OverdueBooking } from './lib/email';
+import {
+  getOverdueUnpaidBookings,
+  markUnpaidAlertSent,
+  getBookingsMissingCalendarEvent,
+  getBookingsForUseDateReminder,
+  getBookingsForThanks,
+  getBookingsForUnpaidCustomerReminder,
+  getGroupDays,
+  markGroupEmailFlag,
+} from './db/repository';
+import {
+  unpaidAlertEmail,
+  sendEmail,
+  bookingReminderEmail,
+  thankYouEmail,
+  unpaidCustomerReminderEmail,
+  type OverdueBooking,
+} from './lib/email';
 import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
@@ -169,13 +185,85 @@ async function runCalendarReconcile(env: AppBindings['Bindings']): Promise<{ cre
   return reconcileMissingCalendarEvents(env, rows);
 }
 
+/** 受注からこの日数を過ぎても未入金なら、お客様へリマインド（#50） */
+const UNPAID_CUSTOMER_REMINDER_DAYS = 3;
+
+/** 定期メール：利用前リマインダー（3日前・1日前）#45 */
+async function runUseDateReminders(env: AppBindings['Bindings']): Promise<void> {
+  const today = todayJST();
+  const jobs: Array<[3 | 1, 'reminder_3d_sent_at' | 'reminder_1d_sent_at']> = [
+    [3, 'reminder_3d_sent_at'],
+    [1, 'reminder_1d_sent_at'],
+  ];
+  for (const [days, col] of jobs) {
+    const rows = await getBookingsForUseDateReminder(env.DB, col, addDaysJST(today, days));
+    const sent: string[] = [];
+    for (const r of rows) {
+      const dayList = await getGroupDays(env.DB, r.id);
+      await sendEmail(env, {
+        to: r.email,
+        ...bookingReminderEmail({
+          customerName: r.contact_name || 'お客様',
+          bookingNumber: r.booking_number,
+          spaceName: r.space_name || '',
+          eventName: r.event_name,
+          days: dayList,
+          daysBefore: days,
+        }),
+      });
+      sent.push(r.id);
+    }
+    await markGroupEmailFlag(env.DB, col, sent, nowJST());
+  }
+}
+
+/** 定期メール：利用後のお礼（利用終了の翌日）#53 */
+async function runThanks(env: AppBindings['Bindings']): Promise<void> {
+  const origin = env.PUBLIC_BASE_URL || '';
+  const rows = await getBookingsForThanks(env.DB, addDaysJST(todayJST(), -1));
+  const sent: string[] = [];
+  for (const r of rows) {
+    await sendEmail(env, {
+      to: r.email,
+      ...thankYouEmail({ customerName: r.contact_name || 'お客様', spaceName: r.space_name || '', bookingUrl: origin ? origin + '/' : undefined }),
+    });
+    sent.push(r.id);
+  }
+  await markGroupEmailFlag(env.DB, 'thanks_sent_at', sent, nowJST());
+}
+
+/** 定期メール：顧客向け未入金リマインダー（#50） */
+async function runUnpaidCustomerReminder(env: AppBindings['Bindings']): Promise<void> {
+  const cutoff = addDaysJST(todayJST(), -UNPAID_CUSTOMER_REMINDER_DAYS);
+  const rows = await getBookingsForUnpaidCustomerReminder(env.DB, cutoff);
+  const sent: string[] = [];
+  for (const r of rows) {
+    const dayList = await getGroupDays(env.DB, r.id);
+    await sendEmail(env, {
+      to: r.email,
+      ...unpaidCustomerReminderEmail({
+        customerName: r.contact_name || 'お客様',
+        bookingNumber: r.booking_number,
+        spaceName: r.space_name || '',
+        total: r.total_amount,
+        days: dayList,
+      }),
+    });
+    sent.push(r.id);
+  }
+  await markGroupEmailFlag(env.DB, 'unpaid_reminder_sent_at', sent, nowJST());
+}
+
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledController, env: AppBindings['Bindings'], ctx: ExecutionContext): Promise<void> {
-    // GCal取りこぼし補完は毎回（5分間隔）実行。未入金アラートは1日1回のみ。
+    // GCal取りこぼし補完は毎回（5分間隔）実行。それ以外は1日1回（0:00 UTC=9:00 JST）。
     ctx.waitUntil(runCalendarReconcile(env));
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(runUnpaidAlert(env));
+      ctx.waitUntil(runUseDateReminders(env).catch(() => {}));
+      ctx.waitUntil(runThanks(env).catch(() => {}));
+      ctx.waitUntil(runUnpaidCustomerReminder(env).catch(() => {}));
     }
   },
 };

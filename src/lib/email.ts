@@ -591,3 +591,102 @@ ${btn}
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+/** 利用前リマインダー（お客様宛）#45 */
+export function bookingReminderEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  eventName: string;
+  days: DaysList['days'];
+  daysBefore: number;
+}): { subject: string; html: string; text: string } {
+  const when = d.daysBefore === 1 ? '明日' : `${d.daysBefore}日後`;
+  const subject = `【レンタルスペースALBE】ご利用${when}のご予約リマインダー（${d.bookingNumber}）`;
+  const text = `${d.customerName} 様
+
+ご利用${when}のご予約をリマインドいたします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+日時:
+${daysBlockText(d.days)}
+
+当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご利用<strong>${when}</strong>のご予約をリマインドいたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 未入金リマインダー（お客様宛）#50 — キャンセルの可能性を明記 */
+export function unpaidCustomerReminderEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  total: number;
+  days: DaysList['days'];
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】お振込みのご確認のお願い（${d.bookingNumber}）`;
+  const text = `${d.customerName} 様
+
+下記ご予約について、現時点でご入金の確認ができておりません。
+お手数ですが、お振込み状況をご確認いただけますようお願いいたします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+日時:
+${daysBlockText(d.days)}
+お支払い金額（税込）: ${yen(d.total)}
+
+※既にお振込み済みの場合は行き違いですのでご容赦ください。
+※何度かご連絡してもご入金の確認ができない場合は、誠に恐れ入りますが、ご予約をキャンセルとさせていただくことがございます。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>下記ご予約について、現時点で<strong>ご入金の確認ができておりません</strong>。<br>お手数ですが、お振込み状況をご確認いただけますようお願いいたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="font-size:16px">お支払い金額（税込）: <strong>${yen(d.total)}</strong></p>
+<p style="color:#6b7280;font-size:13px">※既にお振込み済みの場合は行き違いですのでご容赦ください。<br>※何度かご連絡してもご入金の確認ができない場合は、誠に恐れ入りますが、ご予約をキャンセルとさせていただくことがございます。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 利用後のお礼／再利用促進（お客様宛）#53 */
+export function thankYouEmail(d: {
+  customerName: string;
+  spaceName: string;
+  bookingUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】ご利用ありがとうございました`;
+  const text = `${d.customerName} 様
+
+先日は「${d.spaceName}」をご利用いただき、誠にありがとうございました。
+またのご利用を心よりお待ちしております。
+${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
+ご意見・ご要望がございましたら、お気軽にお問い合わせください。`;
+  const btn = d.bookingUrl
+    ? `<p style="margin:16px 0"><a href="${escapeHtml(d.bookingUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">次回のご予約はこちら</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>先日は「<strong>${escapeHtml(d.spaceName)}</strong>」をご利用いただき、誠にありがとうございました。<br>またのご利用を心よりお待ちしております。</p>
+${btn}
+<p style="color:#6b7280;font-size:13px">ご意見・ご要望がございましたら、お気軽にお問い合わせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

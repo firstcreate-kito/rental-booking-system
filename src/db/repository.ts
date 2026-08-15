@@ -2039,6 +2039,106 @@ export async function markUnpaidAlertSent(db: D1Database, groupIds: string[], no
     .run();
 }
 
+// ---------------------------------------------------------------------------
+// 定期メール（Cron）: リマインダー・お礼・未入金リマインダー #45/#50/#53
+// ---------------------------------------------------------------------------
+
+export interface CronEmailBookingRow {
+  id: string;
+  booking_number: string;
+  event_name: string;
+  total_amount: number;
+  space_name: string | null;
+  contact_name: string | null;
+  email: string;
+}
+
+/** 送信済みフラグを立てる（column は内部固定の列名のみを渡すこと） */
+export async function markGroupEmailFlag(
+  db: D1Database,
+  column: 'reminder_3d_sent_at' | 'reminder_1d_sent_at' | 'unpaid_reminder_sent_at' | 'thanks_sent_at',
+  groupIds: string[],
+  now: string,
+): Promise<void> {
+  if (!groupIds.length) return;
+  const placeholders = groupIds.map(() => '?').join(',');
+  await db
+    .prepare(`UPDATE booking_groups SET ${column} = ? WHERE id IN (${placeholders})`)
+    .bind(now, ...groupIds)
+    .run();
+}
+
+/** グループの利用日程（メール本文用） */
+export async function getGroupDays(db: D1Database, groupId: string): Promise<Array<{ date: string; startTime: string; endTime: string }>> {
+  const { results } = await db
+    .prepare('SELECT date, start_time, end_time FROM bookings WHERE group_id = ? ORDER BY date, start_time')
+    .bind(groupId)
+    .all<{ date: string; start_time: string; end_time: string }>();
+  return (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time }));
+}
+
+/**
+ * 利用日リマインダー対象（#45）: confirmed で、利用開始日(最初の日)が targetDate、
+ * 指定フラグが未送信、メールあり。当日予約(利用日==本日)は targetDate が未来日なので自然に除外。
+ */
+export async function getBookingsForUseDateReminder(
+  db: D1Database,
+  flagColumn: 'reminder_3d_sent_at' | 'reminder_1d_sent_at',
+  targetDate: string,
+): Promise<CronEmailBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id, bg.booking_number, bg.event_name, bg.total_amount,
+              s.name AS space_name, c.contact_name, c.email
+       FROM booking_groups bg
+       JOIN spaces s ON s.id = bg.space_id
+       JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.status = 'confirmed' AND c.email IS NOT NULL AND c.email <> ''
+         AND bg.${flagColumn} IS NULL
+         AND (SELECT MIN(date) FROM bookings WHERE group_id = bg.id) = ?`,
+    )
+    .bind(targetDate)
+    .all<CronEmailBookingRow>();
+  return results ?? [];
+}
+
+/** 利用後お礼対象（#53）: confirmed で、利用終了日(最後の日)が targetDate(昨日)、未送信、メールあり */
+export async function getBookingsForThanks(db: D1Database, targetDate: string): Promise<CronEmailBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id, bg.booking_number, bg.event_name, bg.total_amount,
+              s.name AS space_name, c.contact_name, c.email
+       FROM booking_groups bg
+       JOIN spaces s ON s.id = bg.space_id
+       JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.status = 'confirmed' AND c.email IS NOT NULL AND c.email <> ''
+         AND bg.thanks_sent_at IS NULL
+         AND (SELECT MAX(date) FROM bookings WHERE group_id = bg.id) = ?`,
+    )
+    .bind(targetDate)
+    .all<CronEmailBookingRow>();
+  return results ?? [];
+}
+
+/** 顧客向け未入金リマインダー対象（#50）: 未入金/請求書 で受注から cutoff 以前、未送信、メールあり */
+export async function getBookingsForUnpaidCustomerReminder(db: D1Database, cutoffDate: string): Promise<CronEmailBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id, bg.booking_number, bg.event_name, bg.total_amount,
+              s.name AS space_name, c.contact_name, c.email
+       FROM booking_groups bg
+       JOIN spaces s ON s.id = bg.space_id
+       JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.status = 'confirmed' AND c.email IS NOT NULL AND c.email <> ''
+         AND bg.payment_status IN ('unpaid','invoice') AND bg.total_amount > 0
+         AND bg.unpaid_reminder_sent_at IS NULL
+         AND date(bg.created_at) <= date(?)`,
+    )
+    .bind(cutoffDate)
+    .all<CronEmailBookingRow>();
+  return results ?? [];
+}
+
 /** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */
 export async function deleteTicketProduct(db: D1Database, id: string): Promise<{ deleted: boolean }> {
   const ref = await db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE product_id = ?').bind(id).first<{ n: number }>();

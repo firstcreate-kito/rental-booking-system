@@ -343,3 +343,58 @@ ${daysBlockText(d.days)}
 </div>`;
   return { subject, html, text };
 }
+
+export interface OverdueBooking {
+  bookingNumber: string;
+  spaceName: string;
+  total: number;
+  createdAt: string;
+  paymentMethod: string | null;
+  recipientName: string;
+  customerEmail: string | null;
+}
+
+/** 未入金アラート（管理者宛・#41/#42）。予約確定後、期日を過ぎても入金がない予約を通知する。 */
+export function unpaidAlertEmail(d: { days: number; bookings: OverdueBooking[] }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const n = d.bookings.length;
+  const subject = `【要確認】${d.days}日以上 未入金の予約が ${n} 件あります`;
+  const line = (b: OverdueBooking) =>
+    `${b.bookingNumber}  ${b.spaceName}  ${yen(b.total)}  宛名:${b.recipientName}  受注:${(b.createdAt || '').slice(0, 10)}  ${b.customerEmail || ''}`;
+  const text = `予約確定から${d.days}日以上経過しても入金が確認できていない予約が ${n} 件あります。
+入金状況をご確認のうえ、必要に応じてお客様へご連絡ください。入金確認後は管理画面から領収書を発行できます。
+
+${d.bookings.map(line).join('\n')}
+
+※このメールは自動送信です（1予約につき1回のみ）。`;
+  const rows = d.bookings
+    .map(
+      (b) =>
+        `<tr><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>${escapeHtml(b.bookingNumber)}</strong></td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${escapeHtml(b.spaceName)}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${yen(b.total)}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${escapeHtml(b.recipientName)}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${escapeHtml((b.createdAt || '').slice(0, 10))}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${escapeHtml(b.customerEmail || '')}</td></tr>`,
+    )
+    .join('');
+  const html = `<div style="font-family:sans-serif;line-height:1.6;color:#1f2937">
+<p>予約確定から<strong>${d.days}日以上</strong>経過しても入金が確認できていない予約が <strong>${n}件</strong> あります。<br>
+入金状況をご確認のうえ、必要に応じてお客様へご連絡ください。入金確認後は管理画面から領収書を発行できます。</p>
+<table style="border-collapse:collapse;margin:12px 0;font-size:13px">
+<tr style="background:#f3f4f6">
+<th style="padding:6px 10px;border:1px solid #e5e7eb">予約番号</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb">スペース</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb">金額</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb">宛名</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb">受注日</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb">連絡先</th></tr>
+${rows}
+</table>
+<p style="color:#6b7280;font-size:12px">※このメールは自動送信です（1予約につき1回のみ通知）。</p>
+</div>`;
+  return { subject, html, text };
+}

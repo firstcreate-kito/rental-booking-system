@@ -1825,6 +1825,57 @@ export async function listDocumentsForAdmin(db: D1Database, limit = 200) {
   return results ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// 未入金アラート（#41/#42）
+// ---------------------------------------------------------------------------
+
+export interface OverdueBookingRow {
+  id: string;
+  booking_number: string;
+  total_amount: number;
+  payment_method: string | null;
+  created_at: string;
+  space_name: string | null;
+  contact_name: string | null;
+  email: string | null;
+  invoice_name: string | null;
+}
+
+/**
+ * 予約確定日から一定日数を過ぎても未入金の予約を返す（Cron用）。
+ * 対象: status='confirmed' かつ payment_status が未入金('unpaid')または請求書払い('invoice')、
+ *       created_at の日付が cutoffDate 以前、まだアラート未送信。
+ */
+export async function getOverdueUnpaidBookings(db: D1Database, cutoffDate: string): Promise<OverdueBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id, bg.booking_number, bg.total_amount, bg.payment_method, bg.created_at,
+              bg.invoice_name, s.name AS space_name, c.contact_name, c.email
+       FROM booking_groups bg
+       LEFT JOIN spaces s ON s.id = bg.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.status = 'confirmed'
+         AND bg.payment_status IN ('unpaid', 'invoice')
+         AND bg.total_amount > 0
+         AND date(bg.created_at) <= date(?)
+         AND bg.unpaid_alert_sent_at IS NULL
+       ORDER BY bg.created_at ASC`,
+    )
+    .bind(cutoffDate)
+    .all<OverdueBookingRow>();
+  return results ?? [];
+}
+
+/** アラート送信済みとして記録（重複送信防止） */
+export async function markUnpaidAlertSent(db: D1Database, groupIds: string[], now: string): Promise<void> {
+  if (!groupIds.length) return;
+  const placeholders = groupIds.map(() => '?').join(',');
+  await db
+    .prepare(`UPDATE booking_groups SET unpaid_alert_sent_at = ? WHERE id IN (${placeholders})`)
+    .bind(now, ...groupIds)
+    .run();
+}
+
 /** チケット商品を削除。発行済みチケットから参照されている場合は非公開化に留める。 */
 export async function deleteTicketProduct(db: D1Database, id: string): Promise<{ deleted: boolean }> {
   const ref = await db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE product_id = ?').bind(id).first<{ n: number }>();

@@ -1581,6 +1581,8 @@ app.post('/documents/issue-receipt', requireRole('owner', 'manager'), async (c) 
   if (!g) return c.json({ error: '予約が見つかりません' }, 404);
   const r = await createDocumentForGroup(c.env.DB, g.id, 'receipt');
   if (!r) return c.json({ error: '領収書の発行に失敗しました' }, 500);
+  // 領収書発行＝入金確認済み。未入金アラートの対象から外すため payment_status を paid にする。
+  await c.env.DB.prepare("UPDATE booking_groups SET payment_status = 'paid' WHERE id = ?").bind(g.id).run();
   return c.json({ ok: true, url: '/api/documents/' + r.token, created: r.created });
 });
 

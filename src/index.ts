@@ -12,6 +12,9 @@ import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
 import documents from './routes/documents';
+import { getOverdueUnpaidBookings, markUnpaidAlertSent } from './db/repository';
+import { unpaidAlertEmail, sendEmail, type OverdueBooking } from './lib/email';
+import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
 
@@ -122,4 +125,42 @@ app.route('/api/documents', documents);
  */
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+/** 予約確定からこの日数を過ぎても未入金ならアラート（#41/#42） */
+const UNPAID_ALERT_DAYS = 7;
+
+/**
+ * 定期実行（Cron）: 未入金アラート。
+ * 予約確定から UNPAID_ALERT_DAYS 日以上経過しても入金されていない予約を検知し、
+ * 管理者（rental@space-albe.com など）へ1予約1回だけアラートメールを送る。
+ */
+async function runUnpaidAlert(env: AppBindings['Bindings']): Promise<{ count: number }> {
+  const cutoff = addDaysJST(todayJST(), -UNPAID_ALERT_DAYS);
+  const overdue = await getOverdueUnpaidBookings(env.DB, cutoff);
+  if (!overdue.length) return { count: 0 };
+
+  const bookings: OverdueBooking[] = overdue.map((b) => ({
+    bookingNumber: b.booking_number,
+    spaceName: b.space_name ?? '',
+    total: b.total_amount,
+    createdAt: b.created_at,
+    paymentMethod: b.payment_method,
+    recipientName: (b.invoice_name || b.contact_name || 'お客様').trim(),
+    customerEmail: b.email,
+  }));
+  const to = env.MAIL_ADMIN || 'rental@space-albe.com';
+  const mail = unpaidAlertEmail({ days: UNPAID_ALERT_DAYS, bookings });
+  await sendEmail(env, { to, ...mail });
+  await markUnpaidAlertSent(
+    env.DB,
+    overdue.map((b) => b.id),
+    nowJST(),
+  );
+  return { count: overdue.length };
+}
+
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledController, env: AppBindings['Bindings'], ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runUnpaidAlert(env));
+  },
+};

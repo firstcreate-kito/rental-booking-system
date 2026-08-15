@@ -14,11 +14,11 @@ export interface Env {
 }
 
 export function paypalConfigured(env: Env): boolean {
-  return !!(env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET);
+  return !!(env.PAYPAL_CLIENT_ID?.trim() && env.PAYPAL_CLIENT_SECRET?.trim());
 }
 
 export function paypalBaseUrl(env: Env): string {
-  return env.PAYPAL_MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+  return env.PAYPAL_MODE?.trim() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
 }
 
 export interface OrderParams {
@@ -53,7 +53,10 @@ export function buildOrderBody(p: OrderParams): Record<string, unknown> {
 
 /** OAuth2 クライアントクレデンシャルでアクセストークンを取得 */
 async function getAccessToken(env: Env): Promise<string> {
-  const auth = btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`);
+  // 貼り付け時に混入しがちな前後の空白・改行を除去してから認証（invalid_client 対策）
+  const id = (env.PAYPAL_CLIENT_ID ?? '').trim();
+  const secret = (env.PAYPAL_CLIENT_SECRET ?? '').trim();
+  const auth = btoa(`${id}:${secret}`);
   const res = await fetch(`${paypalBaseUrl(env)}/v1/oauth2/token`, {
     method: 'POST',
     headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },

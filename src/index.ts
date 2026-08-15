@@ -10,6 +10,7 @@ import signage from './routes/signage';
 import admin from './routes/admin';
 import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
+import paypal from './routes/paypal';
 
 const app = new Hono<AppBindings>();
 
@@ -108,6 +109,7 @@ app.route('/api/signage', signage);
 app.route('/api/admin', admin);
 app.route('/api/tickets', tickets);
 app.route('/api/webhooks', webhooks);
+app.route('/api/paypal', paypal);
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。

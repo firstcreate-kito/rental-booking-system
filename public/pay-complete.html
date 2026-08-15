@@ -43,6 +43,8 @@ const q = new URLSearchParams(location.search);
 const type = q.get('type');
 const status = q.get('status');
 const session = q.get('session');
+const provider = q.get('provider');
+const token = q.get('token'); // PayPal は承認後 ?token=ORDER_ID を付与して戻る
 const num = q.get('num');
 const $ = id => document.getElementById(id);
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
@@ -77,6 +79,23 @@ async function run() {
     base('⚠️', 'お支払いが中断されました', 'ご予約自体は「未入金」の状態で確保されています。');
     setNum(num);
     setWarn('お手数ですが、お支払いは改めて店舗までお問い合わせいただくか、後日ご案内するお支払い方法にてお願いいたします。');
+    return;
+  }
+  // PayPal 承認後の戻り（?provider=paypal&token=ORDER_ID）→ サーバでキャプチャ
+  if (type === 'booking' && provider === 'paypal' && token) {
+    base('⏳', '確認しています…', 'PayPalのお支払いを確定しています。少しお待ちください。');
+    try {
+      const r = await fetch('/api/paypal/capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: token }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.status === 'paid') {
+        base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
+        renderDetails(j.booking);
+      } else {
+        base('⚠️', 'お支払いを確定できませんでした', j.error || 'お手数ですが、もう一度お試しいただくか店舗までお問い合わせください。');
+      }
+    } catch (e) {
+      base('⚠️', 'お支払いの確認に失敗しました', 'お手数ですが、ご予約状況は店舗までご確認ください。');
+    }
     return;
   }
   // 予約のカード決済（成功で戻ってきた）

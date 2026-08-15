@@ -23,6 +23,10 @@ export interface Env {
   /** Stripe 決済（チケット購入）。SECRET_KEY と WEBHOOK_SECRET 両方セット時のみ有効 */
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  /** PayPal 決済。CLIENT_ID と CLIENT_SECRET 両方セット時のみ有効。MODE は 'sandbox'(既定)/'live' */
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_MODE?: string;
   /** 決済完了後の戻り先ベースURL（未設定ならリクエスト元 origin を使用） */
   PUBLIC_BASE_URL?: string;
 }

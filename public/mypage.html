@@ -333,7 +333,7 @@ function bookingRow(b) {
   const today = new Date().toISOString().slice(0, 10);
   const canRequest = b.status !== 'cancelled' && (b.last_date || '') >= today;
   const action = canRequest
-    ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ')\'>変更リクエスト</button>'
+    ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ',' + JSON.stringify(b.space_id || '') + ')\'>変更リクエスト</button>'
     : '';
   return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
     '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + action + '</td></tr>';
@@ -341,26 +341,30 @@ function bookingRow(b) {
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
-// 30分刻みの時刻オプションを生成（それ以外の時刻は選べない）
-function buildCrTimeOptions() {
+// 対象スペースの営業時間（open〜close）内で30分刻みの時刻候補を生成。
+// スペース情報が取れない場合は 00:00〜24:00 にフォールバック。
+function buildCrTimeOptions(spaceId) {
   const start = document.getElementById('cr_start');
   const end = document.getElementById('cr_end');
-  if (start.options.length && end.options.length) return; // 生成済み
+  const sp = (M.spaceMap || {})[spaceId];
+  const open = sp && sp.openTime ? sp.openTime.slice(0, 5) : '00:00';
+  const close = sp && sp.closeTime ? sp.closeTime.slice(0, 5) : '24:00';
+  const openMin = Number(open.slice(0, 2)) * 60 + Number(open.slice(3, 5));
+  const closeMin = Number(close.slice(0, 2)) * 60 + Number(close.slice(3, 5));
   const opt = v => '<option value="' + v + '">' + (v || '--:--') + '</option>';
+  const fmt = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   let sHtml = opt(''), eHtml = opt('');
-  for (let m = 0; m <= 24 * 60; m += 30) {
-    const hh = String(Math.floor(m / 60)).padStart(2, '0');
-    const mm = String(m % 60).padStart(2, '0');
-    const t = hh + ':' + mm;
-    if (m < 24 * 60) sHtml += opt(t);   // 開始：00:00〜23:30
-    if (m > 0) eHtml += opt(t);         // 終了：00:30〜24:00
+  for (let m = openMin; m <= closeMin; m += 30) {
+    if (m < closeMin) sHtml += opt(fmt(m)); // 開始：営業開始〜（営業終了の1コマ前）
+    if (m > openMin) eHtml += opt(fmt(m));   // 終了：（営業開始の1コマ後）〜営業終了
   }
   start.innerHTML = sHtml;
   end.innerHTML = eHtml;
 }
-function openChangeReq(number, spaceName) {
+async function openChangeReq(number, spaceName, spaceId) {
   _crNum = number;
-  buildCrTimeOptions();
+  await ensureSpaces();
+  buildCrTimeOptions(spaceId);
   document.getElementById('cr_num').textContent = number;
   document.getElementById('cr_space').textContent = spaceName || '';
   document.getElementById('cr_type').value = 'reschedule';
@@ -411,7 +415,16 @@ function toggleArchive() {
   document.getElementById('bkArchiveToggle').textContent =
     (hidden ? '▸ キャンセル済みを表示' : '▾ キャンセル済みを隠す') + '（' + (window._bkCancelledCount || 0) + '件）';
 }
+// スペースの営業時間（open/close）を取得してキャッシュ（変更リクエストの時刻候補に使う）
+async function ensureSpaces() {
+  if (M.spaceMap) return M.spaceMap;
+  const { body } = await api('/api/spaces');
+  M.spaceMap = {};
+  (body.spaces || []).forEach(s => { M.spaceMap[s.id] = s; });
+  return M.spaceMap;
+}
 async function loadBookings() {
+  ensureSpaces(); // 時刻候補用に先読み（await不要・バックグラウンド）
   const { body } = await api('/api/mypage/bookings');
   const rows = body.bookings || [];
   // アクティブ（キャンセル以外）とキャンセル済み（アーカイブ）に分離

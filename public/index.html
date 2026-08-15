@@ -179,16 +179,49 @@
 
     <label>イベント名 <span style="color:var(--bad)">*</span></label>
     <input id="f_event" placeholder="例）撮影会 / セミナー" />
-    <label>利用目的（任意）</label>
-    <input id="f_purpose" placeholder="例）レッスン / 撮影 / 会議" />
-    <label>利用人数（任意）</label>
+    <label>利用目的 <span style="color:var(--bad)">*</span></label>
+    <select id="f_purpose">
+      <option value="">選択してください</option>
+      <option value="撮影（静止画）">撮影（静止画）</option>
+      <option value="撮影（動画）">撮影（動画）</option>
+      <option value="撮影（MV撮影）">撮影（MV撮影）</option>
+      <option value="コスプレ">コスプレ</option>
+      <option value="会議・ミーティング">会議・ミーティング</option>
+      <option value="懇親会・パーティー">懇親会・パーティー</option>
+      <option value="音楽練習">音楽練習</option>
+      <option value="イベント">イベント</option>
+      <option value="展示会・フリマ・ポップアップストア">展示会・フリマ・ポップアップストア</option>
+      <option value="レッスン">レッスン</option>
+      <option value="撮影会">撮影会</option>
+      <option value="コンサート・発表会">コンサート・発表会</option>
+      <option value="その他">その他</option>
+    </select>
+    <label>利用人数 <span style="color:var(--bad)">*</span></label>
     <input id="f_headcount" type="number" min="1" placeholder="例）10" />
+    <label>過去のご利用実績（任意）</label>
+    <select id="f_pastuse">
+      <option value="">選択してください</option>
+      <option value="利用経験あり">利用経験あり</option>
+      <option value="利用経験なし">利用経験なし</option>
+    </select>
+    <label>レンタルスペースALBEを知ったきっかけ（任意）</label>
+    <select id="f_referral">
+      <option value="">選択してください</option>
+      <option value="ネット検索">ネット検索</option>
+      <option value="ポータルサイト">ポータルサイト</option>
+      <option value="知人からの紹介">知人からの紹介</option>
+      <option value="看板">看板</option>
+      <option value="その他">その他</option>
+    </select>
     <label>お名前 <span style="color:var(--bad)">*</span></label>
-    <input id="f_name" />
+    <div style="display:flex;gap:8px">
+      <input id="f_lastName" placeholder="姓" style="flex:1" />
+      <input id="f_firstName" placeholder="名" style="flex:1" />
+    </div>
     <label>メールアドレス <span style="color:var(--bad)">*</span></label>
     <input id="f_email" type="email" />
     <label>電話番号 <span style="color:var(--bad)">*</span></label>
-    <input id="f_phone" />
+    <input id="f_phone" inputmode="tel" placeholder="例）052-485-5975（ハイフンありでご入力ください）" />
     <label>会社名（任意）</label>
     <input id="f_company" />
     <div id="f_questions"></div>
@@ -211,6 +244,10 @@
       <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
       <div class="muted" id="sum_points"></div>
     </div>
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-weight:normal;cursor:pointer">
+      <input type="checkbox" id="f_terms" style="width:auto;margin-top:3px;flex:0 0 auto" />
+      <span><a href="https://space-albe.com/terms/" target="_blank" rel="noopener" style="color:var(--brand)">ご利用規約</a>に同意する <span style="color:var(--bad)">*</span></span>
+    </label>
     <div class="row" style="margin-top:14px">
       <button class="btn ghost sm" onclick="show('view-options')">← 戻る</button>
       <button class="btn" id="submitBtn" onclick="submitBooking()">この内容で予約する</button>
@@ -734,7 +771,13 @@ async function memberLogin() {
   const pr = await api('/api/mypage/profile', { headers: authHeaders() });
   if (pr.ok && pr.body.profile) {
     document.getElementById('ptBal').textContent = pr.body.profile.point_balance;
-    if (!document.getElementById('f_name').value) document.getElementById('f_name').value = pr.body.profile.contact_name || '';
+    // 会員名を姓・名にプリフィル（空白で分割。1語のみなら姓に入れる）
+    const nm = (pr.body.profile.contact_name || '').trim();
+    if (nm && !document.getElementById('f_lastName').value && !document.getElementById('f_firstName').value) {
+      const parts = nm.split(/[\s　]+/);
+      document.getElementById('f_lastName').value = parts[0] || '';
+      document.getElementById('f_firstName').value = parts.slice(1).join(' ');
+    }
     if (!document.getElementById('f_email').value) document.getElementById('f_email').value = pr.body.profile.email || '';
     if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = pr.body.profile.phone || '';
   }
@@ -858,12 +901,28 @@ async function recomputeSummary() {
 
 async function submitBooking() {
   const event = document.getElementById('f_event').value.trim();
-  const name = document.getElementById('f_name').value.trim();
+  const purpose = document.getElementById('f_purpose').value.trim();
+  const headcount = Number(document.getElementById('f_headcount').value) || null;
+  const lastName = document.getElementById('f_lastName').value.trim();
+  const firstName = document.getElementById('f_firstName').value.trim();
+  const name = [lastName, firstName].filter(Boolean).join(' ');
   const email = document.getElementById('f_email').value.trim();
   const phone = document.getElementById('f_phone').value.trim();
   const company = document.getElementById('f_company').value.trim();
+  const pastUse = document.getElementById('f_pastuse').value;
+  const referralSource = document.getElementById('f_referral').value;
+  const termsAgreed = document.getElementById('f_terms').checked;
   const msg = document.getElementById('submitMsg');
-  if (!event || !name || !email || !phone) { msg.textContent = '必須項目を入力してください'; msg.classList.remove('hidden'); return; }
+  const showErr = t => { msg.textContent = t; msg.classList.remove('hidden'); };
+  if (!event) return showErr('イベント名を入力してください');
+  if (!purpose) return showErr('利用目的を選択してください');
+  if (!headcount) return showErr('利用人数を入力してください');
+  if (!lastName || !firstName) return showErr('お名前（姓・名）を入力してください');
+  if (!email) return showErr('メールアドレスを入力してください');
+  if (!phone) return showErr('電話番号を入力してください');
+  // 電話番号はハイフンありで統一（数字とハイフンのみ、ハイフンを含む）
+  if (!/^[0-9]{2,4}-[0-9]{2,4}-[0-9]{3,4}$/.test(phone)) return showErr('電話番号はハイフンありでご入力ください（例：052-485-5975）');
+  if (!termsAgreed) return showErr('ご利用規約への同意が必要です');
   // 追加質問の回答を収集＋必須チェック
   const answers = [];
   for (const el of document.querySelectorAll('#f_questions .q-input')) {
@@ -883,7 +942,7 @@ async function submitBooking() {
   }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, purpose: document.getElementById('f_purpose').value.trim(), headcount: Number(document.getElementById('f_headcount').value) || null, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, purpose, headcount, pastUse, referralSource, termsAgreed, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動

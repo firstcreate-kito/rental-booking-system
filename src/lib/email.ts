@@ -105,6 +105,8 @@ export interface BookingEmailData {
   mypageUrl?: string;
   /** 請求書払いの場合 true（請求書の案内文を出す） */
   isInvoice?: boolean;
+  /** 予約フォームの追加項目（利用目的・人数・過去利用・きっかけ 等）#60 */
+  extras?: ReadonlyArray<{ label: string; value: string }>;
 }
 
 function daysBlockText(days: BookingEmailData['days']): string {
@@ -113,6 +115,20 @@ function daysBlockText(days: BookingEmailData['days']): string {
 function daysBlockHtml(days: BookingEmailData['days']): string {
   return days
     .map((d) => `<li>${escapeHtml(d.date)}　${escapeHtml(d.startTime)}〜${escapeHtml(d.endTime)}</li>`)
+    .join('');
+}
+
+/** 追加項目ブロック（利用目的・人数・過去利用・きっかけ 等）#60 */
+function extrasBlockText(extras?: BookingEmailData['extras']): string {
+  const rows = (extras ?? []).filter((e) => e.value);
+  if (!rows.length) return '';
+  return '\n' + rows.map((e) => `${e.label}: ${e.value}`).join('\n');
+}
+function extrasRowsHtml(extras?: BookingEmailData['extras']): string {
+  const rows = (extras ?? []).filter((e) => e.value);
+  if (!rows.length) return '';
+  return rows
+    .map((e) => `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">${escapeHtml(e.label)}</td><td>${escapeHtml(e.value)}</td></tr>`)
     .join('');
 }
 
@@ -127,7 +143,7 @@ export function bookingConfirmationEmail(d: BookingEmailData): { subject: string
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
-イベント名: ${d.eventName}
+イベント名: ${d.eventName}${extrasBlockText(d.extras)}
 日時:
 ${daysBlockText(d.days)}
 合計金額（税込）: ${yen(d.total)}
@@ -144,6 +160,7 @@ ${
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+${extrasRowsHtml(d.extras)}
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
@@ -407,7 +424,7 @@ export function adminNewBookingEmail(d: BookingEmailData & { customerEmail: stri
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
-イベント名: ${d.eventName}
+イベント名: ${d.eventName}${extrasBlockText(d.extras)}
 日時:
 ${daysBlockText(d.days)}
 合計: ${yen(d.total)}
@@ -418,6 +435,7 @@ ${daysBlockText(d.days)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+${extrasRowsHtml(d.extras)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）</td></tr>
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>

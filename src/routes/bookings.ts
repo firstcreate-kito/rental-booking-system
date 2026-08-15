@@ -116,10 +116,16 @@ interface CreateBookingBody {
   paymentMethod?: string;
   /** 請求書払い時の請求書名（宛名）。invoice のとき必須 */
   invoiceName?: string;
-  /** 利用目的（任意・カレンダー出力用） */
+  /** 利用目的（必須・カレンダー出力用）#59/#61 */
   purpose?: string;
-  /** 利用人数（任意・カレンダー出力用） */
+  /** 利用人数（必須・カレンダー出力用）#61 */
   headcount?: number;
+  /** 過去のご利用実績（任意）'利用経験あり'/'利用経験なし' #60 */
+  pastUse?: string;
+  /** ALBEを知ったきっかけ（任意）#60 */
+  referralSource?: string;
+  /** ご利用規約への同意（必須・trueのみ受付）#60 */
+  termsAgreed?: boolean;
 }
 
 /** 請求書払いは利用日の何日前まで受け付けるか（#38） */
@@ -264,10 +270,15 @@ app.post('/', async (c) => {
       return c.json({ error: `銀行振込はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
     }
   }
-  // 利用目的・利用人数（任意・カレンダー出力用）
+  // 利用目的・利用人数（必須）#59/#61、過去利用・きっかけ（任意）#60、規約同意（必須）#60
   const purpose = String(body.purpose ?? '').trim() || null;
   const headcountNum = Number(body.headcount);
   const headcount = Number.isFinite(headcountNum) && headcountNum > 0 ? Math.floor(headcountNum) : null;
+  const pastUse = String(body.pastUse ?? '').trim() || null;
+  const referralSource = String(body.referralSource ?? '').trim() || null;
+  if (!purpose) return c.json({ error: '利用目的を選択してください' }, 400);
+  if (!headcount) return c.json({ error: '利用人数を入力してください' }, 400);
+  if (body.termsAgreed !== true) return c.json({ error: 'ご利用規約への同意が必要です' }, 400);
 
   // 期間の祝日・季節料金・キャンペーン
   const itemDates = body.items.map((i) => i.date).sort();
@@ -463,10 +474,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, purpose, headcount, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -629,6 +640,13 @@ app.post('/', async (c) => {
   // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
   // 失敗しても予約は成立させる（バックグラウンド送信）。
   const mailDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
+  // 予約フォームの追加項目をメールにも記載（#60）：利用目的・人数・過去利用・きっかけ
+  const mailExtras = [
+    { label: '利用目的', value: purpose ?? '' },
+    { label: '利用人数', value: headcount ? `${headcount}名` : '' },
+    { label: '過去のご利用実績', value: pastUse ?? '' },
+    { label: 'ALBEを知ったきっかけ', value: referralSource ?? '' },
+  ].filter((e) => e.value);
   const emailData = {
     bookingNumber,
     spaceName: space.name,
@@ -637,6 +655,7 @@ app.post('/', async (c) => {
     days: mailDays,
     total: totals.total,
     status: 'confirmed' as const,
+    extras: mailExtras,
     // 会員は書類（請求書・領収書）をマイページからDLできる。案内リンクを添える（#41）
     mypageUrl: member ? `${origin}/mypage.html` : undefined,
     isInvoice: paymentMethod === 'invoice',

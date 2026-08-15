@@ -20,6 +20,7 @@ import {
   buildTicketRescheduleStmts,
   createBookingPayment,
   getBookingPaymentBySession,
+  getBookingSummaryForGroup,
   getCancelPolicies,
   getOptionsByIds,
   isOptionAvailableForSpace,
@@ -685,7 +686,8 @@ app.get('/payment-status', async (c) => {
   if (!sessionId) return c.json({ status: 'unknown' });
   const pay = await getBookingPaymentBySession(c.env.DB, sessionId);
   if (!pay) return c.json({ status: 'unknown' });
-  return c.json({ status: pay.status, groupId: pay.group_id });
+  const booking = await getBookingSummaryForGroup(c.env.DB, pay.group_id);
+  return c.json({ status: pay.status, groupId: pay.group_id, booking });
 });
 
 /**

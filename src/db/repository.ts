@@ -1668,6 +1668,30 @@ export async function createBookingPayment(
     .run();
 }
 
+/** 決済完了ページ表示用の予約サマリ（予約番号・スペース・日時・金額・支払い方法）#35 */
+export async function getBookingSummaryForGroup(db: D1Database, groupId: string) {
+  const g = await db
+    .prepare(
+      `SELECT bg.booking_number, bg.total_amount, bg.payment_method, bg.event_name, s.name AS space_name
+       FROM booking_groups bg LEFT JOIN spaces s ON s.id = bg.space_id WHERE bg.id = ?`,
+    )
+    .bind(groupId)
+    .first<{ booking_number: string; total_amount: number; payment_method: string | null; event_name: string; space_name: string | null }>();
+  if (!g) return null;
+  const { results } = await db
+    .prepare('SELECT date, start_time, end_time FROM bookings WHERE group_id = ? ORDER BY date, start_time')
+    .bind(groupId)
+    .all<{ date: string; start_time: string; end_time: string }>();
+  return {
+    bookingNumber: g.booking_number,
+    spaceName: g.space_name ?? '',
+    eventName: g.event_name,
+    total: g.total_amount,
+    paymentMethod: g.payment_method,
+    items: (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
+  };
+}
+
 export async function getBookingPaymentBySession(db: D1Database, sessionId: string) {
   return db.prepare('SELECT * FROM booking_payments WHERE stripe_session_id = ?').bind(sessionId).first<{
     id: string;

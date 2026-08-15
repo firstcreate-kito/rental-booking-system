@@ -13,9 +13,15 @@
   .icon { font-size:52px; line-height:1; }
   h1 { font-size:20px; margin:14px 0 6px; }
   p { color:var(--muted); font-size:14px; margin:6px 0; }
-  .num { font-size:18px; font-weight:700; letter-spacing:.02em; margin:10px 0; }
+  .num { font-size:22px; font-weight:800; letter-spacing:.02em; color:var(--brand); margin:12px 0 2px; }
+  .num-label { font-size:12px; color:var(--muted); }
+  .details { text-align:left; border:1px solid var(--line); border-radius:10px; margin:16px 0 4px; overflow:hidden; }
+  .details .row { display:flex; justify-content:space-between; gap:12px; padding:10px 14px; font-size:14px; border-top:1px solid var(--line); }
+  .details .row:first-child { border-top:0; }
+  .details .k { color:var(--muted); flex:0 0 auto; }
+  .details .v { text-align:right; font-weight:600; }
+  .details .total .v { color:var(--brand); font-size:16px; }
   .btn { display:inline-block; margin-top:18px; background:var(--brand); color:#fff; border:0; border-radius:9px; padding:11px 20px; font-size:15px; cursor:pointer; text-decoration:none; }
-  .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .warnbox { background:#fff8e6; border:1px solid #f0c36d; color:#a15c00; border-radius:10px; padding:12px; font-size:13px; margin-top:14px; text-align:left; }
   .hidden { display:none; }
 </style>
@@ -26,7 +32,8 @@
     <div class="icon" id="icon">⏳</div>
     <h1 id="title">確認しています…</h1>
     <p id="msg">お支払いの結果を確認しています。少しお待ちください。</p>
-    <div class="num hidden" id="numLine"></div>
+    <div class="hidden" id="numWrap"><div class="num-label">予約番号</div><div class="num" id="numLine"></div></div>
+    <div class="details hidden" id="details"></div>
     <div class="warnbox hidden" id="warn"></div>
     <a class="btn hidden" id="homeBtn" href="/">トップへ戻る</a>
   </div>
@@ -38,41 +45,60 @@ const status = q.get('status');
 const session = q.get('session');
 const num = q.get('num');
 const $ = id => document.getElementById(id);
-function show(icon, title, msg, opts) {
-  opts = opts || {};
-  $('icon').textContent = icon;
-  $('title').textContent = title;
-  $('msg').textContent = msg;
-  if (opts.num) { $('numLine').textContent = '予約番号：' + opts.num; $('numLine').classList.remove('hidden'); }
-  if (opts.warn) { $('warn').textContent = opts.warn; $('warn').classList.remove('hidden'); }
+const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+const payLabel = m => ({ stripe:'クレジットカード（Stripe）', paypal:'PayPal', invoice:'請求書払い' }[m] || '');
+
+function base(icon, title, msg) {
+  $('icon').textContent = icon; $('title').textContent = title; $('msg').textContent = msg;
   $('homeBtn').classList.remove('hidden');
+}
+function setNum(n) { if (!n) return; $('numLine').textContent = n; $('numWrap').classList.remove('hidden'); }
+function setWarn(t) { $('warn').textContent = t; $('warn').classList.remove('hidden'); }
+// 予約明細を表形式で表示（スクショで残せるように）
+function renderDetails(b) {
+  if (!b) return;
+  setNum(b.bookingNumber);
+  const dt = (b.items || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
+  const rows = [
+    ['スペース', b.spaceName || '—'],
+    ['ご利用日時', dt],
+    ['イベント名', b.eventName || '—'],
+    ['お支払い方法', payLabel(b.paymentMethod) || '—'],
+  ];
+  let html = rows.map(r => '<div class="row"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>').join('');
+  html += '<div class="row total"><span class="k">合計（税込）</span><span class="v">' + yen(b.total || 0) + '</span></div>';
+  $('details').innerHTML = html;
+  $('details').classList.remove('hidden');
 }
 
 async function run() {
   // キャンセルで戻ってきた場合
   if (status === 'cancel') {
-    show('⚠️', 'お支払いが中断されました',
-      'ご予約自体は「未入金」の状態で確保されています。',
-      { num, warn: 'お手数ですが、お支払いは改めて店舗までお問い合わせいただくか、後日ご案内するお支払い方法にてお願いいたします。' });
+    base('⚠️', 'お支払いが中断されました', 'ご予約自体は「未入金」の状態で確保されています。');
+    setNum(num);
+    setWarn('お手数ですが、お支払いは改めて店舗までお問い合わせいただくか、後日ご案内するお支払い方法にてお願いいたします。');
     return;
   }
   // 予約のカード決済（成功で戻ってきた）
   if (type === 'booking' && session) {
+    let lastBooking = null;
     for (let i = 0; i < 12; i++) {
       const r = await fetch('/api/bookings/payment-status?session=' + encodeURIComponent(session));
       const j = await r.json().catch(() => ({}));
+      if (j.booking) lastBooking = j.booking;
       if (j.status === 'paid') {
-        show('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
+        base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
+        renderDetails(j.booking);
         return;
       }
       await new Promise(res => setTimeout(res, 1500));
     }
     // 反映待ち（Webhookが少し遅れている場合）
-    show('✅', 'お支払いを受け付けました', 'ご予約は確定しています。反映まで少しお時間がかかる場合があります。');
+    base('✅', 'お支払いを受け付けました', 'ご予約は確定しています。反映まで少しお時間がかかる場合があります。');
+    renderDetails(lastBooking);
     return;
   }
-  // それ以外
-  show('ℹ️', '状態を確認できませんでした', 'お手数ですが、ご予約状況は確認メールまたは店舗までご確認ください。');
+  base('ℹ️', '状態を確認できませんでした', 'お手数ですが、ご予約状況は確認メールまたは店舗までご確認ください。');
 }
 run();
 </script>

@@ -71,6 +71,28 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// 全メール共通の署名（フッター）#46
+const SIGNATURE_TEXT = `
+----------------------------------------
+レンタルスペースALBE
+（運営会社：株式会社ファーストクリエイト）
+名古屋市中村区名駅南1-3-14 石原ビル4F
+rental@space-albe.com
+https://space-albe.com/`;
+
+const SIGNATURE_HTML = `<hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0">
+<div style="font-family:sans-serif;font-size:12px;color:#6b7280;line-height:1.7">
+<strong>レンタルスペースALBE</strong>（運営会社：株式会社ファーストクリエイト）<br>
+名古屋市中村区名駅南1-3-14 石原ビル4F<br>
+<a href="mailto:rental@space-albe.com" style="color:#6b7280">rental@space-albe.com</a><br>
+<a href="https://space-albe.com/" style="color:#1d4ed8">https://space-albe.com/</a>
+</div>`;
+
+/** 各テンプレートの返却に共通署名を付与する（全メール共通）#46 */
+function withSignature(m: { subject: string; html: string; text: string }): { subject: string; html: string; text: string } {
+  return { subject: m.subject, html: m.html + '\n' + SIGNATURE_HTML, text: m.text + '\n' + SIGNATURE_TEXT };
+}
+
 export interface BookingEmailData {
   bookingNumber: string;
   spaceName: string;
@@ -114,8 +136,7 @@ ${
     ? `\n${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。\n${d.mypageUrl}\n`
     : ''
 }
-ご不明な点がございましたらお問い合わせください。
-レンタルスペースALBE`;
+ご不明な点がございましたらお問い合わせください。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>このたびはレンタルスペースALBEをご利用いただき、ありがとうございます。<br>以下の内容で<strong>${label}</strong>を承りました。</p>
@@ -134,9 +155,9 @@ ${
 <a href="${escapeHtml(d.mypageUrl)}" style="color:#1d4ed8;font-weight:700">マイページで書類を確認する ▶</a></p>`
     : ''
 }
-<p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。<br>レンタルスペースALBE</p>
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。</p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 /** キャンセル確認メール（お客様宛） */
@@ -156,8 +177,7 @@ export function cancellationEmail(d: {
 スペース: ${d.spaceName}
 ${feeLine}
 
-またのご利用をお待ちしております。
-レンタルスペースALBE`;
+またのご利用をお待ちしております。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>以下のご予約のキャンセルを承りました。</p>
@@ -166,9 +186,9 @@ ${feeLine}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 </table>
 <p>${d.cancelFee > 0 ? `キャンセル料（税込）: <strong>${yen(d.cancelFee)}</strong>` : 'キャンセル料は発生しません。'}</p>
-<p style="color:#6b7280;font-size:13px">またのご利用をお待ちしております。<br>レンタルスペースALBE</p>
+<p style="color:#6b7280;font-size:13px">またのご利用をお待ちしております。</p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 export interface RescheduleEmailData {
@@ -216,8 +236,7 @@ ${daysBlockText(d.oldDays)}
 【変更後の日時】
 ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}
 
-ご不明な点がございましたらお問い合わせください。
-レンタルスペースALBE`;
+ご不明な点がございましたらお問い合わせください。`;
   const amountHtml = d.showAmount
     ? `<p style="font-size:18px">変更後の合計金額（税込）: <strong>${yen(d.total)}</strong></p>`
     : '';
@@ -235,9 +254,9 @@ ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}
 <ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>
 ${optionsBlockHtml(d.options)}
 ${amountHtml}
-<p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。<br>レンタルスペースALBE</p>
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。</p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 /** 日時変更の管理者通知メール */
@@ -280,7 +299,7 @@ ${daysBlockText(d.newDays)}${optionsBlockText(d.options)}${amountText}${contact}
 ${optionsBlockHtml(d.options)}
 ${amountHtml}
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 /** パスワード再設定メール（お客様宛） */
@@ -298,18 +317,15 @@ export function passwordResetEmail(d: {
 ${d.resetUrl}
 
 ※このリンクの有効期限は${d.expiresLabel}です。期限を過ぎた場合はお手数ですが再度お手続きください。
-※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。
-
-レンタルスペースALBE`;
+※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>パスワード再設定のご依頼を受け付けました。<br>下記のボタンから新しいパスワードを設定してください。</p>
 <p style="margin:20px 0"><a href="${escapeHtml(d.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">新しいパスワードを設定する</a></p>
 <p style="font-size:12px;color:#6b7280">ボタンが開けない場合は、次のURLをブラウザに貼り付けてください：<br>${escapeHtml(d.resetUrl)}</p>
 <p style="font-size:13px;color:#6b7280">※このリンクの有効期限は${escapeHtml(d.expiresLabel)}です。<br>※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。</p>
-<p style="color:#6b7280;font-size:13px">レンタルスペースALBE</p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 /** 新規予約の管理者通知メール */
@@ -341,7 +357,7 @@ ${daysBlockText(d.days)}
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p>合計: <strong>${yen(d.total)}</strong></p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }
 
 export interface OverdueBooking {
@@ -396,5 +412,5 @@ ${rows}
 </table>
 <p style="color:#6b7280;font-size:12px">※このメールは自動送信です（1予約につき1回のみ通知）。</p>
 </div>`;
-  return { subject, html, text };
+  return withSignature({ subject, html, text });
 }

@@ -30,3 +30,21 @@ describe('unpaidAlertEmail', () => {
     expect(m.html).toContain('&lt;b&gt;');
   });
 });
+
+import { bookingConfirmationEmail } from '../src/lib/email';
+describe('共通署名（#46）', () => {
+  it('全テンプレートに署名フッターが付く', () => {
+    const m = bookingConfirmationEmail({
+      bookingNumber: '20260901-001', spaceName: 'テスト', eventName: 'ev',
+      customerName: '山田', days: [{ date: '2026-09-01', startTime: '10:00', endTime: '11:00' }],
+      total: 1100, status: 'confirmed',
+    });
+    expect(m.text).toContain('株式会社ファーストクリエイト');
+    expect(m.text).toContain('rental@space-albe.com');
+    expect(m.html).toContain('https://space-albe.com/');
+    // 署名がメール末尾（フッター）に来ている
+    expect(m.text.trim().endsWith('https://space-albe.com/')).toBe(true);
+    // 旧クロージング「ください。\nレンタルスペースALBE」の重複が無い
+    expect(m.text).not.toContain('ください。\nレンタルスペースALBE');
+  });
+});

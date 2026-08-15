@@ -29,9 +29,18 @@
   .prod { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   .prod .name { font-weight:600; }
   .prod .price { font-size:20px; font-weight:700; color:var(--brand); }
+  .prod .callinks { margin-top:6px; display:flex; flex-wrap:wrap; gap:8px; }
+  .prod .callink { font-size:12px; color:var(--brand); text-decoration:none; border:1px solid var(--brand); border-radius:6px; padding:3px 8px; white-space:nowrap; }
+  .prod .callink:hover { background:#eff5ff; }
   .banner { border-radius:10px; padding:14px; margin-bottom:16px; }
   .banner.ok { background:#dcfce7; color:#166534; border:1px solid #86efac; }
   .banner.warn { background:#fff8e6; color:#a15c00; border:1px solid #f0c36d; }
+  /* 購入完了の大きな表示（#38） */
+  .complete { text-align:center; background:#dcfce7; border:1px solid #86efac; border-radius:14px; padding:28px 16px; margin-bottom:16px; }
+  .complete .ico { font-size:52px; line-height:1; }
+  .complete .ttl { font-size:22px; font-weight:800; color:#166534; margin:10px 0 4px; }
+  .complete .lead { font-size:14px; color:#15803d; }
+  .complete a.btn2 { display:inline-block; margin-top:16px; background:#166534; color:#fff; border-radius:9px; padding:11px 20px; font-size:15px; text-decoration:none; font-weight:700; }
 </style>
 </head>
 <body>
@@ -79,6 +88,17 @@ async function api(path, opts) {
   return { ok:r.ok, status:r.status, body:j };
 }
 const jsonBody = (obj, method) => ({ method: method||'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(obj) });
+
+// 購入完了の大きな表示（#38）
+function showComplete(title, lead) {
+  const banner = document.getElementById('resultBanner');
+  banner.className = 'complete';
+  banner.innerHTML = '<div class="ico">✅</div><div class="ttl">' + title + '</div>' +
+    '<div class="lead">' + lead + '</div>' +
+    '<a class="btn2" href="mypage.html">マイページでチケットを確認する ▶</a>';
+  banner.classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 async function login() {
   const email = document.getElementById('l_email').value.trim();
@@ -131,8 +151,13 @@ async function loadProducts() {
       const btn = T.paymentEnabled
         ? '<button class="btn sm" onclick="buy(\'' + p.id + '\',this)">購入する</button>'
         : '<button class="btn sm ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button>';
+      // 対象スペースの予約カレンダーへの導線（#36）
+      const calLinks = (p.space_ids || []).map(id =>
+        '<a class="callink" href="index.html?space=' + encodeURIComponent(id) + '">📅 ' + (T.spaces[id] || id) + 'の予約カレンダー</a>'
+      ).join('');
       html += '<div class="prod"><div><div class="name">' + p.name + '</div>' +
-        '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div></div>' +
+        '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div>' +
+        (calLinks ? '<div class="callinks">' + calLinks + '</div>' : '') + '</div>' +
         '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' + btn + '</div></div>';
     });
   });
@@ -159,11 +184,7 @@ async function demoBuy(productId, btn) {
   btn.disabled = true; btn.textContent = '発行中…';
   const { ok, body } = await api('/api/tickets/demo-purchase', jsonBody({ productId }));
   if (!ok) { msg.textContent = body.error || 'テスト購入に失敗しました'; btn.disabled = false; btn.textContent = 'テスト購入'; return; }
-  const banner = document.getElementById('resultBanner');
-  banner.className = 'banner ok';
-  banner.innerHTML = '✅ テスト購入が完了しました。チケットを反映しました。<a href="mypage.html" style="color:#166534;font-weight:600;text-decoration:underline">マイページで確認する ▶</a>';
-  banner.classList.remove('hidden');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showComplete('テスト購入が完了しました', 'チケットをマイページに反映しました（決済は発生していません）。');
   btn.disabled = false; btn.textContent = 'テスト購入';
 }
 
@@ -190,7 +211,7 @@ async function handleReturn() {
     for (let i = 0; i < 10; i++) {
       const { body } = await api('/api/tickets/purchase-status?session=' + encodeURIComponent(session || ''));
       if (body.status === 'paid') {
-        banner.innerHTML = '✅ チケットのご購入が完了しました。<a href="mypage.html" style="color:#166534;font-weight:600;text-decoration:underline">マイページで確認する ▶</a>';
+        showComplete('チケットのご購入が完了しました', 'ありがとうございます。チケットをマイページに反映しました。');
         return;
       }
       await new Promise(r => setTimeout(r, 1500));

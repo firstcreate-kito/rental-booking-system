@@ -88,7 +88,11 @@
   <section id="registerView" class="card hidden" style="max-width:420px;margin:40px auto">
     <h2>新規会員登録</h2>
     <div class="muted" style="margin-bottom:6px">会員登録すると、予約時にクーポン・ポイントが使えます。</div>
-    <label>お名前 *</label><input id="r_name" />
+    <label>お名前 *</label>
+    <div style="display:flex;gap:8px">
+      <input id="r_lastName" placeholder="姓" style="flex:1" />
+      <input id="r_firstName" placeholder="名" style="flex:1" />
+    </div>
     <label>メールアドレス *</label><input id="r_email" type="email" />
     <label>電話番号 *</label><input id="r_phone" />
     <label>会社名（任意）</label><input id="r_company" />
@@ -301,13 +305,15 @@ async function submitForgot() {
 }
 async function submitRegister() {
   const msg = document.getElementById('registerMsg');
-  const contactName = document.getElementById('r_name').value.trim();
+  const lastName = document.getElementById('r_lastName').value.trim();
+  const firstName = document.getElementById('r_firstName').value.trim();
+  const contactName = [lastName, firstName].filter(Boolean).join(' ');
   const email = document.getElementById('r_email').value.trim();
   const phone = document.getElementById('r_phone').value.trim();
   const companyName = document.getElementById('r_company').value.trim();
   const password = document.getElementById('r_pass').value;
   const password2 = document.getElementById('r_pass2').value;
-  if (!contactName || !email || !phone || !password) { msg.textContent = 'お名前・メール・電話・パスワードは必須です'; return; }
+  if (!lastName || !firstName || !email || !phone || !password) { msg.textContent = 'お名前（姓・名）・メール・電話・パスワードは必須です'; return; }
   if (password.length < 8) { msg.textContent = 'パスワードは8文字以上にしてください'; return; }
   if (password !== password2) { msg.textContent = 'パスワード（確認）が一致しません'; return; }
   const { ok, body } = await api('/api/auth/register', jsonBody({ email, password, contactName, phone, companyName: companyName || undefined }));

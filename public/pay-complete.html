@@ -21,7 +21,9 @@
   .details .k { color:var(--muted); flex:0 0 auto; }
   .details .v { text-align:right; font-weight:600; }
   .details .total .v { color:var(--brand); font-size:16px; }
-  .btn { display:inline-block; margin-top:18px; background:var(--brand); color:#fff; border:0; border-radius:9px; padding:11px 20px; font-size:15px; cursor:pointer; text-decoration:none; }
+  .btn { display:inline-block; background:var(--brand); color:#fff; border:0; border-radius:9px; padding:11px 20px; font-size:15px; cursor:pointer; text-decoration:none; }
+  .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .btnrow { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:18px; }
   .warnbox { background:#fff8e6; border:1px solid #f0c36d; color:#a15c00; border-radius:10px; padding:12px; font-size:13px; margin-top:14px; text-align:left; }
   .hidden { display:none; }
 </style>
@@ -35,7 +37,10 @@
     <div class="hidden" id="numWrap"><div class="num-label">予約番号</div><div class="num" id="numLine"></div></div>
     <div class="details hidden" id="details"></div>
     <div class="warnbox hidden" id="warn"></div>
-    <a class="btn hidden" id="homeBtn" href="/">トップへ戻る</a>
+    <div class="btnrow hidden" id="btnRow">
+      <a class="btn ghost" href="/">トップへ戻る</a>
+      <a class="btn" href="mypage.html">マイページ</a>
+    </div>
   </div>
 </main>
 <script>
@@ -52,7 +57,7 @@ const payLabel = m => ({ stripe:'Stripe（各種クレジットカード・Apple
 
 function base(icon, title, msg) {
   $('icon').textContent = icon; $('title').textContent = title; $('msg').textContent = msg;
-  $('homeBtn').classList.remove('hidden');
+  $('btnRow').classList.remove('hidden');
 }
 function setNum(n) { if (!n) return; $('numLine').textContent = n; $('numWrap').classList.remove('hidden'); }
 function setWarn(t) { $('warn').textContent = t; $('warn').classList.remove('hidden'); }

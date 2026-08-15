@@ -2271,3 +2271,113 @@ export function buildTicketRescheduleStmts(
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// 予約変更リクエスト（マイページ発／管理者承認制）#54
+// ---------------------------------------------------------------------------
+
+export type ChangeRequestType = 'reschedule' | 'option' | 'cancel' | 'other';
+
+export interface ChangeRequestInput {
+  groupId: string;
+  customerId: string | null;
+  bookingNumber: string;
+  type: ChangeRequestType;
+  message: string;
+  contact?: string | null;
+  proposedItems?: Array<{ date: string; startTime: string; endTime: string }> | null;
+}
+
+/** 変更リクエストを作成し、生成IDを返す。 */
+export async function createChangeRequest(db: D1Database, input: ChangeRequestInput, now: string): Promise<string> {
+  const id = crypto.randomUUID();
+  const proposed = input.proposedItems && input.proposedItems.length > 0 ? JSON.stringify(input.proposedItems) : null;
+  await db
+    .prepare(
+      `INSERT INTO change_requests (id, group_id, customer_id, booking_number, type, message, contact, proposed_items, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(id, input.groupId, input.customerId, input.bookingNumber, input.type, input.message, input.contact ?? null, proposed, now)
+    .run();
+  return id;
+}
+
+export interface ChangeRequestRow {
+  id: string;
+  group_id: string;
+  customer_id: string | null;
+  booking_number: string;
+  type: ChangeRequestType;
+  message: string;
+  contact: string | null;
+  proposed_items: string | null;
+  status: string;
+  resolution: string | null;
+  admin_note: string | null;
+  created_at: string;
+  handled_at: string | null;
+  handled_by: string | null;
+  space_name?: string | null;
+  event_name?: string | null;
+  contact_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  group_status?: string | null;
+}
+
+/** 管理者向け：変更リクエスト一覧（顧客・スペースの文脈付き）。status未指定なら全件。 */
+export async function listChangeRequests(db: D1Database, status?: string, limit = 200): Promise<ChangeRequestRow[]> {
+  const where = status ? 'WHERE cr.status = ?' : '';
+  const stmt = db.prepare(
+    `SELECT cr.*, s.name AS space_name, bg.event_name, bg.status AS group_status,
+            c.contact_name, c.email AS customer_email, c.phone AS customer_phone
+     FROM change_requests cr
+     LEFT JOIN booking_groups bg ON bg.id = cr.group_id
+     LEFT JOIN spaces s ON s.id = bg.space_id
+     LEFT JOIN customers c ON c.id = cr.customer_id
+     ${where}
+     ORDER BY cr.created_at DESC
+     LIMIT ?`,
+  );
+  const { results } = status ? await stmt.bind(status, limit).all<ChangeRequestRow>() : await stmt.bind(limit).all<ChangeRequestRow>();
+  return results ?? [];
+}
+
+export async function getChangeRequestById(db: D1Database, id: string): Promise<ChangeRequestRow | null> {
+  return (
+    (await db
+      .prepare(
+        `SELECT cr.*, s.name AS space_name, bg.event_name, bg.status AS group_status,
+                c.contact_name, c.email AS customer_email, c.phone AS customer_phone
+         FROM change_requests cr
+         LEFT JOIN booking_groups bg ON bg.id = cr.group_id
+         LEFT JOIN spaces s ON s.id = bg.space_id
+         LEFT JOIN customers c ON c.id = cr.customer_id
+         WHERE cr.id = ?`,
+      )
+      .bind(id)
+      .first<ChangeRequestRow>()) ?? null
+  );
+}
+
+/** 変更リクエストを処理済みにする（承認/却下/手動対応）。 */
+export async function resolveChangeRequest(
+  db: D1Database,
+  id: string,
+  p: { resolution: 'approved' | 'rejected' | 'handled'; adminNote?: string | null; handledBy?: string | null; now: string },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE change_requests
+       SET status = 'handled', resolution = ?, admin_note = ?, handled_at = ?, handled_by = ?
+       WHERE id = ?`,
+    )
+    .bind(p.resolution, p.adminNote ?? null, p.now, p.handledBy ?? null, id)
+    .run();
+}
+
+/** 件数（管理画面バッジ用）。pendingの数を返す。 */
+export async function countPendingChangeRequests(db: D1Database): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) AS n FROM change_requests WHERE status = 'pending'`).first<{ n: number }>();
+  return row?.n ?? 0;
+}

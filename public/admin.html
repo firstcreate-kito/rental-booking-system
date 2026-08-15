@@ -39,6 +39,11 @@
   .tabs { display:flex; gap:8px; margin-bottom:14px; }
   .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; }
   .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .crbadge { display:inline-block; min-width:16px; padding:0 5px; margin-left:5px; border-radius:999px; background:#dc2626; color:#fff; font-size:11px; line-height:16px; text-align:center; vertical-align:middle; }
+  .crbadge.hidden { display:none; }
+  .crcard { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .crcard.handled { opacity:.6; }
+  .crtype { display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:6px; background:#eff6ff; color:#1d4ed8; }
 </style>
 </head>
 <body>
@@ -83,6 +88,7 @@
   <div id="app" class="hidden">
     <div class="tabs">
       <button id="tab-list" class="active" onclick="showTab('list')">予約一覧</button>
+      <button id="tab-changereq" onclick="showTab('changereq')">変更リクエスト<span id="crBadge" class="crbadge hidden">0</span></button>
       <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
@@ -164,6 +170,16 @@
         </div>
       </div>
     </div>
+
+    <!-- 変更リクエスト（マイページ発／承認制）#54 -->
+    <section id="view-changereq" class="card hidden">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">予約変更リクエスト</h2>
+        <label style="font-size:13px"><input type="checkbox" id="crShowHandled" onchange="loadChangeRequests()"> 処理済みも表示</label>
+      </div>
+      <p class="muted" style="font-size:13px">お客様がマイページから送信した変更希望です。内容を確認し、承認（変更を適用）または却下してください。日時変更で希望日時があるものは、そのままワンクリックで適用できます。</p>
+      <div id="crList"><div class="muted">読み込み中…</div></div>
+    </section>
 
     <!-- 代理予約 -->
     <section id="view-proxy" class="card hidden">
@@ -678,6 +694,13 @@ async function login() {
   document.getElementById('app').classList.remove('hidden');
   await loadSpaces();
   loadBookings();
+  refreshCrBadge();
+}
+
+/** 変更リクエストの未処理件数バッジを更新（タブを開かなくても分かるように） */
+async function refreshCrBadge() {
+  const { ok, body } = await api('/api/admin/change-requests?status=pending');
+  if (ok) updateCrBadge((body.requests || []).length);
 }
 
 async function loadSpaces() {
@@ -739,10 +762,11 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers'].forEach(x => {
+  ['list','changereq','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
+  if (t === 'changereq') loadChangeRequests();
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'issuer') loadIssuer();
@@ -1632,7 +1656,7 @@ let rsNumber = null;
 let rsStatus = null;
 let rsOriginal = [];
 let rsTicketPaid = false;
-async function openReschedule(number) {
+async function openReschedule(number, prefillItems) {
   rsNumber = number;
   rsStatus = null;
   rsOriginal = [];
@@ -1669,6 +1693,18 @@ async function openReschedule(number) {
       '<div><label>終了</label><input class="rs-end" value="' + it.endTime + '" placeholder="18:00" /></div>' +
     '</div>'
   ).join('');
+  // 変更リクエスト承認時：お客様の希望日時をスロットへ反映（存在する枠だけ上書き）
+  if (Array.isArray(prefillItems) && prefillItems.length) {
+    const dEls = [...document.querySelectorAll('#rsSlots .rs-date')];
+    const sEls = [...document.querySelectorAll('#rsSlots .rs-start')];
+    const eEls = [...document.querySelectorAll('#rsSlots .rs-end')];
+    prefillItems.forEach((p, i) => {
+      if (dEls[i]) dEls[i].value = p.date || dEls[i].value;
+      if (sEls[i]) sEls[i].value = p.startTime || sEls[i].value;
+      if (eEls[i]) eEls[i].value = p.endTime || eEls[i].value;
+    });
+    document.getElementById('rsMsg').innerHTML = '<span style="color:var(--brand)">お客様のご希望日時を反映しました。内容を確認して「変更を保存」で確定してください。</span>';
+  }
   // 追加質問の回答（読み取り専用表示）
   const answers = body.answers || [];
   if (answers.length) {
@@ -1693,6 +1729,7 @@ async function openReschedule(number) {
 function closeReschedule() {
   document.getElementById('rsOverlay').style.display = 'none';
   rsNumber = null;
+  _crHandleAfter = null; // 変更リクエスト連携をリセット
 }
 // 支払いステータスの手動変更（社員・身内利用など）#42
 async function updatePayStatus() {
@@ -1763,10 +1800,102 @@ async function submitReschedule() {
     else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';
   }
   if (body.calendarWarning) note += '\n⚠ ' + body.calendarWarning;
+  // 変更リクエスト経由で開いていた場合、そのリクエストを「承認・適用済み」にする
+  if (_crHandleAfter) {
+    await api('/api/admin/change-requests/' + _crHandleAfter + '/resolve', jsonBody({ resolution: 'approved' }));
+    _crHandleAfter = null;
+  }
   alert(note);
   closeReschedule();
   loadBookings();
 }
+
+// ---- 変更リクエスト（#54）----
+const CR_TYPE_LABEL = { reschedule:'日時変更のご希望', option:'オプション変更のご希望', cancel:'キャンセルのご希望', other:'その他のご相談' };
+function crEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+async function loadChangeRequests() {
+  const showHandled = document.getElementById('crShowHandled') && document.getElementById('crShowHandled').checked;
+  const qs = showHandled ? '' : '?status=pending';
+  const { ok, body } = await api('/api/admin/change-requests' + qs);
+  const wrap = document.getElementById('crList');
+  if (!ok) { wrap.innerHTML = '<div class="msg bad">' + crEsc(body.error || '取得に失敗しました') + '</div>'; return; }
+  const rows = body.requests || [];
+  // バッジ（pendingのみ）
+  const pending = rows.filter(r => r.status === 'pending').length;
+  updateCrBadge(showHandled ? null : pending);
+  if (!rows.length) { wrap.innerHTML = '<div class="muted">' + (showHandled ? '変更リクエストはありません' : '未処理の変更リクエストはありません') + '</div>'; return; }
+  wrap.innerHTML = rows.map(crCard).join('');
+}
+function updateCrBadge(n) {
+  const b = document.getElementById('crBadge');
+  if (n == null) { // 全件表示中はpending数を別途取得しない（そのまま維持）
+    return;
+  }
+  if (n > 0) { b.textContent = n; b.classList.remove('hidden'); } else { b.classList.add('hidden'); }
+}
+function crCard(r) {
+  const handled = r.status === 'handled';
+  const proposed = Array.isArray(r.proposedItems) && r.proposedItems.length
+    ? '<div style="margin:6px 0"><span class="muted">ご希望の日時：</span>' + r.proposedItems.map(p => crEsc(p.date + ' ' + p.startTime + '〜' + p.endTime)).join(' ／ ') + '</div>'
+    : '';
+  const contact = [r.customerName, r.customerEmail, r.customerPhone].filter(Boolean).map(crEsc).join('　');
+  let actions = '';
+  if (handled) {
+    const rLabel = { approved:'承認・適用済み', rejected:'却下', handled:'対応済み' }[r.resolution] || '処理済み';
+    actions = '<span class="pill completed">' + rLabel + '</span>' + (r.adminNote ? ' <span class="muted">' + crEsc(r.adminNote) + '</span>' : '');
+  } else {
+    const canOneClick = r.type === 'reschedule' && Array.isArray(r.proposedItems) && r.proposedItems.length;
+    actions =
+      (canOneClick ? '<button class="btn sm" onclick=\'approveReschedule(' + JSON.stringify(r.id) + ',' + JSON.stringify(r.bookingNumber) + ',' + JSON.stringify(r.proposedItems) + ')\'>承認して適用</button> ' : '') +
+      '<button class="btn ghost sm" onclick=\'openReqReschedule(' + JSON.stringify(r.id) + ',' + JSON.stringify(r.bookingNumber) + ',' + JSON.stringify(r.proposedItems || null) + ')\'>変更画面を開く</button> ' +
+      '<button class="btn ghost sm" onclick=\'resolveReq(' + JSON.stringify(r.id) + ',"handled")\'>対応済みにする</button> ' +
+      '<button class="btn ghost sm" style="color:var(--bad);border-color:var(--bad)" onclick=\'resolveReq(' + JSON.stringify(r.id) + ',"rejected")\'>却下</button>';
+  }
+  return '<div class="crcard' + (handled ? ' handled' : '') + '">' +
+    '<div class="row" style="justify-content:space-between;align-items:center">' +
+      '<div><span class="crtype">' + crEsc(CR_TYPE_LABEL[r.type] || r.type) + '</span> ' +
+        '<strong>' + crEsc(r.bookingNumber) + '</strong> <span class="muted">' + crEsc(r.spaceName) + '／' + crEsc(r.eventName) + '</span></div>' +
+      '<span class="muted">' + crEsc((r.createdAt || '').slice(0, 16).replace('T', ' ')) + '</span>' +
+    '</div>' +
+    '<div class="muted" style="margin:4px 0">' + contact + '</div>' +
+    proposed +
+    (r.message ? '<div style="white-space:pre-wrap;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0">' + crEsc(r.message) + '</div>' : '') +
+    '<div class="row" style="gap:6px;margin-top:8px">' + actions + '</div>' +
+  '</div>';
+}
+// 日時変更リクエストをワンクリック適用（希望日時で reschedule → 承認記録）
+async function approveReschedule(id, number, items) {
+  const lines = items.map(p => '　' + p.date + ' ' + p.startTime + '〜' + p.endTime).join('\n');
+  if (!confirm('予約 ' + number + ' を、お客様のご希望日時に変更して承認します。\n\n' + lines + '\n\n※お客様と管理者へ変更通知メールが送信されます。よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/bookings/' + number + '/reschedule', jsonBody({ items }));
+  if (!ok) { alert('変更を適用できませんでした：' + (body.error || '') + '\n\n「変更画面を開く」から日時を調整して再度お試しください。'); return; }
+  let note = '変更を適用しました。新しい合計 ' + yen(body.newTotal);
+  const adj = body.adjustment;
+  if (adj && adj.type === 'surcharge') note += '（追加請求 +' + yen(adj.amount) + '）';
+  else if (adj && adj.type === 'refund') note += '（返金 ' + yen(adj.amount) + '）';
+  await api('/api/admin/change-requests/' + id + '/resolve', jsonBody({ resolution: 'approved' }));
+  alert(note);
+  loadChangeRequests();
+  loadBookings();
+}
+// 変更画面を開く（希望日時をプリフィル）。適用後は手動で「対応済み」にしてもらう
+async function openReqReschedule(id, number, items) {
+  _crHandleAfter = id;
+  await openReschedule(number, items || undefined);
+}
+async function resolveReq(id, resolution) {
+  let adminNote;
+  if (resolution === 'rejected') {
+    adminNote = prompt('却下の理由（お客様へのメッセージとして送信されます。空欄でも可）', '');
+    if (adminNote === null) return; // キャンセル
+  } else {
+    if (!confirm('このリクエストを「対応済み」にします。よろしいですか？')) return;
+  }
+  const { ok, body } = await api('/api/admin/change-requests/' + id + '/resolve', jsonBody({ resolution, adminNote }));
+  if (!ok) { alert(body.error || '更新に失敗しました'); return; }
+  loadChangeRequests();
+}
+let _crHandleAfter = null;
 
 // --- 初回セットアップ / ログイン画面の出し分け ---
 async function submitSetup() {

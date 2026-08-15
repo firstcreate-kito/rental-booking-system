@@ -79,6 +79,9 @@ import {
   updateSpaceQuestion,
   deleteSpaceQuestion,
   getBookingAnswers,
+  listChangeRequests,
+  getChangeRequestById,
+  resolveChangeRequest,
   type SpaceQuestionInput,
   type SpaceRow,
 } from '../db/repository';
@@ -87,7 +90,7 @@ import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmai
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail } from '../lib/email';
 import { notifyPaymentConfirmed } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
@@ -957,6 +960,83 @@ app.post('/bookings/:number/reschedule', async (c) => {
   }
 
   return c.json({ bookingNumber: number, newTotal, adjustment, calendarWarning });
+});
+
+// ---------------------------------------------------------------------------
+// 予約変更リクエスト（マイページ発／承認制）#54
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/change-requests?status=pending 変更リクエスト一覧 */
+app.get('/change-requests', async (c) => {
+  const status = c.req.query('status') ?? undefined; // 省略で全件
+  const rows = await listChangeRequests(c.env.DB, status);
+  const requests = rows.map((r) => ({
+    id: r.id,
+    bookingNumber: r.booking_number,
+    type: r.type,
+    message: r.message,
+    status: r.status,
+    resolution: r.resolution,
+    adminNote: r.admin_note,
+    createdAt: r.created_at,
+    handledAt: r.handled_at,
+    spaceName: r.space_name ?? '',
+    eventName: r.event_name ?? '',
+    groupStatus: r.group_status ?? '',
+    customerName: r.contact_name ?? '',
+    customerEmail: r.customer_email ?? '',
+    customerPhone: r.customer_phone ?? '',
+    proposedItems: r.proposed_items ? safeParseItems(r.proposed_items) : null,
+  }));
+  return c.json({ requests });
+});
+
+function safeParseItems(json: string): Array<{ date: string; startTime: string; endTime: string }> | null {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/admin/change-requests/:id/resolve 変更リクエストの処理を記録
+ * body: { resolution: 'approved'|'rejected'|'handled', adminNote? }
+ * ※実際の予約変更（reschedule等）はフロントから既存APIを呼んで適用し、
+ *   その成否に応じて本APIで対応結果を記録する。rejected の場合は却下メールを送る。
+ */
+app.post('/change-requests/:id/resolve', async (c) => {
+  const id = c.req.param('id');
+  const body = (await c.req.json().catch(() => ({}))) as { resolution?: string; adminNote?: string };
+  const validRes = ['approved', 'rejected', 'handled'];
+  if (!body.resolution || !validRes.includes(body.resolution)) {
+    return c.json({ error: 'resolution(approved/rejected/handled) は必須です' }, 400);
+  }
+  const req = await getChangeRequestById(c.env.DB, id);
+  if (!req) return c.json({ error: 'リクエストが見つかりません' }, 404);
+  if (req.status === 'handled') return c.json({ error: 'このリクエストは処理済みです' }, 409);
+
+  const resolution = body.resolution as 'approved' | 'rejected' | 'handled';
+  const adminNote = (body.adminNote ?? '').trim() || null;
+  const admin = c.get('admin');
+  await resolveChangeRequest(c.env.DB, id, { resolution, adminNote, handledBy: admin?.email ?? null, now: nowJST() });
+
+  // 却下時はお客様へ通知（承認時の変更確定メールは reschedule 側で送信済み）
+  if (resolution === 'rejected' && req.customer_email) {
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: req.customer_email,
+        ...changeRequestRejectedEmail({
+          customerName: req.contact_name || 'お客様',
+          bookingNumber: req.booking_number,
+          spaceName: req.space_name || '',
+          adminNote: adminNote ?? undefined,
+        }),
+      }),
+    );
+  }
+  return c.json({ ok: true, id, resolution });
 });
 
 // ---------------------------------------------------------------------------

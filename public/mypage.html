@@ -42,6 +42,12 @@
   .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media(max-width:560px){ .grid2{ grid-template-columns:1fr; } }
+  .cr-overlay { position:fixed; inset:0; background:rgba(15,23,42,.5); display:flex; align-items:center; justify-content:center; padding:16px; z-index:50; }
+  .cr-overlay.hidden { display:none; }
+  .cr-modal { background:#fff; border-radius:14px; padding:22px; width:100%; max-width:460px; max-height:90vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.25); }
+  .cr-modal label { display:block; font-size:13px; color:var(--muted,#6b7280); margin-bottom:4px; }
+  .cr-modal select, .cr-modal input, .cr-modal textarea { width:100%; padding:9px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; font-family:inherit; box-sizing:border-box; }
+  .cr-modal .row input { width:auto; }
 </style>
 </head>
 <body>
@@ -110,14 +116,14 @@
     <section id="view-bookings" class="card">
       <h2>予約履歴</h2>
       <div class="tablewrap"><table>
-        <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
+        <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
         <tbody id="bkBody"></tbody>
       </table></div>
       <div class="muted" id="bkEmpty"></div>
       <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
         <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
         <div id="bkArchiveList" class="hidden tablewrap"><table>
-          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
+          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
           <tbody id="bkArchiveBody"></tbody>
         </table></div>
       </div>
@@ -184,6 +190,41 @@
     </section>
   </div>
 </main>
+
+<!-- 予約変更リクエスト モーダル（#54） -->
+<div id="crOverlay" class="cr-overlay hidden" onclick="if(event.target===this)closeChangeReq()">
+  <div class="cr-modal">
+    <h3 style="margin:0 0 4px">予約変更リクエスト</h3>
+    <p class="muted" style="margin:0 0 12px">予約番号 <strong id="cr_num"></strong>（<span id="cr_space"></span>）<br>ご希望を送信すると、担当者が確認のうえ対応します（承認まで予約は変わりません）。</p>
+    <div style="margin-bottom:10px">
+      <label>ご相談の種類</label>
+      <select id="cr_type" onchange="crToggle()">
+        <option value="reschedule">日時を変更したい</option>
+        <option value="option">オプションを追加・変更したい</option>
+        <option value="cancel">キャンセルしたい</option>
+        <option value="other">その他の相談</option>
+      </select>
+    </div>
+    <div id="cr_dt" style="margin-bottom:10px">
+      <label>ご希望の日時（分かる範囲でOK）</label>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <input id="cr_date" type="date" style="flex:1;min-width:140px" />
+        <input id="cr_start" type="time" step="1800" style="width:110px" />
+        <span style="align-self:center">〜</span>
+        <input id="cr_end" type="time" step="1800" style="width:110px" />
+      </div>
+    </div>
+    <div style="margin-bottom:10px">
+      <label>ご連絡事項・ご希望の詳細</label>
+      <textarea id="cr_msg" rows="4" placeholder="例）当日は雨予報のため、翌週の同じ時間に移せますか？"></textarea>
+    </div>
+    <div class="msg" id="cr_result"></div>
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="btn ghost" onclick="closeChangeReq()">閉じる</button>
+      <button class="btn" id="cr_submit" onclick="submitChangeReq()">送信する</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const M = { token:null, member:null };
@@ -288,8 +329,63 @@ async function loadDocuments() {
 
 function bookingRow(b) {
   const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
+  // 変更リクエストボタンは「キャンセル以外」かつ「利用日が本日以降」の予約のみ
+  const today = new Date().toISOString().slice(0, 10);
+  const canRequest = b.status !== 'cancelled' && (b.last_date || '') >= today;
+  const action = canRequest
+    ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ')\'>変更リクエスト</button>'
+    : '';
   return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
-    '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td></tr>';
+    '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + action + '</td></tr>';
+}
+
+// ---- 予約変更リクエスト（#54）----
+let _crNum = null;
+function openChangeReq(number, spaceName) {
+  _crNum = number;
+  document.getElementById('cr_num').textContent = number;
+  document.getElementById('cr_space').textContent = spaceName || '';
+  document.getElementById('cr_type').value = 'reschedule';
+  document.getElementById('cr_date').value = '';
+  document.getElementById('cr_start').value = '';
+  document.getElementById('cr_end').value = '';
+  document.getElementById('cr_msg').value = '';
+  const res = document.getElementById('cr_result'); res.textContent = ''; res.className = 'msg';
+  document.getElementById('cr_submit').disabled = false;
+  crToggle();
+  document.getElementById('crOverlay').classList.remove('hidden');
+}
+function closeChangeReq() { document.getElementById('crOverlay').classList.add('hidden'); _crNum = null; }
+function crToggle() {
+  // 日時変更のときだけ希望日時の入力欄を出す
+  const isRs = document.getElementById('cr_type').value === 'reschedule';
+  document.getElementById('cr_dt').style.display = isRs ? '' : 'none';
+}
+async function submitChangeReq() {
+  if (!_crNum) return;
+  const type = document.getElementById('cr_type').value;
+  const message = document.getElementById('cr_msg').value.trim();
+  const res = document.getElementById('cr_result');
+  if (!message && type !== 'cancel') { res.textContent = 'ご希望・ご連絡事項を入力してください'; res.className = 'msg bad'; return; }
+  const payload = { type, message };
+  if (type === 'reschedule') {
+    const date = document.getElementById('cr_date').value;
+    const start = document.getElementById('cr_start').value;
+    const end = document.getElementById('cr_end').value;
+    if (date && start && end) payload.proposedItems = [{ date, startTime: start, endTime: end }];
+  }
+  document.getElementById('cr_submit').disabled = true;
+  res.textContent = '送信中…'; res.className = 'msg';
+  const { ok, body } = await api('/api/mypage/bookings/' + encodeURIComponent(_crNum) + '/change-request', jsonBody(payload));
+  if (ok) {
+    res.textContent = body.message || '受け付けました。';
+    res.className = 'msg ok';
+    setTimeout(closeChangeReq, 1800);
+  } else {
+    res.textContent = body.error || '送信に失敗しました。';
+    res.className = 'msg bad';
+    document.getElementById('cr_submit').disabled = false;
+  }
 }
 function toggleArchive() {
   const list = document.getElementById('bkArchiveList');

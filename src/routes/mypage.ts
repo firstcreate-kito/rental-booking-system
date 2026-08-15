@@ -17,9 +17,13 @@ import {
   getUsableTicketsForSpace,
   getSystemSetting,
   getDocumentsForCustomer,
+  getBookingGroupByNumber,
+  createChangeRequest,
+  type ChangeRequestType,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { nowJST, todayJST } from '../lib/clock';
+import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
 
@@ -66,6 +70,89 @@ app.put('/password', async (c) => {
 app.get('/bookings', async (c) => {
   const bookings = await getCustomerBookingGroups(c.env.DB, c.get('customer').id);
   return c.json({ bookings });
+});
+
+/**
+ * POST /api/mypage/bookings/:number/change-request 予約変更リクエスト（#54）
+ * 会員が自分の予約に対して変更希望（日時変更/オプション/キャンセル/その他）を送信。
+ * 管理者が承認するまで予約自体は変わらない（受付のみ）。
+ * body: { type, message, proposedItems?: [{date,startTime,endTime}] }
+ */
+app.post('/bookings/:number/change-request', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const customer = c.get('customer');
+  const body = (await c.req.json().catch(() => ({}))) as {
+    type?: string;
+    message?: string;
+    proposedItems?: Array<{ date?: string; startTime?: string; endTime?: string }>;
+  };
+  const validTypes: ChangeRequestType[] = ['reschedule', 'option', 'cancel', 'other'];
+  if (!body.type || !validTypes.includes(body.type as ChangeRequestType)) {
+    return c.json({ error: 'type(reschedule/option/cancel/other) は必須です' }, 400);
+  }
+  const type = body.type as ChangeRequestType;
+  const message = (body.message ?? '').trim();
+  if (!message && type !== 'cancel') {
+    return c.json({ error: 'ご希望・ご連絡事項を入力してください' }, 400);
+  }
+
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  // 本人の予約のみ受付（他人の予約番号を弾く）
+  if (!g.customer_id || g.customer_id !== customer.id) {
+    return c.json({ error: 'この予約は変更リクエストの対象外です' }, 403);
+  }
+  if (g.status === 'cancelled') {
+    return c.json({ error: 'キャンセル済みの予約です' }, 400);
+  }
+
+  // 日時変更の希望枠（任意・あれば承認時にワンクリック適用の材料になる）
+  let proposed: Array<{ date: string; startTime: string; endTime: string }> | null = null;
+  if (type === 'reschedule' && Array.isArray(body.proposedItems)) {
+    const cleaned = body.proposedItems
+      .filter((i) => i && i.date && i.startTime && i.endTime)
+      .map((i) => ({ date: String(i.date), startTime: String(i.startTime), endTime: String(i.endTime) }));
+    if (cleaned.length) proposed = cleaned;
+  }
+
+  const space = await getSpaceById(db, g.space_id);
+  const spaceName = space?.name ?? '';
+  const now = nowJST();
+  const id = await createChangeRequest(
+    db,
+    { groupId: g.id, customerId: customer.id, bookingNumber: number, type, message: message || '（キャンセル希望）', contact: customer.email, proposedItems: proposed },
+    now,
+  );
+
+  // お客様へ受付確認、管理者へ通知
+  c.executionCtx.waitUntil(
+    sendEmail(c.env, {
+      to: customer.email,
+      ...changeRequestReceivedEmail({ customerName: customer.contactName || 'お客様', bookingNumber: number, spaceName, type, message, proposedDays: proposed ?? undefined }),
+    }),
+  );
+  if (c.env.MAIL_ADMIN) {
+    const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: c.env.MAIL_ADMIN,
+        ...adminChangeRequestEmail({
+          bookingNumber: number,
+          spaceName,
+          eventName: g.event_name,
+          type,
+          message: message || '（キャンセル希望）',
+          customerName: customer.contactName || 'お客様',
+          customerEmail: customer.email,
+          proposedDays: proposed ?? undefined,
+          adminUrl: `${origin}/admin.html`,
+        }),
+      }),
+    );
+  }
+
+  return c.json({ id, status: 'pending', message: '変更リクエストを受け付けました。担当者の承認をもって変更が確定します。' }, 201);
 });
 
 /** GET /api/mypage/points ポイント残高・履歴 */

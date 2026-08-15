@@ -752,3 +752,129 @@ ${btn}
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ---------------------------------------------------------------------------
+// 予約変更リクエスト（マイページ発／管理者承認制）#54
+// ---------------------------------------------------------------------------
+
+/** 変更リクエスト種別の日本語ラベル */
+export function changeRequestTypeLabel(type: string): string {
+  return (
+    { reschedule: '日時変更のご希望', option: 'オプション変更のご希望', cancel: 'キャンセルのご希望', other: 'その他のご相談' } as Record<string, string>
+  )[type] ?? 'ご相談';
+}
+
+/** 変更リクエスト受付（お客様宛の確認メール） */
+export function changeRequestReceivedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  type: string;
+  message: string;
+  proposedDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+}): { subject: string; html: string; text: string } {
+  const label = changeRequestTypeLabel(d.type);
+  const subject = `【レンタルスペースALBE】変更リクエストを受け付けました（${d.bookingNumber}）`;
+  const proposed = d.proposedDays && d.proposedDays.length ? `\n\n【ご希望の日時】\n${daysBlockText(d.proposedDays)}` : '';
+  const text = `${d.customerName} 様
+
+ご予約に関する変更リクエストを受け付けました。
+担当者が内容を確認し、追ってご連絡いたします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+ご相談内容: ${label}
+${d.message ? `\nご連絡事項:\n${d.message}` : ''}${proposed}
+
+※このリクエストは「受付」の段階です。担当者の承認をもって変更が確定します。
+※承認・確定の際は、あらためてメールでお知らせいたします。`;
+  const proposedHtml = d.proposedDays && d.proposedDays.length
+    ? `<p style="margin:6px 0;color:#6b7280">ご希望の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.proposedDays)}</ul>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約に関する変更リクエストを受け付けました。<br>担当者が内容を確認し、追ってご連絡いたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご相談内容</td><td>${escapeHtml(label)}</td></tr>
+</table>
+${d.message ? `<p style="margin:6px 0;color:#6b7280">ご連絡事項</p><p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.message)}</p>` : ''}
+${proposedHtml}
+<p style="color:#6b7280;font-size:13px">※このリクエストは「受付」の段階です。担当者の承認をもって変更が確定します。承認・確定の際は、あらためてメールでお知らせいたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 変更リクエスト通知（管理者宛） */
+export function adminChangeRequestEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  eventName: string;
+  type: string;
+  message: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  proposedDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  adminUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const label = changeRequestTypeLabel(d.type);
+  const subject = `【変更リクエスト】${label}／${d.spaceName}（${d.bookingNumber}）`;
+  const proposed = d.proposedDays && d.proposedDays.length ? `\n\n【ご希望の日時】\n${daysBlockText(d.proposedDays)}` : '';
+  const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
+  const text = `お客様から予約変更リクエストが届きました。
+管理画面の「変更リクエスト」から内容を確認し、承認または却下してください。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+お客様: ${contact}
+ご相談内容: ${label}
+
+ご連絡事項:
+${d.message}${proposed}
+${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
+  const proposedHtml = d.proposedDays && d.proposedDays.length
+    ? `<p style="margin:6px 0;color:#6b7280">ご希望の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.proposedDays)}</ul>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>お客様から<strong>予約変更リクエスト</strong>が届きました。<br>管理画面の「変更リクエスト」から内容を確認し、承認または却下してください。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご相談内容</td><td>${escapeHtml(label)}</td></tr>
+</table>
+<p style="margin:6px 0;color:#6b7280">ご連絡事項</p>
+<p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.message)}</p>
+${proposedHtml}
+${d.adminUrl ? `<p style="margin:16px 0"><a href="${escapeHtml(d.adminUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">管理画面で確認</a></p>` : ''}
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 変更リクエスト却下（お客様宛） */
+export function changeRequestRejectedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  adminNote?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】変更リクエストについて（${d.bookingNumber}）`;
+  const text = `${d.customerName} 様
+
+ご予約（${d.bookingNumber}／${d.spaceName}）について、変更リクエストを承りましたが、
+今回はご希望に沿った変更が難しい状況です。
+${d.adminNote ? `\n【担当者より】\n${d.adminNote}\n` : ''}
+ご不明な点やご希望の再調整については、お気軽にお問い合わせください。
+現在のご予約はそのまま有効です。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約（<strong>${escapeHtml(d.bookingNumber)}</strong>／${escapeHtml(d.spaceName)}）について、変更リクエストを承りましたが、今回はご希望に沿った変更が難しい状況です。</p>
+${d.adminNote ? `<p style="margin:6px 0;color:#6b7280">担当者より</p><p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.adminNote)}</p>` : ''}
+<p>ご不明な点やご希望の再調整については、お気軽にお問い合わせください。<br>現在のご予約はそのまま有効です。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

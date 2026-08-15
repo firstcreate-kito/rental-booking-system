@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { paypalConfigured, capturePaypalOrder } from '../lib/paypal';
 import { getBookingPaymentBySession, markBookingPaymentPaid, getBookingSummaryForGroup, createDocumentForGroup } from '../db/repository';
+import { syncBookingCalendarEvents } from '../lib/gcal-sync';
 import { nowJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -36,6 +37,9 @@ app.post('/capture', async (c) => {
       } catch {
         /* 書類発行失敗は決済処理に影響させない */
       }
+      // カレンダーの支払いステータスを「支払済」に更新（#54関連）
+      const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+      c.executionCtx.waitUntil(syncBookingCalendarEvents(c.env, pay.group_id, origin).catch(() => {}));
       const booking = await getBookingSummaryForGroup(c.env.DB, pay.group_id);
       return c.json({ status: 'paid', booking });
     }

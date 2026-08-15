@@ -58,7 +58,7 @@ import {
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
-import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout } from '../lib/stripe';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
 
@@ -116,6 +116,10 @@ interface CreateBookingBody {
   paymentMethod?: string;
   /** 請求書払い時の請求書名（宛名）。invoice のとき必須 */
   invoiceName?: string;
+  /** 利用目的（任意・カレンダー出力用） */
+  purpose?: string;
+  /** 利用人数（任意・カレンダー出力用） */
+  headcount?: number;
 }
 
 /** 請求書払いは利用日の何日前まで受け付けるか（#38） */
@@ -260,6 +264,10 @@ app.post('/', async (c) => {
       return c.json({ error: `銀行振込はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
     }
   }
+  // 利用目的・利用人数（任意・カレンダー出力用）
+  const purpose = String(body.purpose ?? '').trim() || null;
+  const headcountNum = Number(body.headcount);
+  const headcount = Number.isFinite(headcountNum) && headcountNum > 0 ? Math.floor(headcountNum) : null;
 
   // 期間の祝日・季節料金・キャンペーン
   const itemDates = body.items.map((i) => i.date).sort();
@@ -455,10 +463,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, purpose, headcount, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -614,18 +622,12 @@ app.post('/', async (c) => {
     }
   }
 
-  // Googleカレンダー（予約台帳の正）へイベント書き込み＋イベントID保存
-  const gcalResult = await writeBookingToCalendar(c.env, space.google_calendar_id, {
-    bookingNumber,
-    eventName: body.eventName,
-    customerName: contactName,
-    items: body.items,
-    bookingIds,
-  });
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  // Googleカレンダー（予約台帳の正）へリッチ内容で書き込み＋イベントID保存（#54関連）
+  const gcalResult = await syncBookingCalendarEvents(c.env, groupId, origin);
 
   // 通知メール（お客様宛の予約確認 + 管理者宛の新規通知）。
   // 失敗しても予約は成立させる（バックグラウンド送信）。
-  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
   const mailDays = body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime }));
   const emailData = {
     bookingNumber,
@@ -1157,18 +1159,12 @@ app.post('/:number/reschedule', async (c) => {
   const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
   const custName = cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様');
 
-  // Googleカレンダー同期：旧イベントを削除し、新しい日時でイベントを作り直す
+  // Googleカレンダー同期：旧イベントを削除し、新しい日時でリッチ内容を作り直す（#54関連）
   let calendarWarning: string | null = null;
   if (space.google_calendar_id) {
     await deleteBookingFromCalendar(c.env, space.google_calendar_id, oldRows.map((r) => r.google_event_id));
-    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
-      bookingNumber: number,
-      eventName: g.event_name,
-      customerName: custName,
-      items: body.items,
-      bookingIds: newBookingIds,
-      tentative: g.status === 'tentative',
-    });
+    const rsOrigin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+    const res = await syncBookingCalendarEvents(c.env, g.id, rsOrigin);
     calendarWarning = res.warning ?? null;
   }
 

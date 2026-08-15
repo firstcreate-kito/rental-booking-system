@@ -878,7 +878,10 @@ async function loadBookings() {
       '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + '</td><td>' + b.booking_number +
       '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
   }).join('');
+  // カレンダーの「管理画面リンク」から ?booking=番号 で開いた場合、その予約の詳細を自動で開く（#54関連・初回のみ）
+  if (deepLinkBooking) { const n = deepLinkBooking; deepLinkBooking = null; openReschedule(n); }
 }
+let deepLinkBooking = new URLSearchParams(location.search).get('booking');
 function statusLabel(s) { return { confirmed:'本予約', tentative:'商談中', cancelled:'キャンセル', completed:'完了', active:'有効', exhausted:'使い切り', expired:'失効' }[s] || s; }
 // 領収書を発行し、書類ページを新規タブで開く（#41）
 async function issueReceipt(number) {

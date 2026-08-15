@@ -179,6 +179,10 @@
 
     <label>イベント名 <span style="color:var(--bad)">*</span></label>
     <input id="f_event" placeholder="例）撮影会 / セミナー" />
+    <label>利用目的（任意）</label>
+    <input id="f_purpose" placeholder="例）レッスン / 撮影 / 会議" />
+    <label>利用人数（任意）</label>
+    <input id="f_headcount" type="number" min="1" placeholder="例）10" />
     <label>お名前 <span style="color:var(--bad)">*</span></label>
     <input id="f_name" />
     <label>メールアドレス <span style="color:var(--bad)">*</span></label>
@@ -879,7 +883,7 @@ async function submitBooking() {
   }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, purpose: document.getElementById('f_purpose').value.trim(), headcount: Number(document.getElementById('f_headcount').value) || null, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動

@@ -3,8 +3,10 @@
  * 予約台帳の正は Google カレンダー（#25/#27）。
  */
 import type { Env } from '../types';
-import type { MissingCalendarBookingRow } from '../db/repository';
-import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
+import type { MissingCalendarBookingRow, BookingCalendarData } from '../db/repository';
+import { getBookingCalendarData } from '../db/repository';
+import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, patchEventContent, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
+import { toMinutes } from './time';
 
 const TENTATIVE_PREFIX = '【商談中】';
 
@@ -193,6 +195,92 @@ export async function reconcileMissingCalendarEvents(
   }
   if (updates.length) await env.DB.batch(updates);
   return { created, failed };
+}
+
+// ---------------------------------------------------------------------------
+// リッチなカレンダー出力（タイトル・説明の充実）
+// ---------------------------------------------------------------------------
+
+const yenFmt = (n: number): string => '¥' + Number(n || 0).toLocaleString('ja-JP');
+const METHOD_LABEL: Record<string, string> = { stripe: 'Stripe', paypal: 'PayPal', bank_transfer: '銀行振込', invoice: '請求書払い' };
+
+/** 合計利用時間の表示（例: 3時間 / 1.5時間） */
+function totalHoursLabel(rows: ReadonlyArray<{ start_time: string; end_time: string }>): string {
+  const mins = rows.reduce((s, r) => s + (toMinutes(r.end_time) - toMinutes(r.start_time)), 0);
+  const h = mins / 60;
+  return (Number.isInteger(h) ? String(h) : h.toFixed(1)) + '時間';
+}
+
+/** 支払いステータスの表示 */
+function paymentStatusLabel(paymentStatus: string, paymentMethod: string | null, total: number): string {
+  if (total <= 0) return '支払不要（¥0）';
+  const m = METHOD_LABEL[paymentMethod || ''] || '';
+  if (paymentStatus === 'paid') return `支払済${m ? '（' + m + '）' : ''}`;
+  if (paymentStatus === 'invoice') return '請求書払い（未入金）';
+  return `未入金${m ? '（' + m + '）' : ''}`;
+}
+
+/** タイトル：【予約完了/商談中】 お客様名｜ スペース名／N時間 */
+export function buildCalendarTitle(data: BookingCalendarData, tentative: boolean): string {
+  const badge = tentative ? '【商談中】' : '【予約完了】';
+  const sp = data.spaceName ? `｜ ${data.spaceName}` : '';
+  return `${badge} ${data.customerName}${sp}／${totalHoursLabel(data.rows)}`;
+}
+
+/** 説明欄：ご指定の項目を出力 */
+export function buildCalendarDescription(data: BookingCalendarData, origin: string): string {
+  const optLabel = data.options.length ? data.options.map((o) => `${o.name}×${o.quantity}`).join('、') : 'なし';
+  const adminUrl = origin ? `${origin}/admin.html?booking=${encodeURIComponent(data.bookingNumber)}` : '';
+  const lines = [
+    `スペース名：${data.spaceName}`,
+    data.phone ? `電話番号：${data.phone}` : '',
+    `予約確認番号：${data.bookingNumber}`,
+    `イベント名：${data.eventName || '—'}`,
+    data.purpose ? `利用目的：${data.purpose}` : '',
+    data.headcount != null ? `利用人数：${data.headcount}` : '',
+    `オプション：${optLabel}`,
+    `ご利用金額：${yenFmt(data.total)}`,
+    `支払いステータス：${paymentStatusLabel(data.paymentStatus, data.paymentMethod, data.total)}`,
+    `利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
+    adminUrl ? `管理画面リンク：${adminUrl}` : '',
+    '',
+    CHANGE_NOTE,
+  ].filter((l) => l !== '');
+  return lines.join('\n');
+}
+
+/**
+ * 予約グループのカレンダー予定を最新内容で作成/更新する（リッチ出力・#54関連）。
+ * - 未作成の行は insert、作成済みの行は内容を patch（支払い状況の反映など）。
+ * - 予約作成時・入金確定時・本予約化時に呼ぶ。キャンセルは対象外。
+ */
+export async function syncBookingCalendarEvents(env: Env, groupId: string, origin: string): Promise<{ warning?: string }> {
+  if (!gcalConfigured(env)) return {};
+  const data = await getBookingCalendarData(env.DB, groupId);
+  if (!data || !data.calendarId || data.status === 'cancelled') return {};
+  const tentative = data.status === 'tentative';
+  const summary = buildCalendarTitle(data, tentative);
+  const description = buildCalendarDescription(data, origin);
+  try {
+    const updates: D1PreparedStatement[] = [];
+    for (const r of data.rows) {
+      if (r.google_event_id) {
+        await patchEventContent(env, data.calendarId, r.google_event_id, { summary, description });
+      } else {
+        const ev = await insertEvent(env, data.calendarId, {
+          summary,
+          description,
+          startISO: toJstRfc3339(r.date, r.start_time),
+          endISO: toJstRfc3339(r.date, r.end_time),
+        });
+        updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id));
+      }
+    }
+    if (updates.length) await env.DB.batch(updates);
+    return {};
+  } catch (err) {
+    return { warning: `Googleカレンダー同期に失敗しました（予約は成立しています）: ${(err as Error).message}` };
+  }
 }
 
 /** 予約グループのイベントを Google カレンダーから削除（キャンセル時） */

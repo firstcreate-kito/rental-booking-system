@@ -222,6 +222,25 @@ export async function patchEventSummary(
   if (!res.ok) throw new Error(`patchEvent error: ${res.status}`);
 }
 
+/** イベントのタイトル・説明を更新（内容リッチ化・支払い状況の反映用） */
+export async function patchEventContent(
+  env: GcalEnv,
+  calendarId: string,
+  eventId: string,
+  fields: { summary: string; description: string },
+): Promise<void> {
+  const token = await getAccessToken(env);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: fields.summary, description: fields.description }),
+    },
+  );
+  if (!res.ok) throw new Error(`patchEventContent error: ${res.status}`);
+}
+
 /** イベントを削除（ロールバック・キャンセル用） */
 export async function deleteEvent(env: GcalEnv, calendarId: string, eventId: string): Promise<void> {
   const token = await getAccessToken(env);

@@ -1670,6 +1670,106 @@ export async function fulfillTicketPurchase(
 }
 
 // ---------------------------------------------------------------------------
+// Googleカレンダー出力用のリッチ情報を集約取得
+// ---------------------------------------------------------------------------
+
+export interface BookingCalendarData {
+  calendarId: string | null;
+  bookingNumber: string;
+  status: string;
+  spaceName: string;
+  customerName: string;
+  phone: string | null;
+  eventName: string;
+  purpose: string | null;
+  headcount: number | null;
+  total: number;
+  paymentStatus: string;
+  paymentMethod: string | null;
+  repeatCustomer: boolean;
+  options: Array<{ name: string; quantity: number }>;
+  rows: Array<{ id: string; date: string; start_time: string; end_time: string; google_event_id: string | null }>;
+}
+
+/** 予約グループのカレンダー出力に必要な情報を一括取得する */
+export async function getBookingCalendarData(db: D1Database, groupId: string): Promise<BookingCalendarData | null> {
+  const g = await db
+    .prepare(
+      `SELECT bg.booking_number, bg.status, bg.event_name, bg.total_amount, bg.payment_status, bg.payment_method,
+              bg.purpose, bg.headcount, bg.customer_id, bg.space_id,
+              s.name AS space_name, s.google_calendar_id,
+              c.contact_name, c.phone
+       FROM booking_groups bg
+       LEFT JOIN spaces s ON s.id = bg.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.id = ?`,
+    )
+    .bind(groupId)
+    .first<{
+      booking_number: string;
+      status: string;
+      event_name: string;
+      total_amount: number;
+      payment_status: string;
+      payment_method: string | null;
+      purpose: string | null;
+      headcount: number | null;
+      customer_id: string | null;
+      space_id: string;
+      space_name: string | null;
+      google_calendar_id: string | null;
+      contact_name: string | null;
+      phone: string | null;
+    }>();
+  if (!g) return null;
+
+  const [{ results: rows }, { results: opts }] = await Promise.all([
+    db
+      .prepare('SELECT id, date, start_time, end_time, google_event_id FROM bookings WHERE group_id = ? ORDER BY date, start_time')
+      .bind(groupId)
+      .all<{ id: string; date: string; start_time: string; end_time: string; google_event_id: string | null }>(),
+    db
+      .prepare(
+        `SELECT o.name AS name, SUM(bos.quantity) AS quantity
+         FROM booking_option_selections bos JOIN options o ON o.id = bos.option_id
+         WHERE bos.group_id = ? GROUP BY o.id, o.name`,
+      )
+      .bind(groupId)
+      .all<{ name: string; quantity: number }>(),
+  ]);
+
+  // 利用実績（この予約以外に確定/完了の予約があれば「利用経験あり」）
+  let repeatCustomer = false;
+  if (g.customer_id) {
+    const cnt = await db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM booking_groups WHERE customer_id = ? AND id <> ? AND status IN ('confirmed','completed')",
+      )
+      .bind(g.customer_id, groupId)
+      .first<{ n: number }>();
+    repeatCustomer = (cnt?.n ?? 0) > 0;
+  }
+
+  return {
+    calendarId: g.google_calendar_id,
+    bookingNumber: g.booking_number,
+    status: g.status,
+    spaceName: g.space_name ?? '',
+    customerName: g.contact_name ?? 'お客様',
+    phone: g.phone,
+    eventName: g.event_name,
+    purpose: g.purpose,
+    headcount: g.headcount,
+    total: g.total_amount,
+    paymentStatus: g.payment_status,
+    paymentMethod: g.payment_method,
+    repeatCustomer,
+    options: (opts ?? []).map((o) => ({ name: o.name, quantity: Number(o.quantity) })),
+    rows: rows ?? [],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 予約のオンライン決済（Stripe/PayPal）#35
 // ---------------------------------------------------------------------------
 export async function createBookingPayment(

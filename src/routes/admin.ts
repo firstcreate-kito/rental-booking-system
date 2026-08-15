@@ -90,7 +90,7 @@ import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type Cancel
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail } from '../lib/email';
 import { notifyPaymentConfirmed } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
-import { checkCalendarConflict, checkCalendarConflictExcluding, writeBookingToCalendar, promoteBookingCalendar, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -451,20 +451,10 @@ async function prepareAdminBooking(
     note: body.note ?? null,
   });
 
-  // Googleカレンダーへ書き込み（本予約・商談中とも。商談中は【商談中】マーカー付き）
-  let calendarWarning: string | null = null;
-  if (gcalConfigured(c.env) && space.google_calendar_id) {
-    const rows = await getBookingsByGroup(db, inserted.groupId);
-    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
-      bookingNumber: inserted.bookingNumber,
-      eventName: body.eventName,
-      customerName: body.customer?.contactName ?? 'お客様',
-      items: rows.map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
-      bookingIds: rows.map((r) => r.id),
-      tentative: status === 'tentative',
-    });
-    calendarWarning = res.warning ?? null;
-  }
+  // Googleカレンダーへリッチ内容で書き込み（本予約・商談中とも）#54関連
+  const adminOrigin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const res = await syncBookingCalendarEvents(c.env, inserted.groupId, adminOrigin);
+  const calendarWarning = res.warning ?? null;
 
   // 本予約（confirmed）でお客様のメールが分かる場合のみ、予約確認メールを送る。
   // 商談中（tentative）は社内の仮押さえのため送らない。
@@ -549,18 +539,10 @@ app.post('/bookings/:number/confirm', async (c) => {
   ];
   await db.batch(stmts);
 
-  // 本予約化 → 既存の【商談中】イベントのタイトルを通常表示に更新（無ければ作成）
-  let calendarWarning: string | null = null;
-  if (gcalConfigured(c.env) && confirmSpace?.google_calendar_id) {
-    const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
-    const res = await promoteBookingCalendar(c.env, confirmSpace.google_calendar_id, {
-      bookingNumber: number,
-      eventName: g.event_name,
-      customerName: cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様'),
-      rows: bookings,
-    });
-    calendarWarning = res.warning ?? null;
-  }
+  // 本予約化 → カレンダー予定をリッチ内容（【予約完了】）に更新（#54関連）
+  const promoteOrigin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const res = await syncBookingCalendarEvents(c.env, g.id, promoteOrigin);
+  const calendarWarning = res.warning ?? null;
   return c.json({ bookingNumber: number, status: 'confirmed', calendarWarning });
 });
 
@@ -751,6 +733,9 @@ app.put('/bookings/:number/payment-status', async (c) => {
     // 入金確認・予約確定メール（お客様＋管理者）#49。失敗しても処理は継続。
     c.executionCtx.waitUntil(notifyPaymentConfirmed(c.env, g.id, receiptUrl).catch(() => {}));
   }
+  // カレンダーの支払いステータス表示を更新（#54関連）
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  c.executionCtx.waitUntil(syncBookingCalendarEvents(c.env, g.id, origin).catch(() => {}));
   return c.json({ ok: true, paymentStatus: status, receiptUrl });
 });
 
@@ -936,18 +921,12 @@ app.post('/bookings/:number/reschedule', async (c) => {
   const cust = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
   const custName = cust?.contact_name ? String(cust.contact_name) : (g.event_name || 'お客様');
 
-  // Googleカレンダー同期：旧イベント削除→新日時で作成
+  // Googleカレンダー同期：旧イベント削除→新日時でリッチ内容作成（#54関連）
   let calendarWarning: string | null = null;
   if (space.google_calendar_id) {
     await deleteBookingFromCalendar(c.env, space.google_calendar_id, oldRows.map((r) => r.google_event_id));
-    const res = await writeBookingToCalendar(c.env, space.google_calendar_id, {
-      bookingNumber: number,
-      eventName: g.event_name,
-      customerName: custName,
-      items: body.items,
-      bookingIds: newBookingIds,
-      tentative: keepStatus === 'tentative',
-    });
+    const rsOrigin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+    const res = await syncBookingCalendarEvents(c.env, g.id, rsOrigin);
     calendarWarning = res.warning ?? null;
   }
 

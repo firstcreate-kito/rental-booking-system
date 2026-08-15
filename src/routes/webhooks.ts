@@ -4,6 +4,7 @@ import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
 import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, getBookingSummaryForGroup, getCustomerProfile } from '../db/repository';
 import { sendEmail, ticketPurchaseEmail } from '../lib/email';
 import { notifyPaymentConfirmed } from '../lib/notify';
+import { syncBookingCalendarEvents } from '../lib/gcal-sync';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -48,10 +49,13 @@ app.post('/stripe', async (c) => {
           } catch {
             /* 書類発行失敗は決済処理に影響させない */
           }
-          // 銀行振込の入金確認＝予約確定メール（#49）。カード即時決済は予約確認済みのため対象外。
           const groupId = r.groupId;
+          const origin = c.env.PUBLIC_BASE_URL || '';
           c.executionCtx.waitUntil(
             (async () => {
+              // カレンダーの支払いステータスを「支払済」に更新（全決済手段・#54関連）
+              await syncBookingCalendarEvents(c.env, groupId, origin);
+              // 銀行振込の入金確認＝予約確定メール（#49）。カード即時決済は予約確認済みのため対象外。
               const summary = await getBookingSummaryForGroup(c.env.DB, groupId);
               if (summary?.paymentMethod === 'bank_transfer') {
                 await notifyPaymentConfirmed(c.env, groupId, receiptPath);

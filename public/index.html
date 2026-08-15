@@ -660,7 +660,7 @@ const PAY_INVOICE_DEADLINE_DAYS = 5;
 function renderPayment() {
   const sp = S.space || {};
   const methods = [];
-  if (sp.allowCard) methods.push({ v: 'stripe', label: 'クレジットカード（Stripe）' });
+  if (sp.allowCard) methods.push({ v: 'stripe', label: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）' });
   if (sp.allowPaypal) methods.push({ v: 'paypal', label: 'PayPal' });
   // 最も早い利用日までの日数
   const earliest = (S.cart || []).map(c => c.date).sort()[0];
@@ -870,7 +870,7 @@ async function submitBooking() {
   if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   document.getElementById('doneTotal').textContent = yen(body.total);
-  const payLabel = { stripe: 'クレジットカード（Stripe）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
+  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', invoice: '請求書払い' }[body.paymentMethod] || '';
   let payTxt = payLabel ? ('お支払い方法：' + payLabel) : '';
   if (body.paymentMethod === 'invoice' && body.invoiceName) payTxt += '（請求書名：' + body.invoiceName + '）';
   if (body.paymentMethod === 'stripe' || body.paymentMethod === 'paypal') payTxt += '　※オンライン決済は現在準備中のため、当日または別途ご案内となります（テスト表示）';

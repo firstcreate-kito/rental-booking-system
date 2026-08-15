@@ -25,9 +25,12 @@ app.post('/stripe', async (c) => {
     return c.json({ error: 'signature verification failed: ' + (err as Error).message }, 400);
   }
 
-  if (event.type === 'checkout.session.completed') {
+  // 即時決済（カード/Apple Pay）は completed、コンビニ払い等の後払いは
+  // 実際の入金時に async_payment_succeeded が届く。両方で「入金確定」を処理する。
+  const PAID_EVENTS = ['checkout.session.completed', 'checkout.session.async_payment_succeeded'];
+  if (PAID_EVENTS.includes(event.type)) {
     const session = event.data.object as { id?: string; payment_status?: string };
-    // payment_status が paid のときのみ処理（後払い等は対象外）
+    // payment_status が paid のときのみ処理（コンビニ受付直後(unpaid)は入金待ちのため対象外）
     if (session.id && session.payment_status === 'paid') {
       // 予約のカード決済か、チケット購入かをセッションIDで判別（#35）
       const bookingPay = await getBookingPaymentBySession(c.env.DB, session.id);

@@ -70,8 +70,8 @@ a.link{ color:var(--brand); }
       <label>ご希望の日時（任意）</label>
       <div class="grid3">
         <input id="p_date" type="date" />
-        <input id="p_start" type="time" step="1800" />
-        <input id="p_end" type="time" step="1800" />
+        <select id="p_start" onchange="onStartChange()"><option value="">開始</option></select>
+        <select id="p_end"><option value="">終了</option></select>
       </div>
       <div class="hint">空きは店舗で確認のうえご連絡します（この時点では確定しません）。</div>
     </div>
@@ -101,11 +101,36 @@ if (q.get('num')) $('f_num').value = q.get('num');
 
 function creds(){ return { bookingNumber: $('f_num').value.trim(), email: $('f_email').value.trim(), phone: $('f_phone').value.trim() }; }
 var _prefill = null;
+var _hours = null; // 対象スペースの営業時間 {open, close, slot}
 
 function onTypeChange(){
   var t = $('c_type').value;
   $('proposedWrap').classList.toggle('hidden', t !== 'reschedule');
   $('msgReq').style.display = (t === 'cancel') ? 'none' : '';
+}
+
+// 対象スペースの営業時間内・30分刻みで開始/終了の選択肢を作る
+function toMin(hhmm){ var p = (hhmm||'').split(':'); return (+p[0])*60 + (+p[1]||0); }
+function fromMin(m){ return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+function buildTimeOptions(){
+  if (!_hours) return;
+  var step = _hours.slot || 30;
+  var openM = toMin(_hours.open), closeM = toMin(_hours.close);
+  var startSel = $('p_start'), endSel = $('p_end');
+  startSel.innerHTML = '<option value="">開始</option>';
+  endSel.innerHTML = '<option value="">終了</option>';
+  for (var t = openM; t <= closeM - step; t += step){ var o=document.createElement('option'); o.value=fromMin(t); o.textContent=fromMin(t); startSel.appendChild(o); }
+  for (var e = openM + step; e <= closeM; e += step){ var o2=document.createElement('option'); o2.value=fromMin(e); o2.textContent=fromMin(e); endSel.appendChild(o2); }
+}
+// 開始を選んだら、終了は開始より後だけに絞る
+function onStartChange(){
+  if (!_hours) return;
+  var step = _hours.slot || 30, sM = toMin($('p_start').value), closeM = toMin(_hours.close);
+  var endSel = $('p_end'), cur = endSel.value;
+  endSel.innerHTML = '<option value="">終了</option>';
+  var from = $('p_start').value ? sM + step : toMin(_hours.open) + step;
+  for (var e = from; e <= closeM; e += step){ var o=document.createElement('option'); o.value=fromMin(e); o.textContent=fromMin(e); endSel.appendChild(o); }
+  if (cur && toMin(cur) > sM) endSel.value = cur;
 }
 
 async function doLookup(){
@@ -119,6 +144,8 @@ async function doLookup(){
     if (r.status === 429){ m.className='msg bad'; m.textContent = j.error || 'しばらく時間をおいてお試しください。'; return; }
     if (!j.matched){ m.className='msg bad'; m.textContent = j.error || 'ご予約が確認できませんでした。'; return; }
     _prefill = j.prefill || null;
+    _hours = j.spaceHours || null;
+    buildTimeOptions();
     if (j.cancelled){ m.className='msg bad'; m.textContent='このご予約はキャンセル済みです。'; return; }
     // 予約内容を表示
     var b = j.booking || {};

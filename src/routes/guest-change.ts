@@ -60,10 +60,13 @@ app.post('/lookup', async (c) => {
   if (!contact) return c.json({ matched: false, error: GENERIC_FAIL }, 200);
 
   const summary = await getBookingSummaryForGroup(c.env.DB, contact.group_id);
+  const space = await getSpaceById(c.env.DB, contact.space_id);
   return c.json({
     matched: true,
     cancelled: contact.status === 'cancelled',
     isMember: !!contact.is_registered,
+    // 希望日時ドロップダウン（30分刻み）の範囲に使うスペース営業時間（#75）
+    spaceHours: space ? { open: space.open_time, close: space.close_time, slot: space.slot_minutes || 30 } : null,
     booking: summary
       ? { bookingNumber: summary.bookingNumber, spaceName: summary.spaceName, eventName: summary.eventName, status: contact.status, items: summary.items }
       : null,

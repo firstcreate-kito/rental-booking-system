@@ -471,6 +471,8 @@ app.post('/', async (c) => {
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
   const bookingIds = body.items.map(() => crypto.randomUUID());
+  // 当初利用日（変更・キャンセル判定の基準・以後不変）＝グループ内で最も早い利用日（#76）
+  const originalDate = body.items.map((it) => it.date).sort()[0];
   let bookingNumber = '';
 
   // ------------------------------------------------------------------
@@ -489,10 +491,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, initialStatus, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, totals.total, originalDate, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, initialStatus, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];

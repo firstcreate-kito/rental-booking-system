@@ -295,6 +295,8 @@ async function insertBookingGroup(
   const ymd = todayYmdJST();
   const groupId = crypto.randomUUID();
   const now = nowJST();
+  // 当初利用日（変更・キャンセル判定の基準・以後不変）＝グループ内で最も早い利用日（#76）
+  const originalDate = params.items.map((it) => it.date).sort()[0];
   let bookingNumber = '';
   for (let attempt = 0; attempt < 5; attempt++) {
     const seq = await peekNextBookingSeq(db, ymd);
@@ -302,10 +304,10 @@ async function insertBookingGroup(
     const stmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, status, source, note, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', ?, ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, status, source, note, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'admin', ?, ?)`,
         )
-        .bind(groupId, bookingNumber, params.customerId, params.space.id, params.eventName, params.total, params.status, params.note, now),
+        .bind(groupId, bookingNumber, params.customerId, params.space.id, params.eventName, params.total, params.total, originalDate, params.status, params.note, now),
     ];
     for (let i = 0; i < params.items.length; i++) {
       const item = params.items[i];

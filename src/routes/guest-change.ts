@@ -11,7 +11,8 @@ import {
 import { guestContactMatches, normalizeEmail } from '../lib/verify';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 import { adminRecipients } from '../lib/notify';
-import { nowJST } from '../lib/clock';
+import { evaluateCancel, leadDays } from '../lib/change-policy';
+import { nowJST, todayJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
 
@@ -61,10 +62,16 @@ app.post('/lookup', async (c) => {
 
   const summary = await getBookingSummaryForGroup(c.env.DB, contact.group_id);
   const space = await getSpaceById(c.env.DB, contact.space_id);
+  // 当初利用日までの残日数（#76・キャンセル可否/文言表示の材料）
+  const daysUntilUse = contact.original_date ? leadDays(contact.original_date, todayJST()) : null;
   return c.json({
     matched: true,
     cancelled: contact.status === 'cancelled',
     isMember: !!contact.is_registered,
+    // 変更・キャンセルポリシー判定用（#76）
+    daysUntilUse,
+    originalDate: contact.original_date,
+    selfCancelCutoffDays: 4, // これ未満（3日前以降）はオンラインキャンセル不可
     // 希望日時ドロップダウン（30分刻み）の範囲に使うスペース営業時間（#75）
     spaceHours: space ? { open: space.open_time, close: space.close_time, slot: space.slot_minutes || 30 } : null,
     booking: summary
@@ -93,6 +100,12 @@ app.post('/request', async (c) => {
   const contact = await verify(c, b);
   if (!contact) return c.json({ error: GENERIC_FAIL }, 200);
   if (contact.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約です。' }, 400);
+
+  // キャンセルは利用日の3日前以降オンライン受付不可 → メールフォーム誘導（#76 Phase 1）
+  if (type === 'cancel' && contact.original_date) {
+    const gate = evaluateCancel(leadDays(contact.original_date, todayJST()));
+    if (!gate.allowed) return c.json({ error: gate.message, mode: 'form' }, 422);
+  }
 
   // 希望日時（reschedule のみ）
   let proposed: Array<{ date: string; startTime: string; endTime: string }> | null = null;

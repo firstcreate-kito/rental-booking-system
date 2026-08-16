@@ -48,6 +48,7 @@
   .cr-modal label { display:block; font-size:13px; color:var(--muted,#6b7280); margin-bottom:4px; }
   .cr-modal select, .cr-modal input, .cr-modal textarea { width:100%; padding:9px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; font-family:inherit; box-sizing:border-box; }
   .cr-modal .row input { width:auto; }
+  .crpolicy { font-size:12.5px; line-height:1.7; color:#7a4b00; background:#fff8e6; border:1px solid #f0c36d; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -231,6 +232,18 @@
         <option value="other">その他の相談</option>
       </select>
     </div>
+    <div id="cr_cancelPolicy" class="crpolicy" style="display:none">
+      <strong>キャンセルについて</strong><br>
+      ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
+      ・キャンセル料：31日前まで無料／30〜15日前 50%／14日前〜前日 80%／当日 100%。発生する場合はお手続き前に金額をご案内します。
+    </div>
+    <div id="cr_reschedulePolicy" class="crpolicy" style="display:none">
+      <strong>日時変更について</strong><br>
+      ・31日前まで：当初ご予定日の前後1ヶ月以内へのお振替を承ります（空き次第）。<br>
+      ・30日前以降：キャンセル＋新規のお取り扱いとなります。<br>
+      ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
+    </div>
+    <div id="cr_cancelBlock" class="msg bad" style="display:none;margin-bottom:10px"></div>
     <div id="cr_dt" style="margin-bottom:10px">
       <label>ご希望の日時（分かる範囲でOK）</label>
       <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -386,7 +399,7 @@ function bookingRow(b) {
   const today = new Date().toISOString().slice(0, 10);
   const canRequest = b.status !== 'cancelled' && (b.last_date || '') >= today;
   const action = canRequest
-    ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ',' + JSON.stringify(b.space_id || '') + ')\'>変更リクエスト</button>'
+    ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ',' + JSON.stringify(b.space_id || '') + ',' + JSON.stringify(b.original_date || b.first_date || '') + ')\'>変更リクエスト</button>'
     : '';
   return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
     '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + action + '</td></tr>';
@@ -394,6 +407,14 @@ function bookingRow(b) {
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
+let _crDaysUntil = null; // 当初利用日までの残日数（#76・キャンセル可否/文言表示）
+const CR_CANCEL_CUTOFF = 4; // これ未満（3日前以降）はオンラインキャンセル不可
+function daysUntilDate(iso) {
+  if (!iso) return null;
+  const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+  const d = new Date(iso + 'T00:00:00Z');
+  return Math.round((d - today) / 86400000);
+}
 // 対象スペースの営業時間（open〜close）内で30分刻みの時刻候補を生成。
 // スペース情報が取れない場合は 00:00〜24:00 にフォールバック。
 function buildCrTimeOptions(spaceId) {
@@ -423,8 +444,9 @@ function ensureCrOption(id, val) {
   }
   sel.value = val;
 }
-async function openChangeReq(number, spaceName, spaceId) {
+async function openChangeReq(number, spaceName, spaceId, originalDate) {
   _crNum = number;
+  _crDaysUntil = daysUntilDate(originalDate);
   await ensureSpaces();
   buildCrTimeOptions(spaceId);
   document.getElementById('cr_num').textContent = number;
@@ -451,9 +473,25 @@ async function openChangeReq(number, spaceName, spaceId) {
 }
 function closeChangeReq() { document.getElementById('crOverlay').classList.add('hidden'); _crNum = null; }
 function crToggle() {
+  const type = document.getElementById('cr_type').value;
   // 日時変更のときだけ希望日時の入力欄を出す
-  const isRs = document.getElementById('cr_type').value === 'reschedule';
-  document.getElementById('cr_dt').style.display = isRs ? '' : 'none';
+  document.getElementById('cr_dt').style.display = (type === 'reschedule') ? '' : 'none';
+  // ポリシーの事前表示（#76）
+  document.getElementById('cr_cancelPolicy').style.display = (type === 'cancel') ? '' : 'none';
+  document.getElementById('cr_reschedulePolicy').style.display = (type === 'reschedule') ? '' : 'none';
+  // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
+  const blocked = (type === 'cancel') && (_crDaysUntil != null) && (_crDaysUntil < CR_CANCEL_CUTOFF);
+  const cb = document.getElementById('cr_cancelBlock');
+  if (blocked) {
+    cb.textContent = (_crDaysUntil <= 0)
+      ? '当日のオンラインキャンセルは承っておりません。お手数ですがお電話・メールフォームよりご連絡ください。'
+      : '利用日の3日前以降は、オンラインでのキャンセルを承っておりません。キャンセル料が発生する場合は手続き前に担当者より金額をご案内します。お手数ですがメールフォームよりご連絡ください。';
+    cb.style.display = '';
+    document.getElementById('cr_submit').disabled = true;
+  } else {
+    cb.style.display = 'none';
+    document.getElementById('cr_submit').disabled = false;
+  }
 }
 async function submitChangeReq() {
   if (!_crNum) return;

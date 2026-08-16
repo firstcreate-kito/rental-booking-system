@@ -28,6 +28,7 @@ textarea{ min-height:90px; resize:vertical; }
 .btn.brand{ background:var(--brand); }
 .msg{ font-size:14px; margin-top:12px; } .msg.bad{ color:var(--bad); } .msg.ok{ color:var(--ok); }
 .hint{ font-size:12px; color:var(--ink-3); margin-top:4px; }
+.policybox{ font-size:12.5px; line-height:1.7; color:#7a4b00; background:#fff8e6; border:1px solid #f0c36d; border-radius:8px; padding:10px 12px; margin-top:10px; }
 .hidden{ display:none; }
 .sumrow{ display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-top:1px solid var(--line); font-size:14px; }
 .sumrow:first-child{ border-top:0; } .sumrow .k{ color:var(--ink-2); }
@@ -66,6 +67,18 @@ a.link{ color:var(--brand); }
       <option value="cancel">キャンセル</option>
       <option value="other">その他のご相談</option>
     </select>
+    <div id="cancelPolicy" class="policybox hidden">
+      <strong>キャンセルについて</strong><br>
+      ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
+      ・キャンセル料：31日前まで無料／30〜15日前 50%／14日前〜前日 80%／当日 100%。キャンセル料が発生する場合は、お手続き前に担当者より金額をご案内します。
+    </div>
+    <div id="reschedulePolicy" class="policybox hidden">
+      <strong>日時変更について</strong><br>
+      ・31日前まで：当初ご予定日の前後1ヶ月以内へのお振替を承ります（空き次第）。<br>
+      ・30日前以降：キャンセル＋新規のお取り扱いとなります。<br>
+      ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
+    </div>
+    <div id="cancelBlock" class="msg bad hidden"></div>
     <div id="proposedWrap">
       <label>ご希望の日時（任意）</label>
       <div class="grid3">
@@ -102,11 +115,29 @@ if (q.get('num')) $('f_num').value = q.get('num');
 function creds(){ return { bookingNumber: $('f_num').value.trim(), email: $('f_email').value.trim(), phone: $('f_phone').value.trim() }; }
 var _prefill = null;
 var _hours = null; // 対象スペースの営業時間 {open, close, slot}
+var _daysUntil = null; // 当初利用日までの残日数（#76）
+var _cutoff = 4;       // これ未満（3日前以降）はオンラインキャンセル不可
 
 function onTypeChange(){
   var t = $('c_type').value;
   $('proposedWrap').classList.toggle('hidden', t !== 'reschedule');
   $('msgReq').style.display = (t === 'cancel') ? 'none' : '';
+  // ポリシーの事前表示（#76）
+  $('cancelPolicy').classList.toggle('hidden', t !== 'cancel');
+  $('reschedulePolicy').classList.toggle('hidden', t !== 'reschedule');
+  // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
+  var blocked = (t === 'cancel') && (_daysUntil != null) && (_daysUntil < _cutoff);
+  var cb = $('cancelBlock');
+  if (blocked){
+    cb.textContent = (_daysUntil <= 0)
+      ? '当日のオンラインキャンセルは承っておりません。お手数ですがお電話・メールフォームよりご連絡ください。'
+      : '利用日の3日前以降は、オンラインでのキャンセルを承っておりません。キャンセル料が発生する場合は手続き前に担当者より金額をご案内します。お手数ですがメールフォームよりご連絡ください。';
+    cb.classList.remove('hidden');
+    $('submitBtn').disabled = true;
+  } else {
+    cb.classList.add('hidden');
+    $('submitBtn').disabled = false;
+  }
 }
 
 // 対象スペースの営業時間内・30分刻みで開始/終了の選択肢を作る
@@ -145,6 +176,8 @@ async function doLookup(){
     if (!j.matched){ m.className='msg bad'; m.textContent = j.error || 'ご予約が確認できませんでした。'; return; }
     _prefill = j.prefill || null;
     _hours = j.spaceHours || null;
+    _daysUntil = (typeof j.daysUntilUse === 'number') ? j.daysUntilUse : null;
+    _cutoff = j.selfCancelCutoffDays || 4;
     buildTimeOptions();
     if (j.cancelled){ m.className='msg bad'; m.textContent='このご予約はキャンセル済みです。'; return; }
     // 予約内容を表示

@@ -2,8 +2,21 @@
 
 - 対象システム: レンタルスペースALBE 予約システム（Cloudflare Workers + Hono + D1）
 - 位置づけ: 旧バックログ **#63（セルフ変更/キャンセルのポリシー適用）を今回の改定版で置き換え**
-- ステータス: **設計確定待ち（本メモ承認後に着工）**
+- ステータス: **Phase 1 実装済み（2026-08-16）**。Phase 2（減額・日程変更のセルフ確定）は将来。
 - 作成日: 2026-08-16
+
+## 実装サマリ（Phase 1・実装済み）
+
+| 実装物 | 内容 |
+|---|---|
+| migrations/0023 | `booking_groups.original_total_amount` / `original_date` 追加＋既存バックフィル |
+| 予約作成（web/admin） | 作成時に当初金額・当初利用日を固定保存 |
+| src/lib/change-policy.ts | 判定純粋関数（leadDays / 減額残存割合 / ±1ヶ月 / 3日前ライン）＋ test/change-policy.test.ts（31件） |
+| キャンセル3日前ゲート | `/api/mypage/.../change-request`・`/api/guest-change/request` の cancel を `daysBefore<=3` で 422＋フォーム誘導 |
+| 事前表示（申込画面） | マイページ変更モーダル・ゲスト /booking-change/ にキャンセル/日時変更ポリシーを表示、近接日キャンセルは送信不可＋案内 |
+| スタッフ免除 | 管理者キャンセルは別ルート（/api/admin/...）のため判定対象外 |
+
+検証: vitest 229 件 green / tsc clean / wrangler dev + curl で 2日後=422・4日後=201・3日後=422・reschedule非ブロックを確認 / Playwright でゲスト画面のポリシー表示・送信不可を確認。
 
 ---
 

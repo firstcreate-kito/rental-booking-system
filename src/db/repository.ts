@@ -717,7 +717,7 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
   const { results } = await db
     .prepare(
       `SELECT bg.booking_number, bg.space_id, s.name AS space_name, bg.event_name,
-              bg.total_amount, bg.status, bg.created_at,
+              bg.total_amount, bg.original_date, bg.status, bg.created_at,
               MIN(b.date) AS first_date, MAX(b.date) AS last_date, COUNT(b.id) AS day_count
        FROM booking_groups bg
        LEFT JOIN bookings b ON b.group_id = bg.id
@@ -1308,6 +1308,8 @@ export interface BookingGroupRow {
   space_id: string;
   event_name: string;
   total_amount: number;
+  original_total_amount: number | null; // 当初予約金額（#76・変更/キャンセル判定の基準）
+  original_date: string | null; // 当初利用日 'YYYY-MM-DD'（#76）
   status: string;
   source: string;
   reschedule_count: number;
@@ -1357,10 +1359,13 @@ export async function getBookingContactByNumber(
   email: string | null;
   phone: string | null;
   contact_name: string | null;
+  original_date: string | null;
+  original_total_amount: number | null;
 } | null> {
   return db
     .prepare(
       `SELECT bg.id AS group_id, bg.status, bg.space_id, bg.event_name, bg.customer_id,
+              bg.original_date, bg.original_total_amount,
               c.is_registered, c.email, c.phone, c.contact_name
        FROM booking_groups bg LEFT JOIN customers c ON c.id = bg.customer_id
        WHERE bg.booking_number = ?`,

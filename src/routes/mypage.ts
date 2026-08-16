@@ -23,6 +23,7 @@ import {
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { adminRecipients } from '../lib/notify';
+import { evaluateCancel, leadDays } from '../lib/change-policy';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 
@@ -106,6 +107,13 @@ app.post('/bookings/:number/change-request', async (c) => {
   }
   if (g.status === 'cancelled') {
     return c.json({ error: 'キャンセル済みの予約です' }, 400);
+  }
+
+  // キャンセルは利用日の3日前以降オンライン受付不可 → メールフォーム誘導（#76 Phase 1）
+  // 当初利用日を基準に判定。直前キャンセルはキャンセルチャージを口頭で案内できるようにする。
+  if (type === 'cancel' && g.original_date) {
+    const gate = evaluateCancel(leadDays(g.original_date, todayJST()));
+    if (!gate.allowed) return c.json({ error: gate.message, mode: 'form' }, 422);
   }
 
   // 日時変更の希望枠（任意・あれば承認時にワンクリック適用の材料になる）

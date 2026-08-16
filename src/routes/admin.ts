@@ -9,6 +9,9 @@ import {
   createAdminSession,
   deleteAdminSession,
   listBookingsForAdmin,
+  getBookingsForExport,
+  getCustomersForExport,
+  getSalesSummaryForExport,
   getAllSpaces,
   insertSpace,
   updateSpace,
@@ -88,6 +91,7 @@ import {
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
+import { buildXlsx, type Sheet } from '../lib/xlsx';
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
@@ -1736,6 +1740,72 @@ app.put('/settings/point-rate', requireRole('owner', 'manager'), async (c) => {
   // 小数第1位まで許容（例 1.5%）。文字列で保存。
   await setSystemSetting(c.env.DB, 'point_rate', String(Math.round(rate * 10) / 10));
   return c.json({ ok: true, rate: Math.round(rate * 10) / 10 });
+});
+
+/**
+ * GET /api/admin/export/:type?from=&to=&spaceId=  データのExcel(.xlsx)書き出し（#71）
+ * type: bookings（予約一覧）/ customers（顧客一覧）/ sales（売上集計・月×スペース）
+ * 期間（from/to）・スペース（spaceId）で絞り込み。owner/manager のみ。
+ */
+app.get('/export/:type', requireRole('owner', 'manager'), async (c) => {
+  const type = c.req.param('type');
+  const f = {
+    from: c.req.query('from') || undefined,
+    to: c.req.query('to') || undefined,
+    spaceId: c.req.query('spaceId') || undefined,
+  };
+  const PAY: Record<string, string> = { stripe: 'クレジットカード', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' };
+  const PS: Record<string, string> = { paid: '入金済み', unpaid: '未入金', invoice: '請求書', refunded: '返金済み' };
+  const ST: Record<string, string> = { confirmed: '確定', tentative: '商談中', cancelled: 'キャンセル' };
+  const yen = (v: unknown) => (v == null ? 0 : Number(v));
+  const str = (v: unknown) => (v == null ? '' : String(v));
+
+  let sheet: Sheet;
+  let base: string;
+  if (type === 'bookings') {
+    const rows = await getBookingsForExport(c.env.DB, f);
+    const header = ['予約番号', '利用日', '開始', '終了', 'スペース', 'お客様名', '会社名', 'メール', '電話', 'イベント名', '利用目的', '人数', '日別料金', '予約合計(税込)', '支払方法', '入金状況', '状態', '受付経路', '受付日時'];
+    const data = rows.map((r) => [
+      str(r.booking_number), str(r.date), str(r.start_time), str(r.end_time), str(r.space_name),
+      str(r.contact_name), str(r.company_name), str(r.email), str(r.phone), str(r.event_name),
+      str(r.purpose), r.headcount == null ? '' : Number(r.headcount), yen(r.price), yen(r.total_amount),
+      PAY[str(r.payment_method)] || str(r.payment_method), PS[str(r.payment_status)] || str(r.payment_status),
+      ST[str(r.status)] || str(r.status), str(r.source), str(r.created_at),
+    ]);
+    sheet = { name: '予約一覧', rows: [header, ...data] };
+    base = 'bookings';
+  } else if (type === 'customers') {
+    const rows = await getCustomersForExport(c.env.DB, f);
+    const header = ['お客様名', '会社名', 'メール', '電話', '郵便番号', '住所', '区分', 'ポイント残高', 'ブラックリスト', '登録日', '最終ログイン'];
+    const data = rows.map((r) => [
+      str(r.contact_name), str(r.company_name), str(r.email), str(r.phone), str(r.postal_code), str(r.address),
+      Number(r.is_registered) ? '会員' : 'ゲスト', yen(r.point_balance), Number(r.is_blocked) ? '対象' : '',
+      str(r.created_at), str(r.last_login_at),
+    ]);
+    sheet = { name: '顧客一覧', rows: [header, ...data] };
+    base = 'customers';
+  } else if (type === 'sales') {
+    const rows = await getSalesSummaryForExport(c.env.DB, f);
+    const header = ['年月', 'スペース', '件数', '売上合計(税込)'];
+    const data = rows.map((r) => [str(r.ym), str(r.space_name), Number(r.cnt), yen(r.sales)]);
+    const total = rows.reduce((s, r) => s + yen(r.sales), 0);
+    const count = rows.reduce((s, r) => s + Number(r.cnt), 0);
+    sheet = { name: '売上集計', rows: [header, ...data, [], ['合計', '', count, total]] };
+    base = 'sales';
+  } else {
+    return c.json({ error: 'unknown export type' }, 400);
+  }
+
+  const bytes = buildXlsx([sheet]);
+  const filename = `${base}_${todayYmdJST()}.xlsx`;
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'X-Filename': filename,
+      'Access-Control-Expose-Headers': 'X-Filename, Content-Disposition',
+    },
+  });
 });
 
 /** GET /api/admin/documents 発行済み書類の一覧（#41） */

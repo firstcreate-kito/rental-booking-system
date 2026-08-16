@@ -1077,6 +1077,85 @@ export async function listBookingsForAdmin(
   return results ?? [];
 }
 
+// --- データエクスポート（#71） ---
+export interface ExportFilters {
+  from?: string; // 'YYYY-MM-DD'（含む）
+  to?: string; // 'YYYY-MM-DD'（含む）
+  spaceId?: string;
+}
+
+/** 予約一覧エクスポート（利用日ごとの明細。pending/failed は除外）#71 */
+export async function getBookingsForExport(db: D1Database, f: ExportFilters) {
+  const conds = ["b.status NOT IN ('pending','failed')"];
+  const binds: unknown[] = [];
+  if (f.from) { conds.push('b.date >= ?'); binds.push(f.from); }
+  if (f.to) { conds.push('b.date <= ?'); binds.push(f.to); }
+  if (f.spaceId) { conds.push('b.space_id = ?'); binds.push(f.spaceId); }
+  const { results } = await db
+    .prepare(
+      `SELECT bg.booking_number, b.date, b.start_time, b.end_time, s.name AS space_name,
+              c.contact_name, c.company_name, c.email, c.phone,
+              bg.event_name, bg.purpose, bg.headcount, b.price, bg.total_amount,
+              bg.payment_method, bg.payment_status, b.status, bg.source, bg.created_at
+       FROM bookings b
+       JOIN booking_groups bg ON bg.id = b.group_id
+       LEFT JOIN spaces s ON s.id = b.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE ${conds.join(' AND ')}
+       ORDER BY b.date, b.start_time`,
+    )
+    .bind(...binds)
+    .all<Record<string, unknown>>();
+  return results ?? [];
+}
+
+/** 顧客一覧エクスポート（任意で登録日の期間で絞り込み）#71 */
+export async function getCustomersForExport(db: D1Database, f: ExportFilters) {
+  const conds: string[] = [];
+  const binds: unknown[] = [];
+  if (f.from) { conds.push("date(c.created_at) >= ?"); binds.push(f.from); }
+  if (f.to) { conds.push("date(c.created_at) <= ?"); binds.push(f.to); }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const { results } = await db
+    .prepare(
+      `SELECT c.contact_name, c.company_name, c.email, c.phone, c.postal_code, c.address,
+              c.is_registered, c.point_balance, c.is_blocked, c.created_at, c.last_login_at
+       FROM customers c ${where}
+       ORDER BY c.created_at DESC`,
+    )
+    .bind(...binds)
+    .all<Record<string, unknown>>();
+  return results ?? [];
+}
+
+/**
+ * 売上集計エクスポート（#71）。確定・入金済みの予約を、月（利用開始月）×スペースで集計。
+ * 複数日の予約は最初の利用日の月に1件・総額で計上（重複計上を避ける）。
+ */
+export async function getSalesSummaryForExport(db: D1Database, f: ExportFilters) {
+  const conds: string[] = ['mindate IS NOT NULL'];
+  const binds: unknown[] = [];
+  if (f.from) { conds.push('mindate >= ?'); binds.push(f.from); }
+  if (f.to) { conds.push('mindate <= ?'); binds.push(f.to); }
+  if (f.spaceId) { conds.push('space_id = ?'); binds.push(f.spaceId); }
+  const { results } = await db
+    .prepare(
+      `SELECT substr(mindate,1,7) AS ym, space_name, COUNT(*) AS cnt, SUM(total_amount) AS sales
+       FROM (
+         SELECT bg.id, bg.space_id, s.name AS space_name, bg.total_amount,
+                (SELECT MIN(date) FROM bookings b WHERE b.group_id = bg.id) AS mindate
+         FROM booking_groups bg LEFT JOIN spaces s ON s.id = bg.space_id
+         WHERE bg.status = 'confirmed' AND bg.payment_status = 'paid'
+       ) t
+       WHERE ${conds.join(' AND ')}
+       GROUP BY ym, space_id
+       ORDER BY ym, space_name`,
+    )
+    .bind(...binds)
+    .all<{ ym: string; space_name: string | null; cnt: number; sales: number }>();
+  return results ?? [];
+}
+
 // --- カレンダー管理（休業日・祝日） ---
 export interface HolidayRow {
   id: string;

@@ -98,6 +98,7 @@
       <button id="tab-pricing" onclick="showTab('pricing')">季節料金・キャンペーン</button>
       <button id="tab-tickets" onclick="showTab('tickets')">チケット販売</button>
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
+      <button id="tab-export" onclick="showTab('export')">エクスポート</button>
       <button id="tab-issuer" onclick="showTab('issuer')">事業者情報</button>
     </div>
 
@@ -313,6 +314,28 @@
         </div>
         <div class="msg" id="spMsg"></div>
       </div>
+    </section>
+
+    <!-- データエクスポート（#71） -->
+    <section id="view-export" class="card hidden">
+      <h2>データのエクスポート（Excel）</h2>
+      <div class="muted">予約・顧客・売上のデータを Excel（.xlsx）で書き出します。期間・スペースで絞り込めます（未指定なら全期間・全スペース）。</div>
+      <div class="grid" style="margin-top:12px;max-width:640px">
+        <div><label>期間（開始）</label><input id="exp_from" type="date" /></div>
+        <div><label>期間（終了）</label><input id="exp_to" type="date" /></div>
+        <div><label>スペース</label><select id="exp_space"><option value="">すべてのスペース</option></select></div>
+      </div>
+      <div class="btnrow" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+        <button class="btn" onclick="exportData('bookings')">📋 予約一覧を書き出す</button>
+        <button class="btn" onclick="exportData('customers')">👤 顧客一覧を書き出す</button>
+        <button class="btn" onclick="exportData('sales')">💰 売上集計を書き出す</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:10px">
+        ・予約一覧＝利用日ごとの明細（キャンセル含む・未確定/不成立は除く）。期間・スペースで絞り込み。<br>
+        ・顧客一覧＝お客様の連絡先・ポイント残高など（期間＝登録日で絞り込み、スペース指定は無視）。<br>
+        ・売上集計＝「確定・入金済み」の予約を 月×スペース で集計（利用開始月に計上）。
+      </div>
+      <div class="msg" id="expMsg"></div>
     </section>
 
     <!-- 事業者情報（請求書・領収書の発行元） -->
@@ -790,7 +813,7 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','changereq','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers'].forEach(x => {
+  ['list','changereq','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers','export'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
@@ -803,8 +826,40 @@ function showTab(t) {
   if (t === 'pricing') loadPricingMgmt();
   if (t === 'tickets') loadTicketProducts();
   if (t === 'customers') initCustomers();
+  if (t === 'export') initExport();
   if (t === 'proxy') { buildAdminTimeOptions('p'); proxyPriceEdited = false; recalcProxyPrice(); }
   if (t === 'tent') { buildAdminTimeOptions('t'); }
+}
+
+// --- データエクスポート（#71） ---
+async function initExport() {
+  if (A.spaces.length === 0) await loadSpaces();
+  const sel = document.getElementById('exp_space');
+  sel.innerHTML = '<option value="">すべてのスペース</option>' + A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+}
+async function exportData(type) {
+  const msg = document.getElementById('expMsg');
+  const from = document.getElementById('exp_from').value;
+  const to = document.getElementById('exp_to').value;
+  const spaceId = document.getElementById('exp_space').value;
+  const p = new URLSearchParams();
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  if (spaceId) p.set('spaceId', spaceId);
+  msg.className = 'msg'; msg.textContent = '書き出し中…';
+  try {
+    const res = await fetch('/api/admin/export/' + type + '?' + p.toString(), { headers: A.token ? { Authorization: 'Bearer ' + A.token } : {} });
+    if (!res.ok) { let e = ''; try { e = (await res.json()).error; } catch(_){} msg.className='msg bad'; msg.textContent = e || ('書き出しに失敗しました（' + res.status + '）'); return; }
+    const blob = await res.blob();
+    const fname = res.headers.get('X-Filename') || (type + '.xlsx');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+    msg.className = 'msg ok'; msg.textContent = 'ダウンロードしました（' + fname + '）';
+  } catch (err) {
+    msg.className = 'msg bad'; msg.textContent = '書き出しに失敗しました';
+  }
 }
 
 // --- スペース別の追加質問（#22） ---

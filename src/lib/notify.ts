@@ -132,6 +132,7 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     total: summary.total,
     status: 'confirmed' as const,
     mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+    changeUrl: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
     isInvoice: false,
   };
   if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data) });

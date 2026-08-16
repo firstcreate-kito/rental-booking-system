@@ -70,6 +70,9 @@
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <a href="javascript:void(0)" onclick="showForgot()" style="font-size:12px;color:var(--brand)">パスワードをお忘れの方はこちら</a>
     </div>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <a href="/booking-change/" style="font-size:12px;color:var(--brand)">会員登録せずにご予約された方の「予約の確認・変更」はこちら</a>
+    </div>
   </section>
 
   <!-- パスワード再設定の依頼 -->
@@ -260,6 +263,17 @@ if (location.hash === '#forgot') { showForgot(); }
 // 予約フローから「会員登録して予約する」で来たら、登録フォームを開く（#55）
 const CR_FROM_BOOKING = new URLSearchParams(location.search).get('from') === 'booking';
 if (CR_FROM_BOOKING) { showRegister(); }
+// ゲスト変更ページから「会員登録」で来たら、照合済み情報でプリフィル（#75）
+(function(){
+  const q = new URLSearchParams(location.search);
+  if (q.get('register') === '1') {
+    showRegister();
+    const set = (id,v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    set('r_email', q.get('email'));
+    set('r_phone', q.get('phone'));
+    set('r_lastName', q.get('name')); // 氏名は姓欄に補助入力（お客様が調整可）
+  }
+})();
 function resumeBooking() { location.href = 'index.html?resume=1'; }
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {

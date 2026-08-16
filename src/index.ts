@@ -13,6 +13,8 @@ import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
 import documents from './routes/documents';
 import { availabilityApi, availabilityPage, sitemapXml } from './routes/availability';
+import guestChange from './routes/guest-change';
+import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
   markUnpaidAlertSent,
@@ -74,6 +76,9 @@ app.use('*', async (c, next) => {
   if (c.req.path === '/availability' || c.req.path.startsWith('/availability/')) return next();
   if (c.req.path.startsWith('/api/availability')) return next();
   if (c.req.path === '/sitemap.xml') return next();
+  // ゲスト予約変更ページ（公開・#75）とそのAPIも認証ゲートを通さない
+  if (c.req.path === '/booking-change' || c.req.path.startsWith('/booking-change/') || c.req.path === '/booking-change.html') return next();
+  if (c.req.path.startsWith('/api/guest-change')) return next();
 
   const expected = await gateToken(user, pass);
 
@@ -146,11 +151,17 @@ app.route('/api/webhooks', webhooks);
 app.route('/api/paypal', paypal);
 app.route('/api/documents', documents);
 app.route('/api/availability', availabilityApi);
+app.route('/api/guest-change', guestChange);
 
 // 空き状況ページ（SSR）と sitemap（静的アセットより先に登録）#74
 app.get('/availability', availabilityPage);
 app.get('/availability/', availabilityPage);
 app.get('/sitemap.xml', sitemapXml);
+
+// ゲスト予約の変更ページ（公開・#75）。Workerが直接HTMLを返す（両スラッシュとも200）。
+const serveBookingChange = (c: import('hono').Context<AppBindings>) => c.html(BOOKING_CHANGE_HTML);
+app.get('/booking-change', serveBookingChange);
+app.get('/booking-change/', serveBookingChange);
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。
@@ -229,6 +240,7 @@ async function runUseDateReminders(env: AppBindings['Bindings']): Promise<void> 
           eventName: r.event_name,
           days: dayList,
           daysBefore: days,
+          changeUrl: (env.PUBLIC_BASE_URL || '') ? `${env.PUBLIC_BASE_URL}/booking-change/?num=${encodeURIComponent(r.booking_number)}` : undefined,
         }),
       });
       sent.push(r.id);

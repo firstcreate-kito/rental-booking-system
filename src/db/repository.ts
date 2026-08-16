@@ -1343,6 +1343,56 @@ export async function getBookingGroupByNumber(
     .first<BookingGroupRow>();
 }
 
+/** 予約番号から本人確認用の連絡先（顧客のメール・電話）を取得（#75） */
+export async function getBookingContactByNumber(
+  db: D1Database,
+  bookingNumber: string,
+): Promise<{
+  group_id: string;
+  status: string;
+  space_id: string;
+  event_name: string;
+  customer_id: string | null;
+  is_registered: number;
+  email: string | null;
+  phone: string | null;
+  contact_name: string | null;
+} | null> {
+  return db
+    .prepare(
+      `SELECT bg.id AS group_id, bg.status, bg.space_id, bg.event_name, bg.customer_id,
+              c.is_registered, c.email, c.phone, c.contact_name
+       FROM booking_groups bg LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE bg.booking_number = ?`,
+    )
+    .bind(bookingNumber)
+    .first();
+}
+
+/**
+ * 汎用レート制限（#75）。key ごとに windowMs 内の試行回数を数え、max 超過なら allowed=false。
+ * nowMs は呼び出し側から渡す（Date.now()）。
+ */
+export async function hitRateLimit(
+  db: D1Database,
+  key: string,
+  max: number,
+  windowMs: number,
+  nowMs: number,
+): Promise<{ allowed: boolean }> {
+  const row = await db.prepare('SELECT count, window_start FROM rate_limits WHERE key = ?').bind(key).first<{ count: number; window_start: number }>();
+  if (!row || nowMs - row.window_start > windowMs) {
+    await db
+      .prepare('INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = 1, window_start = ?')
+      .bind(key, nowMs, nowMs)
+      .run();
+    return { allowed: true };
+  }
+  if (row.count >= max) return { allowed: false };
+  await db.prepare('UPDATE rate_limits SET count = count + 1 WHERE key = ?').bind(key).run();
+  return { allowed: true };
+}
+
 /** IDでスペース予約グループを取得（決済先行フローの確定処理で使用）#68 */
 export async function getBookingGroupById(db: D1Database, id: string): Promise<BookingGroupRow | null> {
   return db.prepare('SELECT * FROM booking_groups WHERE id = ?').bind(id).first<BookingGroupRow>();

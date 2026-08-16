@@ -675,6 +675,8 @@ app.post('/', async (c) => {
     extras: mailExtras,
     // 会員は書類（請求書・領収書）をマイページからDLできる。案内リンクを添える（#41）
     mypageUrl: member ? `${origin}/mypage.html` : undefined,
+    // ご予約の確認・変更ページ（#75。ゲスト・会員問わず番号プリフィルで案内）
+    changeUrl: `${origin}/booking-change/?num=${encodeURIComponent(bookingNumber)}`,
     isInvoice: paymentMethod === 'invoice',
   };
   // 決済先行（#68）の pending では、予約確認メールは入金確定時に送る（ここでは送らない）。
@@ -1387,38 +1389,8 @@ app.post('/:number/options', async (c) => {
   return c.json({ bookingNumber: number, spaceFee, optionsTotal: newOptionsTotal, newTotal, adjustment });
 });
 
-/**
- * POST /api/bookings/:number/change-request 変更リクエスト送信
- * body: { type: 'reschedule'|'option'|'cancel'|'other', message, contact? }
- */
-app.post('/:number/change-request', async (c) => {
-  const db = c.env.DB;
-  const number = c.req.param('number');
-  let body: { type?: string; message?: string; contact?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'invalid JSON body' }, 400);
-  }
-  const validTypes = ['reschedule', 'option', 'cancel', 'other'];
-  if (!body.type || !validTypes.includes(body.type) || !body.message) {
-    return c.json({ error: 'type(reschedule/option/cancel/other) と message は必須です' }, 400);
-  }
-  const g = await getBookingGroupByNumber(db, number);
-  if (!g) return c.json({ error: 'booking not found' }, 404);
-
-  const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO change_requests (id, group_id, customer_id, booking_number, type, message, contact, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    )
-    .bind(id, g.id, g.customer_id, number, body.type, body.message, body.contact ?? null, nowJST())
-    .run();
-
-  // TODO: 管理者への通知メール + 顧客への受付確認メール（通知実装時）
-  return c.json({ id, status: 'pending', message: '変更リクエストを受け付けました。担当者よりご連絡します。' }, 201);
-});
+// 旧・無認証の変更リクエスト受付は廃止（#75）。ゲストは POST /api/guest-change/request
+// （メール＋電話＋予約番号の3点照合）を、会員は POST /api/mypage/... を使用する。
 
 /** GET /api/bookings/:number 予約取得（番号指定） */
 app.get('/:number', async (c) => {

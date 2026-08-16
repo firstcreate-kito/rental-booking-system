@@ -106,6 +106,8 @@ export interface BookingEmailData {
   status: 'confirmed' | 'tentative';
   /** マイページURL（会員の場合。請求書・領収書のダウンロード導線に使う） */
   mypageUrl?: string;
+  /** ご予約の確認・変更ページURL（#75。番号プリフィル込みで渡す） */
+  changeUrl?: string;
   /** 請求書払いの場合 true（請求書の案内文を出す） */
   isInvoice?: boolean;
   /** 予約フォームの追加項目（利用目的・人数・過去利用・きっかけ 等）#60 */
@@ -154,7 +156,7 @@ ${
   d.mypageUrl
     ? `\n${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。\n${d.mypageUrl}\n`
     : ''
-}
+}${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセルのご相談）はこちら:\n${d.changeUrl}\n` : ''}
 ご不明な点がございましたらお問い合わせください。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
@@ -173,6 +175,11 @@ ${
     ? `<p style="margin:14px 0;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
 📄 ${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。<br>
 <a href="${escapeHtml(d.mypageUrl)}" style="color:#1d4ed8;font-weight:700">マイページで書類を確認する ▶</a></p>`
+    : ''
+}
+${
+  d.changeUrl
+    ? `<p style="margin:12px 0;font-size:14px">ご予約の確認・変更（日時変更・キャンセルのご相談）は<a href="${escapeHtml(d.changeUrl)}" style="color:#1d4ed8;font-weight:700">こちら ▶</a></p>`
     : ''
 }
 <p style="color:#6b7280;font-size:13px">ご不明な点がございましたらお問い合わせください。</p>
@@ -771,6 +778,8 @@ export function bookingReminderEmail(d: {
   eventName: string;
   days: DaysList['days'];
   daysBefore: number;
+  /** ご予約の確認・変更ページURL（#75・番号プリフィル込み） */
+  changeUrl?: string;
 }): { subject: string; html: string; text: string } {
   const when = d.daysBefore === 1 ? '明日' : `${d.daysBefore}日後`;
   const subject = `【レンタルスペースALBE】ご利用${when}のご予約リマインダー（${d.bookingNumber}）`;
@@ -783,7 +792,7 @@ export function bookingReminderEmail(d: {
 イベント名: ${d.eventName}
 日時:
 ${daysBlockText(d.days)}
-
+${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセルのご相談）はこちら:\n${d.changeUrl}\n` : ''}
 当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
@@ -795,6 +804,7 @@ ${daysBlockText(d.days)}
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+${d.changeUrl ? `<p style="margin:12px 0;font-size:14px">ご予約の確認・変更（日時変更・キャンセルのご相談）は<a href="${escapeHtml(d.changeUrl)}" style="color:#1d4ed8;font-weight:700">こちら ▶</a></p>` : ''}
 <p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。</p>
 </div>`;
   return withSignature({ subject, html, text });

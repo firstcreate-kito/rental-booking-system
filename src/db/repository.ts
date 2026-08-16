@@ -32,6 +32,11 @@ export interface SpaceRow {
   allow_invoice: number;
   payment_mode: string; // 'card_only' | 'card_bank' | 'card_konbini_bank'（#67）
   notify_email: string | null; // スペース別の管理者通知先（#72）
+  area: string | null; // エリア（#74）
+  use_category: string | null; // 用途（カンマ区切り可）（#74）
+  room_group: string | null; // 同型グループID（#74）
+  same_day_cutoff_hours: number; // 当日締切：開始のN時間前まで（#74）
+  same_day_priority: number; // 「今日」タブの並び（#74）
 }
 
 /** 支払いモード（#67） */
@@ -63,6 +68,12 @@ export interface SpaceInput {
   paymentMode: PaymentMode;
   /** スペース別の管理者通知先メール（#72）。空なら本部のみ。複数配信はメール転送で対応 */
   notifyEmail?: string | null;
+  /** 空き状況ページ用メタ（#74） */
+  area?: string | null;
+  useCategory?: string | null;
+  roomGroup?: string | null;
+  sameDayCutoffHours?: number;
+  sameDayPriority?: number;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -107,6 +118,11 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.paymentMode === 'card_only' ? 0 : 1,
     s.paymentMode,
     s.notifyEmail ?? null,
+    s.area ?? null,
+    s.useCategory ?? null,
+    s.roomGroup ?? null,
+    s.sameDayCutoffHours ?? 1,
+    s.sameDayPriority ?? 100,
   ];
 }
 
@@ -117,8 +133,9 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
        (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
-        allow_card, allow_paypal, allow_invoice, payment_mode, notify_email)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -131,7 +148,8 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
-        allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?
+        allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -400,6 +418,24 @@ export async function getSpaceBookingsOnDate(
   date: string,
 ): Promise<BookingIntervalRow[]> {
   return getSpaceBookingsInRange(db, spaceId, date, date);
+}
+
+/** 全スペースの占有予約を期間で一括取得（空き状況ページ #74・施設ごとに呼ばない） */
+export async function getOccupyingBookingsAllSpaces(
+  db: D1Database,
+  from: string,
+  to: string,
+): Promise<Array<{ space_id: string; date: string; start_time: string; end_time: string; status: string }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT space_id, date, start_time, end_time, status FROM bookings
+       WHERE date >= ? AND date <= ?
+         AND status IN ('confirmed','tentative','blocked','held')
+       ORDER BY date, start_time`,
+    )
+    .bind(from, to)
+    .all<{ space_id: string; date: string; start_time: string; end_time: string; status: string }>();
+  return results ?? [];
 }
 
 /** 指定日の占有予約（自グループを除く。日時変更の競合チェック用） */

@@ -281,6 +281,25 @@
           <input id="sp_notify" type="email" placeholder="例）partnerA@space-albe.com" />
           <div class="muted" style="font-size:12px;margin-top:2px">このスペースの予約・変更・キャンセル通知を、本部（rental@space-albe.com）に加えてこのアドレスにも送ります。複数人へ配りたい場合は、このアドレス宛の転送設定をメールサーバー側で行ってください。空欄なら本部のみに通知します。</div>
         </div>
+        <div class="muted" style="margin-top:6px;font-size:12px;font-weight:600">空き状況ページ（/availability/）の設定</div>
+        <div class="grid">
+          <div><label>エリア</label>
+            <select id="sp_area">
+              <option value="">未設定</option>
+              <option value="meieki">名古屋駅</option>
+              <option value="sakae">栄</option>
+              <option value="naka">中区</option>
+              <option value="chikusa">千種区</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div><label>用途（カンマ区切り）</label><input id="sp_use" placeholder="piano,photo,event,storage" /></div>
+        </div>
+        <div class="grid">
+          <div><label>同型グループID（防音室A/B等を1件にまとめる）</label><input id="sp_group" placeholder="例）meieki-piano（空欄=まとめない）" /></div>
+          <div><label>当日締切（開始の何時間前まで）</label><input id="sp_cutoff" type="number" min="0" value="1" /></div>
+          <div><label>「今日」タブ並び順（小さいほど上）</label><input id="sp_prio" type="number" value="100" /></div>
+        </div>
         <div class="grid">
           <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
@@ -1106,6 +1125,9 @@ function fillSpaceForm(s) {
   document.getElementById('spFormTitle').textContent = s ? ('スペースを編集：' + s.name) : 'スペースを追加';
   const g = (id, v) => document.getElementById(id).value = (v ?? '');
   g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_notify', s?.notify_email); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
+  g('sp_area', s?.area); g('sp_use', s?.use_category); g('sp_group', s?.room_group);
+  g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
+  g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
   g('sp_drh', s?.day_rate_hours); g('sp_open', s?.open_time || '08:00'); g('sp_close', s?.close_time || '22:00');
   g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
   g('sp_sort', s?.sort_order ?? 0);
@@ -1143,6 +1165,8 @@ async function saveSpace() {
   const editing = v('sp_editing');
   const payload = {
     name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, notifyEmail: v('sp_notify') || null, billingType: document.getElementById('sp_billing').value,
+    area: v('sp_area') || null, useCategory: v('sp_use') || null, roomGroup: v('sp_group') || null,
+    sameDayCutoffHours: Number(v('sp_cutoff') || 1), sameDayPriority: Number(v('sp_prio') || 100),
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
     openTime: v('sp_open'), closeTime: v('sp_close'), minHours: Number(v('sp_min') || 1),
     bookingHorizonDays: Number(v('sp_horizon') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),

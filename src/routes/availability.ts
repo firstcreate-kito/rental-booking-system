@@ -1,0 +1,68 @@
+import { Hono } from 'hono';
+import type { AppBindings } from '../types';
+import { assembleAvailability } from '../lib/availability-service';
+import { renderAvailabilityPage } from '../lib/availability-page';
+import { getSystemSetting } from '../db/repository';
+import { todayJST, addDaysJST } from '../lib/clock';
+
+const LINE_URL = 'https://lin.ee/46iS2Iu';
+
+function isYmd(s: string | undefined): s is string {
+  return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+/** ymd の曜日(0=日..6=土) */
+function dow(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+/** 今日以降の直近の土曜（今日が土曜なら今日） */
+function nextWeekend(today: string): string {
+  let d = today;
+  for (let i = 0; i < 7; i++) {
+    if (dow(d) === 6) return d;
+    d = addDaysJST(d, 1);
+  }
+  return today;
+}
+
+/** JSON API: GET /api/availability?date=&use=&area= */
+export const availabilityApi = new Hono<AppBindings>();
+availabilityApi.get('/', async (c) => {
+  const q = c.req.query('date');
+  const date = isYmd(q) ? q : todayJST();
+  const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
+  c.header('Cache-Control', 'public, max-age=300'); // 同期間隔と同じ5分
+  return c.json(data);
+});
+
+/** SSR ページ: GET /availability(/) */
+export async function availabilityPage(c: import('hono').Context<AppBindings>): Promise<Response> {
+  const q = c.req.query('date');
+  const today = todayJST();
+  const date = isYmd(q) ? q : today;
+  const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
+  const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '/';
+  const html = renderAvailabilityPage(data, {
+    today,
+    tomorrow: addDaysJST(today, 1),
+    weekend: nextWeekend(today),
+    contactUrl,
+    lineUrl: LINE_URL,
+    loginUrl: '/mypage.html',
+  });
+  c.header('Cache-Control', 'public, max-age=300');
+  return c.html(html);
+}
+
+/** sitemap.xml（/availability/ を含む） */
+export async function sitemapXml(c: import('hono').Context<AppBindings>): Promise<Response> {
+  const base = c.env.PUBLIC_BASE_URL || 'https://space-albe.com';
+  const urls = ['/', '/availability/'];
+  const body =
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+    urls.map((u) => `<url><loc>${base}${u}</loc></url>`).join('') +
+    '</urlset>';
+  return c.body(body, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
+}

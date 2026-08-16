@@ -1138,6 +1138,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
         : 'card_bank',
     // スペース別の通知先メール（#72）。空欄なら本部のみに通知。
     notifyEmail: body.notifyEmail ? String(body.notifyEmail).trim() : null,
+    // 空き状況ページ用メタ（#74）
+    area: body.area ? String(body.area).trim() : null,
+    useCategory: body.useCategory ? String(body.useCategory).trim() : null,
+    roomGroup: body.roomGroup ? String(body.roomGroup).trim() : null,
+    sameDayCutoffHours: Number.isFinite(Number(body.sameDayCutoffHours)) ? Math.max(0, Math.floor(Number(body.sameDayCutoffHours))) : 1,
+    sameDayPriority: Number.isFinite(Number(body.sameDayPriority)) ? Math.floor(Number(body.sameDayPriority)) : 100,
   };
   return { input };
 }

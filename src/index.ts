@@ -12,6 +12,7 @@ import tickets from './routes/tickets';
 import webhooks from './routes/webhooks';
 import paypal from './routes/paypal';
 import documents from './routes/documents';
+import { availabilityApi, availabilityPage, sitemapXml } from './routes/availability';
 import {
   getOverdueUnpaidBookings,
   markUnpaidAlertSent,
@@ -24,6 +25,7 @@ import {
   getSystemSettings,
   getBookingsForPointAward,
   awardBookingPoints,
+  setSystemSetting,
 } from './db/repository';
 import { pointsForAmount } from './lib/points';
 import {
@@ -68,6 +70,10 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api/webhooks/')) return next();
   // 書類（請求書・領収書）は公開トークンURLで閲覧するため除外（トークンが秘匿値）
   if (c.req.path.startsWith('/api/documents/')) return next();
+  // 空き状況ページ（公開・SEO対象）とその取得API・sitemap は認証ゲートを通さない（#74）
+  if (c.req.path === '/availability' || c.req.path.startsWith('/availability/')) return next();
+  if (c.req.path.startsWith('/api/availability')) return next();
+  if (c.req.path === '/sitemap.xml') return next();
 
   const expected = await gateToken(user, pass);
 
@@ -139,6 +145,12 @@ app.route('/api/tickets', tickets);
 app.route('/api/webhooks', webhooks);
 app.route('/api/paypal', paypal);
 app.route('/api/documents', documents);
+app.route('/api/availability', availabilityApi);
+
+// 空き状況ページ（SSR）と sitemap（静的アセットより先に登録）#74
+app.get('/availability', availabilityPage);
+app.get('/availability/', availabilityPage);
+app.get('/sitemap.xml', sitemapXml);
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。
@@ -187,7 +199,10 @@ async function runUnpaidAlert(env: AppBindings['Bindings']): Promise<{ count: nu
  */
 async function runCalendarReconcile(env: AppBindings['Bindings']): Promise<{ created: number; failed: number }> {
   const rows = await getBookingsMissingCalendarEvent(env.DB, todayJST());
-  return reconcileMissingCalendarEvents(env, rows);
+  const result = await reconcileMissingCalendarEvents(env, rows);
+  // 空き状況ページの「最終更新」表示用に、同期実行時刻を記録（#74）
+  await setSystemSetting(env.DB, 'gcal_last_sync_at', nowJST()).catch(() => {});
+  return result;
 }
 
 /** 受注からこの日数を過ぎても未入金なら、お客様へリマインド（#50） */

@@ -35,6 +35,17 @@ UPDATE spaces SET allow_invoice = 1 WHERE id IN ('albe-hall-nagoya', 'meieki-fre
 -- 支払いモード（#67）：カード・PayPalは全モード共通ON、振込ONなら②、なしは①（本番マイグレーションと同じ整合）
 UPDATE spaces SET allow_card = 1, allow_paypal = 1, payment_mode = CASE WHEN allow_invoice = 1 THEN 'card_bank' ELSE 'card_only' END;
 
+-- 空き状況ページ用メタ（#74・0020マイグレーションと同じ内容をローカル用に投入）
+UPDATE spaces SET area='sakae',   use_category='event',        same_day_priority=8  WHERE id='albe-hall-nagoya';
+UPDATE spaces SET area='sakae',   use_category='event',        same_day_priority=7  WHERE id='albe-event-sakae';
+UPDATE spaces SET area='meieki',  use_category='event,photo',  same_day_priority=5  WHERE id='meieki-free';
+UPDATE spaces SET area='meieki',  use_category='photo',        same_day_priority=4  WHERE id='meieki-exercise';
+UPDATE spaces SET area='meieki',  use_category='event,photo',  same_day_priority=6  WHERE id='meieki-washitsu';
+UPDATE spaces SET area='meieki',  use_category='piano', room_group='meieki-piano', same_day_priority=1 WHERE id='meieki-piano-a';
+UPDATE spaces SET area='meieki',  use_category='piano', room_group='meieki-piano', same_day_priority=1 WHERE id='meieki-piano-b';
+UPDATE spaces SET area='naka',    use_category='piano,photo',  same_day_priority=3  WHERE id='higashibetsuin-piano-24h';
+UPDATE spaces SET area='other',   use_category='storage,photo',same_day_priority=9  WHERE id='kitaokazaki-warehouse';
+
 -- 北岡崎倉庫スペース: 土日祝のみ営業・最長7時間・時間料金5500円のみ（1日料金なし）。
 --   平日は貸出なし(weekday_available=0, weekday_rate=NULL)。
 --   受付開始(horizon)は暫定180日前。締切は利用日5日前(deadline=5)。※horizonは運用で調整可。

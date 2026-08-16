@@ -41,8 +41,8 @@ UPDATE spaces SET area='sakae',   use_category='event',        same_day_priority
 UPDATE spaces SET area='meieki',  use_category='event,photo',  same_day_priority=5  WHERE id='meieki-free';
 UPDATE spaces SET area='meieki',  use_category='photo',        same_day_priority=4  WHERE id='meieki-exercise';
 UPDATE spaces SET area='meieki',  use_category='event,photo',  same_day_priority=6  WHERE id='meieki-washitsu';
-UPDATE spaces SET area='meieki',  use_category='piano', room_group='meieki-piano', same_day_priority=1 WHERE id='meieki-piano-a';
-UPDATE spaces SET area='meieki',  use_category='piano', room_group='meieki-piano', same_day_priority=1 WHERE id='meieki-piano-b';
+UPDATE spaces SET area='meieki',  use_category='piano', same_day_priority=1 WHERE id='meieki-piano-a';
+UPDATE spaces SET area='meieki',  use_category='piano', same_day_priority=2 WHERE id='meieki-piano-b';
 UPDATE spaces SET area='naka',    use_category='piano,photo',  same_day_priority=3  WHERE id='higashibetsuin-piano-24h';
 UPDATE spaces SET area='other',   use_category='storage,photo',same_day_priority=9  WHERE id='kitaokazaki-warehouse';
 

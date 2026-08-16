@@ -25,7 +25,7 @@
 |---|---|---|---|
 | `area` | TEXT | エリア絞り込み（meieki/sakae/naka/chikusa/other 等） | 既存施設に投入 |
 | `use_category` | TEXT | 用途絞り込み（piano/photo/event/storage・複数はカンマ区切り） | 既存施設に投入 |
-| `room_group` | TEXT | 同型グループID（防音室A/Bを1件に集約し「空き◯室／2室」表示） | NULL（未グループ） |
+| `room_group` | TEXT | 同型グループID（同型の部屋を1件に集約し「空き◯室／N室」表示）。※指示訂正により名駅防音室A/Bは集約せず**別行で表示**（room_group=NULL）。機能自体は将来の同型施設向けに温存 | NULL（未グループ） |
 | `same_day_cutoff_hours` | INTEGER | 当日、利用開始の何時間前まで受付か | 1 |
 | `same_day_priority` | INTEGER | 「今日」タブの並び順（当日予約の多い順） | sort_order 準拠 |
 

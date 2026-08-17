@@ -56,15 +56,23 @@ function rowHtml(r: AvailabilityRow, ctx: PageContext): string {
     rtime = r.closed ? '休業' : '満室';
   }
   const next = r.status !== 'ok' && r.nextOpen ? `<div class="next">次に空いているのは <b>${labelYmd(r.nextOpen)}</b></div>` : '';
-  // 遷移先：空き→予約フロー、商談中→相談、それ以外→リンクなし
-  const href = r.status === 'ok' ? r.bookingHref : r.status === 'talk' ? ctx.contactUrl || null : null;
+  // 予約可能期間より先＝閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
+  const viewNote = r.viewOnly ? `<div class="next">この期間はネット予約対象外 ─ 長期・複数日はお問い合わせください</div>` : '';
+  // 遷移先：閲覧のみ→相談、空き→予約フロー、商談中→相談、それ以外→リンクなし
+  const href = r.viewOnly
+    ? ctx.contactUrl || null
+    : r.status === 'ok'
+      ? r.bookingHref
+      : r.status === 'talk'
+        ? ctx.contactUrl || null
+        : null;
   const meta = [r.areaName, r.meta].filter(Boolean).join('・');
   const inner =
     `<div><div class="rname">${escapeHtml(r.name)}${rooms}</div>` +
     `<div class="rmeta">${escapeHtml(meta)}</div></div>` +
     `<div class="rprice">${priceHtml}</div>` +
     `<div class="rstat"><span class="mark">${mark}</span><span class="rtime">${escapeHtml(rtime)}</span></div>` +
-    next;
+    next + viewNote;
   return href ? `<a class="row" href="${escapeHtml(href)}">${inner}</a>` : `<div class="row">${inner}</div>`;
 }
 

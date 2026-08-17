@@ -311,10 +311,12 @@
           <div><label>最低利用時間</label><input id="sp_min" type="number" value="1" /></div>
         </div>
         <div class="grid">
-          <div><label>予約可能期間（日先まで）</label><input id="sp_horizon" type="number" value="180" /></div>
+          <div><label>予約可能期間（ネット予約・日先まで）</label><input id="sp_horizon" type="number" value="180" /></div>
+          <div><label>閲覧可能期間（空き表示・日先まで）</label><input id="sp_view" type="number" value="180" /></div>
           <div><label>受付締切（利用日の何日前・空欄=当日まで）</label><input id="sp_deadline" type="number" /></div>
           <div><label>並び順</label><input id="sp_sort" type="number" value="0" /></div>
         </div>
+        <p class="muted" style="margin:2px 0 0;font-size:12px">「予約可能期間」を過ぎ「閲覧可能期間」内の日は、カレンダーで空き状況のみ表示（クリック不可・お問い合わせ案内）。閲覧可能期間は予約可能期間以上に自動調整されます。</p>
         <div class="row" style="gap:18px;margin-top:8px">
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wda" checked style="width:auto"> 平日に予約可</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked style="width:auto"> 土日祝に予約可</label>
@@ -1129,7 +1131,7 @@ function fillSpaceForm(s) {
   g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
   g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
   g('sp_drh', s?.day_rate_hours); g('sp_open', s?.open_time || '08:00'); g('sp_close', s?.close_time || '22:00');
-  g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
+  g('sp_min', s?.min_hours ?? 1); g('sp_horizon', s?.booking_horizon_days ?? 180); g('sp_view', s?.view_horizon_days ?? 180); g('sp_deadline', s?.booking_deadline_days);
   g('sp_sort', s?.sort_order ?? 0);
   document.getElementById('sp_billing').value = s?.billing_type || 'hourly';
   document.getElementById('sp_wda').checked = s ? !!s.weekday_available : true;
@@ -1169,7 +1171,7 @@ async function saveSpace() {
     sameDayCutoffHours: Number(v('sp_cutoff') || 1), sameDayPriority: Number(v('sp_prio') || 100),
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
     openTime: v('sp_open'), closeTime: v('sp_close'), minHours: Number(v('sp_min') || 1),
-    bookingHorizonDays: Number(v('sp_horizon') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),
+    bookingHorizonDays: Number(v('sp_horizon') || 180), viewHorizonDays: Number(v('sp_view') || 180), bookingDeadlineDays: numOrNull('sp_deadline'),
     sortOrder: Number(v('sp_sort') || 0),
     weekdayAvailable: document.getElementById('sp_wda').checked,
     weekendAvailable: document.getElementById('sp_wea').checked,

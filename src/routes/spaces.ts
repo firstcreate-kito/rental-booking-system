@@ -47,6 +47,7 @@ function toPublicSpace(s: SpaceRow) {
     hasMinimum: !!s.has_minimum,
     minHours: s.min_hours,
     bookingHorizonDays: s.booking_horizon_days,
+    viewHorizonDays: s.view_horizon_days,
     weekdayAvailable: !!s.weekday_available,
     weekendAvailable: !!s.weekend_available,
     allowCard: !!s.allow_card,
@@ -277,6 +278,9 @@ app.get('/:id/slots', async (c) => {
     const withinWindow = diff >= deadline && diff <= space.booking_horizon_days;
     const bookable =
       withinWindow && !closed && dayAvailable && avail.status !== 'full';
+    // 予約可能期間より先だが閲覧可能期間内 → 空きは見せるがクリック不可（#77）
+    const viewOnly =
+      !bookable && diff > space.booking_horizon_days && diff <= space.view_horizon_days && !closed && diff >= 0;
 
     return {
       date,
@@ -288,12 +292,22 @@ app.get('/:id/slots', async (c) => {
       freeSlots: avail.freeSlots,
       totalSlots: avail.totalSlots,
       bookable,
+      viewOnly, // 空き閲覧のみ（予約可能期間超・閲覧可能期間内）（#77）
       closed, // 休業日（祝日休業・全体休業日・個別休業）
       past: diff < 0, // 今日より前
     };
   });
 
-  return c.json({ spaceId: id, month, today, days, nextMonthFrom: addDays(endDate, 1), contactUrl: settings.get('contact_url') ?? '' });
+  return c.json({
+    spaceId: id,
+    month,
+    today,
+    days,
+    nextMonthFrom: addDays(endDate, 1),
+    contactUrl: settings.get('contact_url') ?? '',
+    bookingHorizonDays: space.booking_horizon_days, // 予約可能期間（#77）
+    viewHorizonDays: space.view_horizon_days, // 閲覧可能期間（#77）
+  });
 });
 
 export default app;

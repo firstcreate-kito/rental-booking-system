@@ -12,7 +12,7 @@ import {
   type SpaceRow,
 } from '../db/repository';
 import { todayJST, nowJST, addDaysJST } from './clock';
-import { getDayType } from './calendar';
+import { getDayType, daysBetween } from './calendar';
 import { computeFreeWindows, classifySpaceDay, type AvailabilityGroup } from './availability';
 
 type Env = AppBindings['Bindings'];
@@ -43,6 +43,7 @@ export interface AvailabilityRow {
   freeWindows: Array<{ start: string; end: string }>;
   nextOpen: string | null; // 'YYYY-MM-DD'
   bookingHref: string | null;
+  viewOnly: boolean; // 予約可能期間超・閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
 }
 
 export interface AvailabilityResult {
@@ -186,7 +187,9 @@ export async function assembleAvailability(
       best.group === 'ok'
         ? null
         : members.map((m) => m.nextOpen).filter((x): x is string => !!x).sort()[0] ?? null;
-    const bookable = best.group === 'ok' || best.group === 'talk';
+    // 予約可能期間より先の日付は「閲覧のみ」＝ネット予約リンクは出さずお問い合わせへ（#77）
+    const viewOnly = daysBetween(today, dateYmd) > (rep.booking_horizon_days ?? 180);
+    const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly;
     const bookingHref = bookable ? `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}` : null;
     const row: AvailabilityRow = {
       id: rep.room_group ? `group:${rep.room_group}` : rep.id,
@@ -204,6 +207,7 @@ export async function assembleAvailability(
       freeWindows: best.freeWindows,
       nextOpen,
       bookingHref,
+      viewOnly,
     };
     const prio = isToday ? rep.same_day_priority ?? 100 : rep.sort_order;
     built.push({ row, prio });

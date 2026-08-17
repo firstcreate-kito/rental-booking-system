@@ -47,6 +47,9 @@
   .cal .day .sym.ok { color: var(--ok); } .cal .day .sym.limited { color: var(--warn); } .cal .day .sym.full { color: var(--bad); }
   .badge { font-size: 9px; background: #fde68a; color: #92400e; border-radius: 4px; padding: 0 3px; margin-top: 2px; }
   .cal .day.inactive { background: #fafafa; color: #c9ced6; }
+  /* 閲覧のみ（予約可能期間超・空きは見せるがクリック不可）#77 */
+  .cal .day.viewonly { background: #fbfbfc; border-style: dashed; opacity: .6; cursor: help; }
+  .cal .day.viewonly:hover { border-color: var(--brand); }
   .empty { grid-column: span 1; }
   .slotbar { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
   .slot { font-size: 10px; color: #374151; width: 40px; text-align: center; padding: 3px 0; border-radius: 4px; border: 1px solid var(--line); }
@@ -107,9 +110,9 @@
       <strong id="calSpaceName"></strong>
     </div>
     <div class="cal-head">
-      <button class="btn ghost sm" onclick="changeMonth(-1)">◀ 前月</button>
+      <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-1)">◀ 前月</button>
       <strong id="calMonth"></strong>
-      <button class="btn ghost sm" onclick="changeMonth(1)">翌月 ▶</button>
+      <button class="btn ghost sm" id="nextMonthBtn" onclick="changeMonth(1)">翌月 ▶</button>
     </div>
     <div class="cal" id="calDows"></div>
     <div class="cal" id="calGrid" style="margin-top:4px"></div>
@@ -333,6 +336,11 @@
   <div style="color:#92400e">商談中となっていますが、予約確定ではございません。ご予約をご検討のお客様はお問い合わせください。</div>
   <div style="margin-top:8px"><a id="tentPopupBtn" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>
 </div>
+<!-- 閲覧のみ日（予約可能期間超）をタップした時の案内（#77） -->
+<div id="viewPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #93c5fd;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6">
+  <div style="color:#1e3a8a">この期間はネット予約の対象外です。空き状況の確認のみ可能です。<br>複数日・長期でのご利用は承れる場合がございますので、お問い合わせください。</div>
+  <div style="margin-top:8px"><a id="viewPopupBtn" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>
+</div>
 
 <script>
 const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done', usableTickets: [], ticketProducts: [], ticketContactUrl: '' };
@@ -448,6 +456,7 @@ async function loadCalendar() {
   S.slots = body.days || [];
   S.today = body.today;
   S.contactUrl = body.contactUrl || '';
+  S.viewHorizonDays = body.viewHorizonDays ?? 180; // 閲覧可能期間（#77）
   document.getElementById('calMonth').textContent = S.month.replace('-', '年') + '月';
   document.getElementById('calDows').innerHTML = ['日','月','火','水','木','金','土']
     .map(d => '<div class="dow">' + d + '</div>').join('');
@@ -465,8 +474,13 @@ async function loadCalendar() {
     if (d.closed || d.status === 'closed') {
       cls.push('closed');
       symHtml = '<div class="closed-label">休業</div>';
+    } else if (d.viewOnly) {
+      // 予約可能期間超・閲覧可能期間内：空きは見せるがクリック不可（#77）
+      cls.push('viewonly');
+      const symClass = d.status === 'full' ? 'full' : (d.status === 'available' ? 'ok' : 'limited');
+      symHtml = '<div class="sym ' + symClass + '">' + (d.status === 'full' ? '✕' : d.symbol) + '</div>';
     } else if (d.past || (!d.bookable && d.status !== 'full')) {
-      cls.push('inactive'); // 今日より前 or 受付期間外 → 記号を出さない
+      cls.push('inactive'); // 今日より前 or 閲覧期間外 → 記号を出さない
     } else if (d.status === 'full') {
       symHtml = '<div class="sym full">✕</div>';
     } else if (d.bookable) {
@@ -474,7 +488,9 @@ async function loadCalendar() {
       const symClass = d.status === 'available' ? 'ok' : 'limited';
       symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
     }
-    const onclick = d.bookable ? ' onclick="openModal(\'' + d.date + '\')"' : '';
+    const onclick = d.bookable
+      ? ' onclick="openModal(\'' + d.date + '\')"'
+      : (d.viewOnly ? ' onclick="showViewOnlyInfo(this, event)"' : '');
     // ✕（満枠）かつ商談中の日は、ホバーでお問い合わせ案内ポップアップを表示（#28拡張）
     const tentFull = (d.status === 'full' && d.hasTentative);
     const hover = tentFull ? ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"' : '';
@@ -483,7 +499,24 @@ async function loadCalendar() {
       (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
   }
   document.getElementById('calGrid').innerHTML = html;
+  updateMonthNav();
   showCalendar();
+}
+
+// 月送りの上限＝閲覧可能期間（#77）。翌月の初日が閲覧期間を超えるなら「翌月」を無効化。
+// 過去月へは戻れないよう「前月」も当月以前で無効化。
+function updateMonthNav() {
+  const prev = document.getElementById('prevMonthBtn');
+  const next = document.getElementById('nextMonthBtn');
+  if (!S.today) return;
+  const todayMonth = S.today.slice(0, 7);
+  if (prev) prev.disabled = S.month <= todayMonth;
+  // 翌月の初日
+  const [y, m] = S.month.split('-').map(Number);
+  const nextFirst = new Date(Date.UTC(y, m, 1)); // m はゼロ始まりで「翌月」
+  const t0 = new Date(S.today + 'T00:00:00Z');
+  const diffDays = Math.round((nextFirst - t0) / 86400000);
+  if (next) next.disabled = diffDays > (S.viewHorizonDays ?? 180);
 }
 function showCalendar() {
   show('view-calendar'); setStep(1);
@@ -515,6 +548,30 @@ function hideTentHover() {
 function cancelHideTent() {
   if (_tentHideTimer) { clearTimeout(_tentHideTimer); _tentHideTimer = null; }
 }
+
+// --- 閲覧のみ日（予約可能期間超）をタップした時の案内（#77）---
+function showViewOnlyInfo(cell, ev) {
+  if (ev) ev.stopPropagation();
+  const pop = document.getElementById('viewPopup');
+  const btn = document.getElementById('viewPopupBtn');
+  if (S.contactUrl) { btn.style.display = 'inline-block'; btn.href = S.contactUrl; }
+  else { btn.style.display = 'none'; }
+  pop.style.display = 'block';
+  const r = cell.getBoundingClientRect();
+  const pw = pop.offsetWidth;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - pw - 8;
+  if (left > maxLeft) left = maxLeft;
+  pop.style.top = (r.bottom + window.scrollY + 6) + 'px';
+  pop.style.left = Math.max(8, left) + 'px';
+}
+// 画面のどこかをタップしたら閲覧案内ポップアップを閉じる
+document.addEventListener('click', function (e) {
+  const pop = document.getElementById('viewPopup');
+  if (!pop || pop.style.display === 'none') return;
+  if (pop.contains(e.target) || (e.target.closest && e.target.closest('.day.viewonly'))) return;
+  pop.style.display = 'none';
+});
 
 function changeMonth(delta) {
   const [y, m] = S.month.split('-').map(Number);

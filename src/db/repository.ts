@@ -23,6 +23,7 @@ export interface SpaceRow {
   open_time: string;
   close_time: string;
   booking_horizon_days: number;
+  view_horizon_days: number; // 空き閲覧可能期間（#77・予約可能期間より先まで）
   booking_deadline_days: number | null;
   block_name: string | null;
   sort_order: number;
@@ -60,6 +61,7 @@ export interface SpaceInput {
   openTime: string;
   closeTime: string;
   bookingHorizonDays: number;
+  viewHorizonDays: number; // 空き閲覧可能期間（#77）
   bookingDeadlineDays: number | null;
   blockName?: string | null;
   sortOrder: number;
@@ -108,6 +110,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.openTime,
     s.closeTime,
     s.bookingHorizonDays,
+    s.viewHorizonDays,
     s.bookingDeadlineDays,
     s.blockName ?? null,
     s.sortOrder,
@@ -132,10 +135,10 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
       `INSERT INTO spaces
        (id, name, name_en, slug, google_calendar_id, billing_type, weekday_rate, weekend_rate, day_rate_hours,
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
-        open_time, close_time, booking_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
+        open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
         area, use_category, room_group, same_day_cutoff_hours, same_day_priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -147,7 +150,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
       `UPDATE spaces SET
         name = ?, name_en = ?, slug = ?, google_calendar_id = ?, billing_type = ?, weekday_rate = ?, weekend_rate = ?, day_rate_hours = ?,
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
-        open_time = ?, close_time = ?, booking_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
+        open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
         area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?
        WHERE id = ?`,

@@ -1129,6 +1129,11 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     openTime,
     closeTime,
     bookingHorizonDays: Number(body.bookingHorizonDays ?? 180),
+    // 閲覧可能期間（#77）。予約可能期間を下回らないよう下限クランプ。既定180。
+    viewHorizonDays: Math.max(
+      Number(body.bookingHorizonDays ?? 180),
+      Number.isFinite(Number(body.viewHorizonDays)) ? Number(body.viewHorizonDays) : 180,
+    ),
     bookingDeadlineDays: num(body.bookingDeadlineDays),
     blockName: body.blockName ? String(body.blockName) : null,
     sortOrder: Number(body.sortOrder ?? 0),

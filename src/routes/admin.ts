@@ -70,6 +70,7 @@ import {
   getBookingGroupByNumber,
   getBookingsByGroup,
   getCancelPolicies,
+  refundBookingPoints,
   peekNextBookingSeq,
   setSystemSetting,
   getSystemSettings,
@@ -615,6 +616,9 @@ app.post('/bookings/:number/cancel', async (c) => {
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
   await db.batch(stmts);
+
+  // キャンセル時は、この予約で使用したポイントを返還する（#78改）
+  if (g.customer_id) await refundBookingPoints(db, g.id, g.customer_id, now);
 
   // Googleカレンダー（台帳の正）からイベント削除
   const cancelSpace = await getSpaceById(db, g.space_id);

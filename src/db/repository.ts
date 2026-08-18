@@ -1044,6 +1044,40 @@ export async function markPointExpiryNotified(
     .run();
 }
 
+/**
+ * キャンセル時に、その予約で使用したポイントを返還する（#78改）。
+ * 使用（type 'use'）合計から既返還（type 'refund'）合計を差し引いた残りを返す＝二重返還しない。
+ * 使用が無い（ゲスト・非利用）場合は何もしない。返還したポイント数を返す。
+ */
+export async function refundBookingPoints(
+  db: D1Database,
+  groupId: string,
+  customerId: string,
+  now: string,
+): Promise<number> {
+  const used = await db
+    .prepare("SELECT COALESCE(SUM(amount),0) AS n FROM point_log WHERE group_id = ? AND type = 'use'")
+    .bind(groupId)
+    .first<{ n: number }>();
+  const refunded = await db
+    .prepare("SELECT COALESCE(SUM(amount),0) AS n FROM point_log WHERE group_id = ? AND type = 'refund'")
+    .bind(groupId)
+    .first<{ n: number }>();
+  const toRefund = (used?.n ?? 0) - (refunded?.n ?? 0);
+  if (toRefund <= 0) return 0;
+  const balanceAfter = (await getPointBalance(db, customerId)) + toRefund;
+  await db.batch([
+    db.prepare('UPDATE customers SET point_balance = ? WHERE id = ?').bind(balanceAfter, customerId),
+    db
+      .prepare(
+        `INSERT INTO point_log (id, customer_id, type, amount, balance_after, group_id, description, created_at)
+         VALUES (?, ?, 'refund', ?, ?, ?, 'キャンセルによるポイント返還', ?)`,
+      )
+      .bind(crypto.randomUUID(), customerId, toRefund, balanceAfter, groupId, now),
+  ]);
+  return toRefund;
+}
+
 // --- 管理者 ---
 export interface AdminAuthRow {
   id: string;

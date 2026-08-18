@@ -27,6 +27,7 @@ import {
   getSystemSettings,
   getBookingsForPointAward,
   awardBookingPoints,
+  getPointBalance,
   setSystemSetting,
 } from './db/repository';
 import { pointsForAmount } from './lib/points';
@@ -252,12 +253,25 @@ async function runUseDateReminders(env: AppBindings['Bindings']): Promise<void> 
 /** 定期メール：利用後のお礼（利用終了の翌日）#53 */
 async function runThanks(env: AppBindings['Bindings']): Promise<void> {
   const origin = env.PUBLIC_BASE_URL || '';
+  // ポイント案内用に還元率を取得（会員・入金済みのみ「今回○P付与」を案内）#70
+  const settings = await getSystemSettings(env.DB);
+  const rate = Number(settings.get('point_rate') ?? '1');
   const rows = await getBookingsForThanks(env.DB, addDaysJST(todayJST(), -1));
   const sent: string[] = [];
   for (const r of rows) {
+    const eligible = r.is_registered === 1 && r.payment_status === 'paid' && rate > 0;
+    const earned = eligible ? pointsForAmount(r.total_amount, rate) : 0;
+    // 残高はポイント付与処理（runPointAward）実行後の値。今回付与ぶんも反映済み。
+    const balance = earned > 0 ? await getPointBalance(env.DB, r.customer_id) : undefined;
     await sendEmail(env, {
       to: r.email,
-      ...thankYouEmail({ customerName: r.contact_name || 'お客様', spaceName: r.space_name || '', bookingUrl: origin ? origin + '/' : undefined }),
+      ...thankYouEmail({
+        customerName: r.contact_name || 'お客様',
+        spaceName: r.space_name || '',
+        bookingUrl: origin ? origin + '/' : undefined,
+        pointsEarned: earned > 0 ? earned : undefined,
+        pointBalance: balance,
+      }),
     });
     sent.push(r.id);
   }
@@ -310,10 +324,14 @@ export default {
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(runUnpaidAlert(env));
       ctx.waitUntil(runUseDateReminders(env).catch(() => {}));
-      ctx.waitUntil(runThanks(env).catch(() => {}));
       ctx.waitUntil(runUnpaidCustomerReminder(env).catch(() => {}));
-      // 利用完了ポイントの付与（#70）
-      ctx.waitUntil(runPointAward(env).catch(() => {}));
+      // 利用完了ポイントの付与（#70）→ その後にお礼メール（今回付与ぶんを残高に反映して案内）
+      ctx.waitUntil(
+        (async () => {
+          await runPointAward(env).catch(() => {});
+          await runThanks(env).catch(() => {});
+        })(),
+      );
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
       ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
     }

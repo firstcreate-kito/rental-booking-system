@@ -2448,10 +2448,18 @@ export async function getBookingsForUseDateReminder(
 }
 
 /** 利用後お礼対象（#53）: confirmed で、利用終了日(最後の日)が targetDate(昨日)、未送信、メールあり */
-export async function getBookingsForThanks(db: D1Database, targetDate: string): Promise<CronEmailBookingRow[]> {
+/** お礼メール対象行（#53）＋ポイント案内用に会員種別・入金状況・顧客IDを含む（#70案内） */
+export interface ThanksBookingRow extends CronEmailBookingRow {
+  customer_id: string;
+  is_registered: number;
+  payment_status: string;
+}
+
+export async function getBookingsForThanks(db: D1Database, targetDate: string): Promise<ThanksBookingRow[]> {
   const { results } = await db
     .prepare(
       `SELECT bg.id, bg.booking_number, bg.event_name, bg.total_amount,
+              bg.customer_id, bg.payment_status, c.is_registered,
               s.name AS space_name, c.contact_name, c.email
        FROM booking_groups bg
        JOIN spaces s ON s.id = bg.space_id
@@ -2461,7 +2469,7 @@ export async function getBookingsForThanks(db: D1Database, targetDate: string): 
          AND (SELECT MAX(date) FROM bookings WHERE group_id = bg.id) = ?`,
     )
     .bind(targetDate)
-    .all<CronEmailBookingRow>();
+    .all<ThanksBookingRow>();
   return results ?? [];
 }
 

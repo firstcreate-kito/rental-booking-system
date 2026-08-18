@@ -860,21 +860,34 @@ export function thankYouEmail(d: {
   customerName: string;
   spaceName: string;
   bookingUrl?: string;
+  /** 今回のご利用で付与したポイント（会員・0超のときのみ案内を表示）#70 */
+  pointsEarned?: number;
+  /** 付与後の保有ポイント */
+  pointBalance?: number;
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】ご利用ありがとうございました`;
+  const showPoints = typeof d.pointsEarned === 'number' && d.pointsEarned > 0;
+  const balanceText = typeof d.pointBalance === 'number' ? `（現在の保有ポイント：${d.pointBalance}P）` : '';
+  const pointsText = showPoints
+    ? `\n今回のご利用で ${d.pointsEarned}ポイント を付与いたしました。${balanceText}
+1ポイント=1円で、次回以降のご予約にご利用いただけます。\n`
+    : '';
   const text = `${d.customerName} 様
 
 先日は「${d.spaceName}」をご利用いただき、誠にありがとうございました。
 またのご利用を心よりお待ちしております。
-${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
+${pointsText}${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
 ご意見・ご要望がございましたら、お気軽にお問い合わせください。`;
+  const pointsHtml = showPoints
+    ? `<div style="background:#eef6ee;border:1px solid #cfe6cf;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:14px;color:#166534">今回のご利用で <strong>${d.pointsEarned}ポイント</strong> を付与いたしました。${typeof d.pointBalance === 'number' ? `<br>現在の保有ポイント：<strong>${d.pointBalance}P</strong>` : ''}<br><span style="color:#3f6b47">1ポイント=1円で、次回以降のご予約にご利用いただけます。</span></div>`
+    : '';
   const btn = d.bookingUrl
     ? `<p style="margin:16px 0"><a href="${escapeHtml(d.bookingUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">次回のご予約はこちら</a></p>`
     : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>先日は「<strong>${escapeHtml(d.spaceName)}</strong>」をご利用いただき、誠にありがとうございました。<br>またのご利用を心よりお待ちしております。</p>
-${btn}
+${pointsHtml}${btn}
 <p style="color:#6b7280;font-size:13px">ご意見・ご要望がございましたら、お気軽にお問い合わせください。</p>
 </div>`;
   return withSignature({ subject, html, text });

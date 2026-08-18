@@ -893,6 +893,40 @@ ${pointsHtml}${btn}
   return withSignature({ subject, html, text });
 }
 
+/** ポイント有効期限が近づいている会員へのお知らせ（#78） */
+export function pointExpiryNoticeEmail(d: {
+  customerName: string;
+  pointBalance: number;
+  expiryDate: string; // 'YYYY-MM-DD'
+  bookingUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const [y, m, day] = d.expiryDate.split('-');
+  const dateLabel = `${y}年${Number(m)}月${Number(day)}日`;
+  const subject = `【レンタルスペースALBE】ポイント有効期限のお知らせ（${d.pointBalance}P・${dateLabel}まで）`;
+  const text = `${d.customerName} 様
+
+現在お持ちのポイント（${d.pointBalance}P）の有効期限が近づいております。
+
+有効期限: ${dateLabel} まで
+
+ポイントは1ポイント=1円で、ご予約時にご利用いただけます。
+また、期限までに新たなご利用があれば、有効期限は最終ご利用日から1年間に延長されます。
+${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
+ご不明な点がございましたら、お気軽にお問い合わせください。`;
+  const btn = d.bookingUrl
+    ? `<p style="margin:16px 0"><a href="${escapeHtml(d.bookingUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">ご予約はこちら</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>現在お持ちのポイント（<strong>${d.pointBalance}P</strong>）の有効期限が近づいております。</p>
+<div style="background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:15px;color:#8a5a00">有効期限：<strong>${dateLabel}</strong> まで</div>
+<p>ポイントは1ポイント=1円で、ご予約時にご利用いただけます。<br>また、期限までに新たなご利用があれば、有効期限は<strong>最終ご利用日から1年間</strong>に延長されます。</p>
+${btn}
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたら、お気軽にお問い合わせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 // ---------------------------------------------------------------------------
 // 予約変更リクエスト（マイページ発／管理者承認制）#54
 // ---------------------------------------------------------------------------

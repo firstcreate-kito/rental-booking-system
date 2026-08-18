@@ -985,6 +985,65 @@ export async function awardBookingPoints(
   await db.batch(stmts);
 }
 
+// ---------------------------------------------------------------------------
+// ポイント有効期限（#78）— 最終活動から1年ローリング
+// ---------------------------------------------------------------------------
+
+export interface PointHolderRow {
+  id: string;
+  email: string | null;
+  contact_name: string | null;
+  point_balance: number;
+  points_expiry_notified_on: string | null;
+  last_at: string | null; // point_log の最終 created_at（＝最終活動）
+}
+
+/** 残高のある（匿名化されていない）会員と、その最終ポイント活動日を返す（#78）。 */
+export async function getPointHoldersWithActivity(db: D1Database): Promise<PointHolderRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT c.id, c.email, c.contact_name, c.point_balance, c.points_expiry_notified_on,
+              (SELECT MAX(created_at) FROM point_log WHERE customer_id = c.id) AS last_at
+       FROM customers c
+       WHERE c.point_balance > 0 AND c.anonymized_at IS NULL`,
+    )
+    .all<PointHolderRow>();
+  return results ?? [];
+}
+
+/** ポイントを失効させる（残高を0にし、失効ログを残す）#78・冪等的。 */
+export async function expireCustomerPoints(
+  db: D1Database,
+  customerId: string,
+  amount: number,
+  now: string,
+): Promise<void> {
+  if (!(amount > 0)) return;
+  await db.batch([
+    db
+      .prepare('UPDATE customers SET point_balance = 0, points_expiry_notified_on = NULL WHERE id = ?')
+      .bind(customerId),
+    db
+      .prepare(
+        `INSERT INTO point_log (id, customer_id, type, amount, balance_after, description, created_at)
+         VALUES (?, ?, 'expire', ?, 0, '有効期限切れによる失効', ?)`,
+      )
+      .bind(crypto.randomUUID(), customerId, -amount, now),
+  ]);
+}
+
+/** 期限接近メールを送った有効期限日を記録（重複通知の防止）#78。 */
+export async function markPointExpiryNotified(
+  db: D1Database,
+  customerId: string,
+  expiryDate: string,
+): Promise<void> {
+  await db
+    .prepare('UPDATE customers SET points_expiry_notified_on = ? WHERE id = ?')
+    .bind(expiryDate, customerId)
+    .run();
+}
+
 // --- 管理者 ---
 export interface AdminAuthRow {
   id: string;

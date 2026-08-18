@@ -28,14 +28,18 @@ import {
   getBookingsForPointAward,
   awardBookingPoints,
   getPointBalance,
+  getPointHoldersWithActivity,
+  expireCustomerPoints,
+  markPointExpiryNotified,
   setSystemSetting,
 } from './db/repository';
-import { pointsForAmount } from './lib/points';
+import { pointsForAmount, pointExpiryStatus } from './lib/points';
 import {
   unpaidAlertEmail,
   sendEmail,
   bookingReminderEmail,
   thankYouEmail,
+  pointExpiryNoticeEmail,
   unpaidCustomerReminderEmail,
   type OverdueBooking,
 } from './lib/email';
@@ -294,6 +298,44 @@ async function runPointAward(env: AppBindings['Bindings']): Promise<void> {
   console.log(`[points] rate=${rate}% targets=${rows.length} awarded=${awarded}`);
 }
 
+/**
+ * 定期処理：ポイントの失効と期限接近メール（#78）。
+ * 最終活動（獲得または利用）から1年（POINT_EXPIRY_DAYS）でローリング失効。
+ * 期限の30日前以内の会員には1回だけお知らせを送る（延長で期限が動けば再通知）。
+ */
+async function runPointExpiry(env: AppBindings['Bindings']): Promise<void> {
+  const origin = env.PUBLIC_BASE_URL || '';
+  const today = todayJST();
+  const holders = await getPointHoldersWithActivity(env.DB);
+  let expired = 0;
+  let notified = 0;
+  for (const h of holders) {
+    if (!h.last_at) continue; // 活動履歴が無ければ判定不能（安全側でスキップ）
+    const lastDate = h.last_at.slice(0, 10); // 'YYYY-MM-DD'（T/空白どちらの区切りでも可）
+    const { expiryDate, action } = pointExpiryStatus(lastDate, today);
+    if (action === 'expire') {
+      await expireCustomerPoints(env.DB, h.id, h.point_balance, nowJST());
+      expired++;
+      continue;
+    }
+    // 期限接近 → 会員へお知らせ（同じ期限日には1回だけ）
+    if (action === 'notice' && h.email && h.points_expiry_notified_on !== expiryDate) {
+      await sendEmail(env, {
+        to: h.email,
+        ...pointExpiryNoticeEmail({
+          customerName: h.contact_name || 'お客様',
+          pointBalance: h.point_balance,
+          expiryDate,
+          bookingUrl: origin ? origin + '/' : undefined,
+        }),
+      });
+      await markPointExpiryNotified(env.DB, h.id, expiryDate);
+      notified++;
+    }
+  }
+  console.log(`[point-expiry] holders=${holders.length} expired=${expired} notified=${notified}`);
+}
+
 /** 定期メール：顧客向け未入金リマインダー（#50） */
 async function runUnpaidCustomerReminder(env: AppBindings['Bindings']): Promise<void> {
   const cutoff = addDaysJST(todayJST(), -UNPAID_CUSTOMER_REMINDER_DAYS);
@@ -330,6 +372,8 @@ export default {
         (async () => {
           await runPointAward(env).catch(() => {});
           await runThanks(env).catch(() => {});
+          // ポイント失効・期限接近メール（#78）。付与後に判定して当日の付与ぶんを反映。
+          await runPointExpiry(env).catch(() => {});
         })(),
       );
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）

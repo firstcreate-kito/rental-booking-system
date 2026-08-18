@@ -24,6 +24,7 @@ import {
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { adminRecipients } from '../lib/notify';
 import { evaluateCancel, leadDays } from '../lib/change-policy';
+import { pointExpiryStatus } from '../lib/points';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 
@@ -165,10 +166,16 @@ app.post('/bookings/:number/change-request', async (c) => {
   return c.json({ id, status: 'pending', message: '変更リクエストを受け付けました。担当者の承認をもって変更が確定します。' }, 201);
 });
 
-/** GET /api/mypage/points ポイント残高・履歴 */
+/** GET /api/mypage/points ポイント残高・履歴・有効期限 */
 app.get('/points', async (c) => {
   const { balance, log } = await getPointBalanceAndLog(c.env.DB, c.get('customer').id);
-  return c.json({ balance, log });
+  // 有効期限（#78）：残高があれば最終活動（最新の履歴）から1年ローリングで算出
+  let expiry: string | null = null;
+  if (balance > 0 && log.length > 0) {
+    const lastAt = String((log[0] as { created_at?: string }).created_at ?? '').slice(0, 10);
+    if (lastAt) expiry = pointExpiryStatus(lastAt, todayJST()).expiryDate;
+  }
+  return c.json({ balance, log, expiry });
 });
 
 /** GET /api/mypage/coupons 保有クーポン一覧 */

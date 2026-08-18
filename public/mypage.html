@@ -159,7 +159,8 @@
     <section id="view-points" class="card hidden">
       <h2>ポイント</h2>
       <div>保有ポイント：<span class="big" id="ptBal">-</span> P</div>
-      <div class="muted" style="font-size:13px;margin-top:6px">ご利用金額に応じてポイントが貯まります。1ポイント=1円で、次回以降のご予約にご利用いただけます（付与はご利用完了後に自動で行われます）。</div>
+      <div id="ptExpiry" class="muted" style="font-size:13px;margin-top:4px;display:none">有効期限：<strong id="ptExpiryDate"></strong> まで</div>
+      <div class="muted" style="font-size:13px;margin-top:6px">ご利用金額に応じてポイントが貯まります。1ポイント=1円で、次回以降のご予約にご利用いただけます（付与はご利用完了後に自動で行われます）。有効期限は最終のご利用・獲得から1年間で、ご利用があるたびに延長されます。</div>
       <div class="tablewrap" style="margin-top:12px"><table>
         <thead><tr><th>日時</th><th>種別</th><th>増減</th><th>残高</th><th>内容</th></tr></thead>
         <tbody id="ptBody"></tbody>
@@ -578,8 +579,18 @@ async function loadBookings() {
 async function loadPoints() {
   const { body } = await api('/api/mypage/points');
   document.getElementById('ptBal').textContent = body.balance ?? 0;
+  // 有効期限（#78）：残高があるときのみ表示
+  const exWrap = document.getElementById('ptExpiry');
+  if (body.expiry) {
+    const [y, m, d] = body.expiry.split('-');
+    document.getElementById('ptExpiryDate').textContent = y + '年' + Number(m) + '月' + Number(d) + '日';
+    exWrap.style.display = '';
+  } else {
+    exWrap.style.display = 'none';
+  }
+  const neg = t => t.includes('use') || t.includes('remove') || t.includes('expire');
   document.getElementById('ptBody').innerHTML = (body.log||[]).map(l =>
-    '<tr><td>' + l.created_at + '</td><td>' + l.type + '</td><td>' + (l.type.includes('use')||l.type.includes('remove') ? '-' : '+') + l.amount +
+    '<tr><td>' + l.created_at + '</td><td>' + l.type + '</td><td>' + (neg(l.type) ? '-' : '+') + Math.abs(l.amount) +
     '</td><td>' + l.balance_after + '</td><td>' + (l.description||'') + '</td></tr>').join('');
 }
 async function loadCoupons() {

@@ -781,11 +781,19 @@ export function bookingReminderEmail(d: {
   /** ご予約の確認・変更ページURL（#75・番号プリフィル込み） */
   changeUrl?: string;
 }): { subject: string; html: string; text: string } {
-  const when = d.daysBefore === 1 ? '明日' : `${d.daysBefore}日後`;
-  const subject = `【レンタルスペースALBE】ご利用${when}のご予約リマインダー（${d.bookingNumber}）`;
+  const whenSubject = d.daysBefore === 1 ? '明日ご利用' : `ご利用${d.daysBefore}日前`;
+  const subject = `【レンタルスペースALBE】${whenSubject}のご予約リマインダー（${d.bookingNumber}）`;
+  const leadText =
+    d.daysBefore === 1
+      ? 'ご利用日は明日です。ご予約内容をお知らせいたします。'
+      : `ご利用日まであと${d.daysBefore}日となりました。ご予約内容をお知らせいたします。`;
+  const leadHtml =
+    d.daysBefore === 1
+      ? 'ご利用日は<strong>明日</strong>です。ご予約内容をお知らせいたします。'
+      : `ご利用日まで<strong>あと${d.daysBefore}日</strong>となりました。ご予約内容をお知らせいたします。`;
   const text = `${d.customerName} 様
 
-ご利用${when}のご予約をリマインドいたします。
+${leadText}
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
@@ -796,7 +804,7 @@ ${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセル�
 当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
-<p>ご利用<strong>${when}</strong>のご予約をリマインドいたします。</p>
+<p>${leadHtml}</p>
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>

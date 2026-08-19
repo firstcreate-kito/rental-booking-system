@@ -50,6 +50,10 @@
   /* 閲覧のみ（予約可能期間超・空きは見せるがクリック不可）#77 */
   .cal .day.viewonly { background: #fbfbfc; border-style: dashed; opacity: .6; cursor: help; }
   .cal .day.viewonly:hover { border-color: var(--brand); }
+  /* 2か月表示（#79）: PC=横2列 / スマホ=縦2段 */
+  .cal2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .calpanel .calm { text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .cal2 { grid-template-columns: 1fr; gap: 18px; } }
   .empty { grid-column: span 1; }
   .slotbar { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
   .slot { font-size: 10px; color: #374151; width: 40px; text-align: center; padding: 3px 0; border-radius: 4px; border: 1px solid var(--line); }
@@ -110,12 +114,22 @@
       <strong id="calSpaceName"></strong>
     </div>
     <div class="cal-head">
-      <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-1)">◀ 前月</button>
-      <strong id="calMonth"></strong>
-      <button class="btn ghost sm" id="nextMonthBtn" onclick="changeMonth(1)">翌月 ▶</button>
+      <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
+      <strong id="calRange"></strong>
+      <button class="btn ghost sm" id="nextMonthBtn" onclick="changeMonth(2)">次へ ▶</button>
     </div>
-    <div class="cal" id="calDows"></div>
-    <div class="cal" id="calGrid" style="margin-top:4px"></div>
+    <div class="cal2">
+      <div class="calpanel">
+        <div class="calm" id="calM1"></div>
+        <div class="cal" id="dows1"></div>
+        <div class="cal" id="grid1" style="margin-top:4px"></div>
+      </div>
+      <div class="calpanel">
+        <div class="calm" id="calM2"></div>
+        <div class="cal" id="dows2"></div>
+        <div class="cal" id="grid2" style="margin-top:4px"></div>
+      </div>
+    </div>
     <div class="legend">
       <span>○ 空きあり</span><span>△ 残りわずか</span><span>✕ 満枠</span>
       <span>🟡 土日祝</span><span>🟧枠 季節料金</span><span>商談中=お問い合わせ</span><span>休業=お休み</span>
@@ -451,72 +465,88 @@ function selectSpace(id) {
   loadCalendar();
 }
 
-async function loadCalendar() {
-  setStep(1);
-  const { body } = await api('/api/spaces/' + S.space.id + '/slots?month=' + S.month);
-  S.slots = body.days || [];
-  S.today = body.today;
-  S.contactUrl = body.contactUrl || '';
-  S.viewHorizonDays = body.viewHorizonDays ?? 180; // 閲覧可能期間（#77）
-  document.getElementById('calMonth').textContent = S.month.replace('-', '年') + '月';
-  document.getElementById('calDows').innerHTML = ['日','月','火','水','木','金','土']
-    .map(d => '<div class="dow">' + d + '</div>').join('');
-  const first = new Date(S.month + '-01T12:00:00Z');
-  const offset = first.getUTCDay();
+const DOWS = ['日','月','火','水','木','金','土'];
+function monthLabel(ym) { const [y, m] = ym.split('-'); return y + '年' + Number(m) + '月'; }
+function addMonthStr(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+}
+// 1日分のセルHTML（#79 で2か月共通化）
+function dayCellHtml(d) {
+  const dayNum = Number(d.date.slice(8, 10));
+  const cls = ['day'];
+  if (d.dayType === 'weekend') cls.push('weekend');
+  if (d.isSeasonal) cls.push('seasonal');
+  // 記号の出し分け: 休業=「休業」/ 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△ / 閲覧のみ=薄色
+  let symHtml = '';
+  if (d.closed || d.status === 'closed') {
+    cls.push('closed');
+    symHtml = '<div class="closed-label">休業</div>';
+  } else if (d.viewOnly) {
+    cls.push('viewonly'); // 予約可能期間超・閲覧可能期間内（#77）
+    const symClass = d.status === 'full' ? 'full' : (d.status === 'available' ? 'ok' : 'limited');
+    symHtml = '<div class="sym ' + symClass + '">' + (d.status === 'full' ? '✕' : d.symbol) + '</div>';
+  } else if (d.past || (!d.bookable && d.status !== 'full')) {
+    cls.push('inactive');
+  } else if (d.status === 'full') {
+    symHtml = '<div class="sym full">✕</div>';
+  } else if (d.bookable) {
+    cls.push('bookable');
+    const symClass = d.status === 'available' ? 'ok' : 'limited';
+    symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
+  }
+  const onclick = d.bookable
+    ? ' onclick="openModal(\'' + d.date + '\')"'
+    : (d.viewOnly ? ' onclick="showViewOnlyInfo(this, event)"' : '');
+  const tentFull = (d.status === 'full' && d.hasTentative);
+  const hover = tentFull ? ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"' : '';
+  return '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' +
+    '<div>' + dayNum + '</div>' + symHtml +
+    (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
+}
+// 1か月分のパネル（見出し・曜日・日セル）を描画
+function renderMonthPanel(labelId, dowsId, gridId, ym, days) {
+  document.getElementById(labelId).textContent = monthLabel(ym);
+  document.getElementById(dowsId).innerHTML = DOWS.map(d => '<div class="dow">' + d + '</div>').join('');
+  const offset = new Date(ym + '-01T12:00:00Z').getUTCDay();
   let html = '';
   for (let i = 0; i < offset; i++) html += '<div class="empty"></div>';
-  for (const d of S.slots) {
-    const dayNum = Number(d.date.slice(8, 10));
-    const cls = ['day'];
-    if (d.dayType === 'weekend') cls.push('weekend');
-    if (d.isSeasonal) cls.push('seasonal');
-    // 記号の出し分け: 休業=「休業」表示 / 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△
-    let symHtml = '';
-    if (d.closed || d.status === 'closed') {
-      cls.push('closed');
-      symHtml = '<div class="closed-label">休業</div>';
-    } else if (d.viewOnly) {
-      // 予約可能期間超・閲覧可能期間内：空きは見せるがクリック不可（#77）
-      cls.push('viewonly');
-      const symClass = d.status === 'full' ? 'full' : (d.status === 'available' ? 'ok' : 'limited');
-      symHtml = '<div class="sym ' + symClass + '">' + (d.status === 'full' ? '✕' : d.symbol) + '</div>';
-    } else if (d.past || (!d.bookable && d.status !== 'full')) {
-      cls.push('inactive'); // 今日より前 or 閲覧期間外 → 記号を出さない
-    } else if (d.status === 'full') {
-      symHtml = '<div class="sym full">✕</div>';
-    } else if (d.bookable) {
-      cls.push('bookable');
-      const symClass = d.status === 'available' ? 'ok' : 'limited';
-      symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
-    }
-    const onclick = d.bookable
-      ? ' onclick="openModal(\'' + d.date + '\')"'
-      : (d.viewOnly ? ' onclick="showViewOnlyInfo(this, event)"' : '');
-    // ✕（満枠）かつ商談中の日は、ホバーでお問い合わせ案内ポップアップを表示（#28拡張）
-    const tentFull = (d.status === 'full' && d.hasTentative);
-    const hover = tentFull ? ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"' : '';
-    html += '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' +
-      '<div>' + dayNum + '</div>' + symHtml +
-      (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
-  }
-  document.getElementById('calGrid').innerHTML = html;
+  for (const d of (days || [])) html += dayCellHtml(d);
+  document.getElementById(gridId).innerHTML = html;
+}
+
+async function loadCalendar() {
+  setStep(1);
+  // 当月＋翌月の2か月ぶんを取得（#79）
+  const m1 = S.month, m2 = addMonthStr(S.month, 1);
+  const [r1, r2] = await Promise.all([
+    api('/api/spaces/' + S.space.id + '/slots?month=' + m1),
+    api('/api/spaces/' + S.space.id + '/slots?month=' + m2),
+  ]);
+  const body1 = r1.body || {}, body2 = r2.body || {};
+  S.today = body1.today;
+  S.contactUrl = body1.contactUrl || '';
+  S.viewHorizonDays = body1.viewHorizonDays ?? 180; // 閲覧可能期間（#77）
+  renderMonthPanel('calM1', 'dows1', 'grid1', m1, body1.days);
+  renderMonthPanel('calM2', 'dows2', 'grid2', m2, body2.days);
+  document.getElementById('calRange').textContent = monthLabel(m1) + ' 〜 ' + monthLabel(m2);
   updateMonthNav();
   showCalendar();
 }
 
-// 月送りの上限＝閲覧可能期間（#77）。翌月の初日が閲覧期間を超えるなら「翌月」を無効化。
-// 過去月へは戻れないよう「前月」も当月以前で無効化。
+// 月送りは2か月単位（#79）。次ウィンドウ（2か月先）の初日が閲覧可能期間を超えたら「次へ」を停止。
+// 過去へは戻れないよう「前へ」も表示中の先頭月が当月以前で停止。
 function updateMonthNav() {
   const prev = document.getElementById('prevMonthBtn');
   const next = document.getElementById('nextMonthBtn');
   if (!S.today) return;
   const todayMonth = S.today.slice(0, 7);
   if (prev) prev.disabled = S.month <= todayMonth;
-  // 翌月の初日
   const [y, m] = S.month.split('-').map(Number);
-  const nextFirst = new Date(Date.UTC(y, m, 1)); // m はゼロ始まりで「翌月」
+  const nextWinFirst = new Date(Date.UTC(y, m + 1, 1)); // 2か月先の初日（m-1+2）
   const t0 = new Date(S.today + 'T00:00:00Z');
-  const diffDays = Math.round((nextFirst - t0) / 86400000);
+  const diffDays = Math.round((nextWinFirst - t0) / 86400000);
   if (next) next.disabled = diffDays > (S.viewHorizonDays ?? 180);
 }
 function showCalendar() {

@@ -617,6 +617,11 @@ export async function getSessionCustomer(
     .first<SessionCustomerRow>();
 }
 
+/** セッションの有効期限を延長（アイドルタイムアウトのスライディング更新） */
+export async function touchSession(db: D1Database, token: string, expiresAt: string): Promise<void> {
+  await db.prepare('UPDATE auth_sessions SET expires_at = ? WHERE token = ?').bind(expiresAt, token).run();
+}
+
 export async function deleteSession(db: D1Database, token: string): Promise<void> {
   await db.prepare('DELETE FROM auth_sessions WHERE token = ?').bind(token).run();
 }
@@ -1140,6 +1145,11 @@ export async function getAdminSession(db: D1Database, token: string): Promise<Ad
     )
     .bind(token)
     .first<AdminSessionRow>();
+}
+
+/** 管理者セッションの有効期限を延長（アイドルタイムアウトのスライディング更新） */
+export async function touchAdminSession(db: D1Database, token: string, expiresAt: string): Promise<void> {
+  await db.prepare('UPDATE admin_sessions SET expires_at = ? WHERE token = ?').bind(expiresAt, token).run();
 }
 
 export async function deleteAdminSession(db: D1Database, token: string): Promise<void> {

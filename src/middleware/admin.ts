@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from 'hono';
 import type { AppBindings } from '../types';
-import { getAdminSession, deleteAdminSession } from '../db/repository';
+import { getAdminSession, deleteAdminSession, touchAdminSession } from '../db/repository';
 import { nowJST } from '../lib/clock';
+import { sessionExpiry, ADMIN_SESSION_IDLE_MINUTES } from '../lib/auth';
 
 function extractToken(authHeader?: string): string | null {
   if (authHeader && authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
@@ -20,6 +21,9 @@ export const requireAdmin: MiddlewareHandler<AppBindings> = async (c, next) => {
     return c.json({ error: 'セッションの有効期限が切れました' }, 401);
   }
   if (!session.is_active) return c.json({ error: 'この管理者アカウントは無効です' }, 403);
+
+  // アイドルタイムアウトを延長（スライディング）: 操作のたびに現在時刻＋アイドル分へ更新
+  await touchAdminSession(c.env.DB, token, sessionExpiry(ADMIN_SESSION_IDLE_MINUTES));
 
   c.set('admin', {
     id: session.id,

@@ -3,7 +3,15 @@
  * Cloudflare Workers の WebCrypto を使用（bcrypt非対応のため PBKDF2 を採用）。
  */
 const PBKDF2_ITERATIONS = 100_000;
-const SESSION_TTL_DAYS = 30;
+
+/**
+ * セッションのアイドルタイムアウト（無操作で自動ログアウトするまでの分数）。
+ * ログイン中はリクエストのたびに expires_at が現在時刻＋この分数へ延長される（スライディング）。
+ * この分数だけ一切の操作が無いとセッションが失効する。
+ * フロント（public/mypage.html・public/admin.html）のアイドルタイマーもこの値に合わせること。
+ */
+export const CUSTOMER_SESSION_IDLE_MINUTES = 15;
+export const ADMIN_SESSION_IDLE_MINUTES = 30;
 
 function toBase64(bytes: Uint8Array): string {
   let bin = '';
@@ -68,9 +76,17 @@ export function generateToken(): string {
     .join('');
 }
 
-/** セッション有効期限（JST基準の 'YYYY-MM-DD HH:MM:SS'） */
-export function sessionExpiry(now: number = Date.now()): string {
-  const d = new Date(now + 9 * 60 * 60 * 1000 + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+/**
+ * セッション有効期限（JST基準の 'YYYY-MM-DD HH:MM:SS'）。
+ * アイドルタイムアウト方式のため、ログイン時だけでなく認証済みリクエストのたびに
+ * この関数で再計算し expires_at を更新（延長）する。
+ * @param minutes 現在時刻から何分後に失効させるか（既定＝会員のアイドル時間）
+ */
+export function sessionExpiry(
+  minutes: number = CUSTOMER_SESSION_IDLE_MINUTES,
+  now: number = Date.now(),
+): string {
+  const d = new Date(now + 9 * 60 * 60 * 1000 + minutes * 60 * 1000);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(
     d.getUTCHours(),

@@ -91,7 +91,7 @@ import {
   type SpaceRow,
 } from '../db/repository';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
-import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
+import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail, ADMIN_SESSION_IDLE_MINUTES } from '../lib/auth';
 import { buildXlsx, type Sheet } from '../lib/xlsx';
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
@@ -183,7 +183,7 @@ app.post('/login', async (c) => {
   }
   const now = nowJST();
   const token = generateToken();
-  await createAdminSession(db, token, admin.id, sessionExpiry(), now);
+  await createAdminSession(db, token, admin.id, sessionExpiry(ADMIN_SESSION_IDLE_MINUTES), now);
   return c.json({ token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } });
 });
 

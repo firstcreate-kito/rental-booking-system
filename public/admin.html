@@ -50,6 +50,7 @@
 <header>
   <h1>レンタルスペースALBE 管理画面</h1>
   <div class="who" id="who"></div>
+  <button class="btn ghost hidden" id="logoutBtn" onclick="logout()" style="margin-left:auto">ログアウト</button>
 </header>
 <main>
   <!-- ログイン -->
@@ -744,12 +745,58 @@
 
 <script>
 const A = { token: null, admin: null, spaces: [] };
+
+// ── セッション保持＋アイドル自動ログアウト（無操作30分でログアウト） ──────────────
+// リロードしてもタブ内はログイン継続。ただし一切の操作が30分無いと自動ログアウト。
+// ※この分数はサーバ側 ADMIN_SESSION_IDLE_MINUTES と一致させること。
+const IDLE_MINUTES = 30;
+const IDLE_MS = IDLE_MINUTES * 60 * 1000;
+const SS_KEY = 'albe_admin_session'; // sessionStorage: タブを閉じると消える
+let _idleTimer = null;
+function saveSession() {
+  try { sessionStorage.setItem(SS_KEY, JSON.stringify({ token: A.token, admin: A.admin, at: Date.now() })); } catch (e) {}
+}
+function clearSession() { try { sessionStorage.removeItem(SS_KEY); } catch (e) {} }
+function restoreSession() {
+  let s = null;
+  try { s = JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
+  if (!s || !s.token) return false;
+  if (Date.now() - (s.at || 0) > IDLE_MS) { clearSession(); return false; }
+  A.token = s.token; A.admin = s.admin;
+  return true;
+}
+function resetIdle() {
+  if (_idleTimer) clearTimeout(_idleTimer);
+  if (!A.token) return;
+  saveSession();
+  _idleTimer = setTimeout(idleLogout, IDLE_MS);
+}
+function backToLogin(message) {
+  clearSession(); A.token = null; A.admin = null;
+  if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('logoutBtn').classList.add('hidden');
+  document.getElementById('who').textContent = '';
+  document.getElementById('loginView').classList.remove('hidden');
+  const m = document.getElementById('loginMsg');
+  if (m) m.textContent = message || '';
+}
+function idleLogout() { backToLogin('しばらく操作がなかったため、自動的にログアウトしました。再度ログインしてください。'); }
+function sessionExpired() { backToLogin('セッションの有効期限が切れました。再度ログインしてください。'); }
+async function logout() {
+  try { await api('/api/admin/logout', jsonBody({})); } catch (e) {}
+  clearSession(); A.token = null; A.admin = null; location.reload();
+}
+['click','keydown','mousemove','scroll','touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => { if (A.token) resetIdle(); }, { passive: true }));
+
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
   if (A.token) o.headers['Authorization'] = 'Bearer ' + A.token;
   const r = await fetch(path, o);
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && A.token) sessionExpired();
   return { ok: r.ok, status: r.status, body: j };
 }
 const jsonBody = (obj, method) => ({ method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
@@ -761,7 +808,9 @@ async function login() {
   const { ok, body } = await api('/api/admin/login', jsonBody({ email, password }));
   if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
   A.token = body.token; A.admin = body.admin;
+  resetIdle();
   document.getElementById('who').textContent = body.admin.name + '（' + body.admin.role + '）';
+  document.getElementById('logoutBtn').classList.remove('hidden');
   document.getElementById('loginView').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   await loadSpaces();
@@ -2056,11 +2105,14 @@ async function submitSetup() {
   const lg = await api('/api/admin/login', jsonBody({ email, password }));
   if (!lg.ok) { msg.className='msg ok'; msg.textContent = '作成しました。ログインしてください'; showLoginView(); return; }
   A.token = lg.body.token; A.admin = lg.body.admin;
+  resetIdle();
   document.getElementById('who').textContent = lg.body.admin.name + '（' + lg.body.admin.role + '）';
+  document.getElementById('logoutBtn').classList.remove('hidden');
   document.getElementById('setupView').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   await loadSpaces();
   loadBookings();
+  refreshCrBadge();
 }
 function showLoginView() {
   document.getElementById('setupView').classList.add('hidden');
@@ -2072,6 +2124,17 @@ async function initAuth() {
   if (!isLocal) {
     const hint = document.getElementById('loginHint');
     if (hint) hint.classList.add('hidden');
+  }
+  // リロードしてもタブ内はログイン継続（無操作30分で失効）
+  if (restoreSession()) {
+    document.getElementById('who').textContent = (A.admin && A.admin.name || '') + '（' + (A.admin && A.admin.role || '') + '）';
+    document.getElementById('logoutBtn').classList.remove('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    resetIdle();
+    await loadSpaces();
+    loadBookings();
+    refreshCrBadge();
+    return;
   }
   const { ok, body } = await api('/api/admin/needs-setup');
   if (ok && body.needsSetup) {

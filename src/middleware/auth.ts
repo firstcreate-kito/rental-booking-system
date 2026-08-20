@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from 'hono';
 import type { AppBindings } from '../types';
-import { getSessionCustomer, deleteSession } from '../db/repository';
+import { getSessionCustomer, deleteSession, touchSession } from '../db/repository';
 import { nowJST } from '../lib/clock';
+import { sessionExpiry, CUSTOMER_SESSION_IDLE_MINUTES } from '../lib/auth';
 
 /** Authorization: Bearer <token> または Cookie(session) からトークンを取得 */
 function extractToken(c: Parameters<MiddlewareHandler>[0]): string | null {
@@ -28,6 +29,8 @@ export async function getOptionalCustomer(
   if (!session) return null;
   if (session.expires_at <= nowJST()) return null;
   if (session.is_blocked) return null;
+  // アイドルタイムアウトを延長（有効な会員の操作＝アクティビティ）
+  await touchSession(c.env.DB, token, sessionExpiry(CUSTOMER_SESSION_IDLE_MINUTES));
   return {
     id: session.id,
     email: session.email,
@@ -55,6 +58,9 @@ export const requireAuth: MiddlewareHandler<AppBindings> = async (c, next) => {
   if (session.is_blocked) {
     return c.json({ error: 'このアカウントはご利用いただけません' }, 403);
   }
+
+  // アイドルタイムアウトを延長（スライディング）: 操作のたびに現在時刻＋アイドル分へ更新
+  await touchSession(c.env.DB, token, sessionExpiry(CUSTOMER_SESSION_IDLE_MINUTES));
 
   c.set('customer', {
     id: session.id,

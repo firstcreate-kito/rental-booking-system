@@ -274,20 +274,33 @@ function memberLogout() {
   document.getElementById('m_email').value = ''; document.getElementById('m_pass').value = '';
 }
 
-// 施設一覧の読み込み
+// 施設一覧の読み込み（カレンダー施設＋見学のみ施設）
 async function loadSpaces() {
-  const { ok, body } = await api('/api/spaces');
+  const { ok, body } = await api('/api/viewing/spaces');
   if (!ok) return;
-  V.spaces = (body.spaces || []).filter(s => s.isActive !== false);
+  V.spaces = body.spaces || [];
   const el = document.getElementById('spaceList');
   el.innerHTML = V.spaces.map(s =>
-    `<label class="chk" id="chk-${s.id}"><input type="checkbox" value="${s.id}" onchange="onSpaceToggle()">${escapeHtml(s.name)}</label>`
+    `<label class="chk" id="chk-${s.id}"><input type="checkbox" value="${s.id}" onchange="onSpaceToggle()"><span>${escapeHtml(s.name)}${s.calendarIndependent ? ' <span style="color:var(--sub);font-size:11px">（日時指定）</span>' : ''}</span></label>`
   ).join('');
 }
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function selectedSpaces() {
   return [...document.querySelectorAll('#spaceList input:checked')].map(i => i.value);
+}
+// 選択に「カレンダー非参照（日時指定）」スペースが含まれるか
+function selectedHasIndependent() {
+  const ids = new Set(selectedSpaces());
+  return V.spaces.some(s => s.calendarIndependent && ids.has(s.id));
+}
+// 日時指定用の時刻候補（30分刻み・空き確認なし）
+function freeTimeOptions() {
+  const out = [];
+  for (let m = 8 * 60; m <= 22 * 60; m += 30) {
+    out.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+  }
+  return out;
 }
 function onSpaceToggle() {
   // 見た目の反映
@@ -318,6 +331,16 @@ async function loadSlots(which) {
   const date = dateEl.value;
   if (spaces.length === 0 || !date) {
     sel.innerHTML = '<option value="">スペースと日付を選択</option>';
+    return;
+  }
+  // カレンダー非参照スペースを含む場合：空き確認をスキップし、日時をそのまま指定
+  if (selectedHasIndependent()) {
+    sel.innerHTML = '<option value="">時間を選択</option>' +
+      freeTimeOptions().map(t => `<option value="${t}">${t}〜（見学30分）</option>`).join('');
+    if (which === 1) {
+      hint.classList.remove('hidden');
+      hint.innerHTML = '選択に「日時指定」のスペースが含まれています。空き状況の自動確認は行いません。ご希望の日時をご入力ください（担当者が調整のうえご連絡します）。';
+    }
     return;
   }
   sel.innerHTML = '<option value="">確認中…</option>';

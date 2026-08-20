@@ -2933,8 +2933,24 @@ export async function createViewingRequest(db: D1Database, d: ViewingRequestInpu
 
 const VIEWING_SELECT = `SELECT v.*,
     (SELECT group_concat(vs.space_id) FROM viewing_request_spaces vs WHERE vs.request_id = v.id) AS space_ids,
-    (SELECT group_concat(s.name, ' / ') FROM viewing_request_spaces vs JOIN spaces s ON s.id = vs.space_id WHERE vs.request_id = v.id) AS space_names
+    (SELECT group_concat(COALESCE(s.name, xs.name, vs.space_id), ' / ')
+       FROM viewing_request_spaces vs
+       LEFT JOIN spaces s ON s.id = vs.space_id
+       LEFT JOIN viewing_extra_spaces xs ON xs.id = vs.space_id
+       WHERE vs.request_id = v.id) AS space_names
   FROM viewing_requests v`;
+
+/** 見学申込で選べるカレンダー非参照スペース（見学のみ・空き確認なし） */
+export interface ViewingExtraSpaceRow {
+  id: string;
+  name: string;
+}
+export async function getViewingExtraSpaces(db: D1Database): Promise<ViewingExtraSpaceRow[]> {
+  const { results } = await db
+    .prepare('SELECT id, name FROM viewing_extra_spaces WHERE is_active = 1 ORDER BY sort_order, name')
+    .all<ViewingExtraSpaceRow>();
+  return results ?? [];
+}
 
 /** 見学申込の一覧（status指定可） */
 export async function listViewingRequests(db: D1Database, status?: string): Promise<ViewingRequestRow[]> {

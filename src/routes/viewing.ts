@@ -15,6 +15,8 @@ import {
   getHolidays,
   getSpaceClosures,
   createViewingRequest,
+  getActiveSpaces,
+  getViewingExtraSpaces,
 } from '../db/repository';
 import { isClosed } from '../lib/calendar';
 import { getOptionalCustomer } from '../middleware/auth';
@@ -38,6 +40,8 @@ const BOOKING_STATUS = new Set(['booked', 'considering', 'other']);
 interface ResolvedSpace {
   id: string;
   name: string;
+  /** カレンダー非参照（見学のみ・空き確認しない）スペースなら true */
+  independent?: boolean;
 }
 
 /** 選択施設の、指定日の共通見学可能開始時刻を算出（GET/POST共用）。 */
@@ -82,6 +86,17 @@ async function computeCommonSlots(
   if (date === today) startTimes = startTimes.filter((t) => t > nowTime);
   return { spaces, closed: anyClosed, startTimes, nowTime, today };
 }
+
+/** GET /api/viewing/spaces 見学で選べるスペース一覧（カレンダー施設＋見学のみ施設） */
+app.get('/spaces', async (c) => {
+  const [active, extra] = await Promise.all([getActiveSpaces(c.env.DB), getViewingExtraSpaces(c.env.DB)]);
+  const spaces = [
+    ...active.map((s) => ({ id: s.id, name: s.name, calendarIndependent: false })),
+    ...extra.map((x) => ({ id: x.id, name: x.name, calendarIndependent: true })),
+  ];
+  c.header('Cache-Control', 'no-store');
+  return c.json({ spaces });
+});
 
 /** GET /api/viewing/slots?spaces=a,b&date=YYYY-MM-DD */
 app.get('/slots', async (c) => {
@@ -135,7 +150,22 @@ app.post('/requests', async (c) => {
   let desiredPeriod: string | null = null;
   let prefDaytype: string | null = null;
   let prefTimeband: string | null = null;
-  let spacesResolved: ResolvedSpace[] = [];
+
+  // 選択スペースを解決（カレンダー施設＋見学のみ施設）。1つでも「見学のみ」を含めば
+  // 空き確認をスキップ（希望日時をそのまま受け付ける）。
+  const extraList = await getViewingExtraSpaces(c.env.DB);
+  const extraMap = new Map(extraList.map((x) => [x.id, x.name]));
+  const spacesResolved: ResolvedSpace[] = [];
+  for (const sid of spaceIds) {
+    if (extraMap.has(sid)) {
+      spacesResolved.push({ id: sid, name: extraMap.get(sid) as string, independent: true });
+      continue;
+    }
+    const s = await getSpaceById(c.env.DB, sid);
+    if (!s || !s.is_active) return c.json({ error: `スペースが見つかりません（${sid}）` }, 404);
+    spacesResolved.push({ id: s.id, name: s.name, independent: false });
+  }
+  const freeEntry = spacesResolved.some((s) => s.independent);
 
   if (mode === 'slot') {
     const parseChoice = (v: unknown): { date: string; start: string } | null => {
@@ -151,16 +181,21 @@ app.post('/requests', async (c) => {
     if (!first) return c.json({ error: '第一希望の日時を選択してください' }, 400);
     if (!second) return c.json({ error: '第二希望の日時を選択してください' }, 400);
 
-    // サーバ側でも空きを再判定（送信時点でのD1基準）
+    const today = todayJST();
+    const maxDate = addDaysJST(today, VIEWING_MAX_AHEAD_DAYS);
     for (const [label, ch] of [['第一希望', first], ['第二希望', second]] as const) {
-      const slots = await computeCommonSlots(c.env, spaceIds, ch.date);
-      if ('error' in slots) return c.json({ error: `${label}：${slots.error}` }, 422);
-      spacesResolved = slots.spaces;
-      if (slots.closed || !slots.startTimes.includes(ch.start)) {
-        return c.json(
-          { error: `${label}（${ch.date} ${ch.start}）は現在ご案内できません。別の空き枠をお選びください。`, mode: 'slot' },
-          422,
-        );
+      if (ch.date < today) return c.json({ error: `${label}：過去の日付は指定できません` }, 422);
+      if (ch.date > maxDate) return c.json({ error: `${label}：本日から${VIEWING_MAX_AHEAD_DAYS}日先までで指定してください` }, 422);
+      // カレンダー非参照スペースを含む場合は空き確認をスキップ（希望日時をそのまま受付）
+      if (!freeEntry) {
+        const slots = await computeCommonSlots(c.env, spaceIds, ch.date);
+        if ('error' in slots) return c.json({ error: `${label}：${slots.error}` }, 422);
+        if (slots.closed || !slots.startTimes.includes(ch.start)) {
+          return c.json(
+            { error: `${label}（${ch.date} ${ch.start}）は現在ご案内できません。別の空き枠をお選びください。`, mode: 'slot' },
+            422,
+          );
+        }
       }
     }
   } else {
@@ -168,12 +203,6 @@ app.post('/requests', async (c) => {
     prefDaytype = String((body.prefDaytype as string) || '').trim() || null;
     prefTimeband = String((body.prefTimeband as string) || '').trim() || null;
     if (!desiredPeriod) return c.json({ error: 'おおよそのご希望時期を入力してください' }, 400);
-    // 施設の存在確認と名称取得
-    for (const id of spaceIds) {
-      const s = await getSpaceById(c.env.DB, id);
-      if (!s || !s.is_active) return c.json({ error: `スペースが見つかりません（${id}）` }, 404);
-      spacesResolved.push({ id: s.id, name: s.name });
-    }
   }
 
   // ログイン済み会員なら申込に会員IDを紐づける（任意・ゲスト申込も可）

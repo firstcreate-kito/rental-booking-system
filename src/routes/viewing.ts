@@ -17,6 +17,7 @@ import {
   createViewingRequest,
 } from '../db/repository';
 import { isClosed } from '../lib/calendar';
+import { getOptionalCustomer } from '../middleware/auth';
 import { todayJST, nowJST, addDaysJST } from '../lib/clock';
 import { adminRecipients } from '../lib/notify';
 import {
@@ -175,6 +176,9 @@ app.post('/requests', async (c) => {
     }
   }
 
+  // ログイン済み会員なら申込に会員IDを紐づける（任意・ゲスト申込も可）
+  const member = await getOptionalCustomer(c);
+
   const id = crypto.randomUUID();
   const now = nowJST();
   await createViewingRequest(c.env.DB, {
@@ -194,6 +198,7 @@ app.post('/requests', async (c) => {
     prefDaytype,
     prefTimeband,
     note,
+    customerId: member?.id ?? null,
     spaceIds,
     now,
   });

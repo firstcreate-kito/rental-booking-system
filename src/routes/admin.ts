@@ -1129,6 +1129,8 @@ app.get('/viewing-requests', async (c) => {
     status: r.status,
     confirmed: r.confirmed_date ? { date: r.confirmed_date, start: r.confirmed_start, end: r.confirmed_end } : null,
     staffNote: r.staff_note ?? '',
+    customerId: r.customer_id ?? '',
+    isMember: !!r.customer_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at ?? '',
   }));

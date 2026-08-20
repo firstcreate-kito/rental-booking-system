@@ -62,6 +62,28 @@
 
   <!-- 申込フォーム -->
   <div id="formView">
+    <!-- 会員ログイン（任意・ログインすると情報を自動入力） -->
+    <div class="card" id="memberBox">
+      <!-- 未ログイン -->
+      <div id="memberLogin">
+        <h2 style="margin-bottom:4px">会員の方（任意）</h2>
+        <p class="note" style="margin:0 0 10px">会員登録がお済みの方は、ログインするとお名前・連絡先が自動で入力されます。会員でない方・ログインせずに申し込む方は、そのまま下記からご入力ください。</p>
+        <div class="row2">
+          <input type="email" id="m_email" placeholder="会員メールアドレス" autocomplete="username">
+          <input type="password" id="m_pass" placeholder="パスワード" autocomplete="current-password">
+        </div>
+        <div id="memberMsg" class="slotmsg warn hidden" style="margin-top:8px"></div>
+        <button class="btn ghost" style="margin-top:10px" onclick="memberLogin()">ログインして自動入力</button>
+      </div>
+      <!-- ログイン済み -->
+      <div id="memberInfo" class="hidden">
+        <div class="slotmsg ok" style="margin:0;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span><strong id="m_who"></strong> としてログイン中（情報を自動入力しました）</span>
+          <a href="#" onclick="memberLogout();return false;" style="font-size:13px;white-space:nowrap">別の内容で入力</a>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2><span class="num">1</span>見学希望のスペース <span class="req">必須</span></h2>
       <div class="note" style="margin:0 0 8px">複数選択できます（例：アルベホール名古屋＋名駅フリースペース）。複数選ぶと、いずれの施設も空いている時間が候補になります。</div>
@@ -182,13 +204,74 @@
 </div>
 
 <script>
-const V = { spaces: [], mode: 'slot' };
+const V = { spaces: [], mode: 'slot', token: null, member: null };
+const SS_KEY = 'albe_my_session'; // マイページと共有（同一タブ内でログイン継続）
 
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
+  if (V.token) o.headers['Authorization'] = 'Bearer ' + V.token;
   const r = await fetch(path, o);
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, body: j };
+}
+
+// ---- 会員ログイン（任意・自動入力）----
+function splitName(name) {
+  const s = (name || '').trim();
+  if (!s) return { last: '', first: '' };
+  const i = s.indexOf(' ') >= 0 ? s.indexOf(' ') : s.indexOf('　');
+  if (i > 0) return { last: s.slice(0, i).trim(), first: s.slice(i + 1).trim() };
+  return { last: s, first: '' };
+}
+function applyMember(profile) {
+  V.member = profile;
+  const nm = splitName(profile.contact_name);
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+  set('lastName', nm.last); set('firstName', nm.first);
+  set('email', profile.email); set('phone', profile.phone);
+  set('orgName', profile.company_name);
+  document.getElementById('m_who').textContent = (profile.contact_name || profile.email || '') + ' 様';
+  document.getElementById('memberLogin').classList.add('hidden');
+  document.getElementById('memberInfo').classList.remove('hidden');
+}
+async function loadMemberProfile() {
+  const { ok, body } = await api('/api/mypage/profile');
+  if (ok && body.profile) { applyMember(body.profile); return true; }
+  return false; // トークン無効
+}
+function saveMemberSession() {
+  try { sessionStorage.setItem(SS_KEY, JSON.stringify({ token: V.token, member: V.member, at: Date.now() })); } catch (e) {}
+}
+async function restoreMember() {
+  let s = null;
+  try { s = JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
+  if (!s || !s.token) return;
+  if (Date.now() - (s.at || 0) > 15 * 60 * 1000) { try { sessionStorage.removeItem(SS_KEY); } catch (e) {} return; }
+  V.token = s.token;
+  const ok = await loadMemberProfile();
+  if (ok) saveMemberSession(); else { V.token = null; try { sessionStorage.removeItem(SS_KEY); } catch (e) {} }
+}
+async function memberLogin() {
+  const msg = document.getElementById('memberMsg');
+  msg.classList.add('hidden');
+  const email = document.getElementById('m_email').value.trim();
+  const password = document.getElementById('m_pass').value;
+  if (!email || !password) { msg.textContent = 'メールアドレスとパスワードを入力してください。'; msg.classList.remove('hidden'); return; }
+  const { ok, body } = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) })
+    .then(async r => ({ ok:r.ok, body: await r.json().catch(()=>({})) }));
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました。'; msg.classList.remove('hidden'); return; }
+  V.token = body.token;
+  await loadMemberProfile();
+  saveMemberSession();
+}
+function memberLogout() {
+  V.token = null; V.member = null;
+  try { sessionStorage.removeItem(SS_KEY); } catch (e) {}
+  document.getElementById('memberInfo').classList.add('hidden');
+  document.getElementById('memberLogin').classList.remove('hidden');
+  // 自動入力された本人情報はクリア（別のお客様として入力できるように）
+  ['lastName','firstName','email','phone','orgName'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('m_email').value = ''; document.getElementById('m_pass').value = '';
 }
 
 // 施設一覧の読み込み
@@ -330,6 +413,7 @@ async function submit() {
   document.getElementById('d2').min = min;
 })();
 loadSpaces();
+restoreMember();
 </script>
 </body>
 </html>

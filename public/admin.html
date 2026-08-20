@@ -2162,9 +2162,10 @@ function vwCard(r) {
   } else {
     actions = r.staffNote ? '<div class="muted" style="margin-top:4px">' + crEsc(r.staffNote) + '</div>' : '';
   }
+  const memberBadge = r.isMember ? '<span class="pill" style="background:#eff4ff;color:#1d4ed8">会員</span> ' : '';
   return '<div class="card" style="margin:8px 0">' +
     '<div class="row" style="justify-content:space-between;align-items:center">' +
-      '<strong>' + crEsc(r.spaceNames || '(施設未設定)') + '</strong>' + statusPill +
+      '<strong>' + crEsc(r.spaceNames || '(施設未設定)') + '</strong>' + '<span>' + memberBadge + statusPill + '</span>' +
     '</div>' +
     '<div style="font-size:14px;margin:2px 0">' + contact + '</div>' +
     wish +

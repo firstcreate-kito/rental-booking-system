@@ -78,6 +78,8 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api/webhooks/')) return next();
   // 書類（請求書・領収書）は公開トークンURLで閲覧するため除外（トークンが秘匿値）
   if (c.req.path.startsWith('/api/documents/')) return next();
+  // 共有デザイントークン（公開ページが読み込む・非機密）は認証ゲートを通さない
+  if (c.req.path === '/assets/tokens.css') return next();
   // 空き状況ページ（公開・SEO対象）とその取得API・sitemap は認証ゲートを通さない（#74）
   if (c.req.path === '/availability' || c.req.path.startsWith('/availability/')) return next();
   if (c.req.path.startsWith('/api/availability')) return next();

@@ -10,10 +10,12 @@ export const BOOKING_CHANGE_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>ご予約の確認・変更｜レンタルスペースALBE</title>
+<link rel="stylesheet" href="/assets/tokens.css">
 <style>
-:root{ --ink:#1a1917; --ink-2:#6f6c66; --ink-3:#a8a49c; --paper:#fff; --wash:#f8f7f5; --line:#eae8e3; --line-2:#d8d5ce; --brand:#1f6feb; --ok:#16a34a; --bad:#dc2626; --r:8px; --pad:16px;
+/* サイト共通の見た目（tokens.css）に対応づけ。中間色・角丸・余白は tokens.css を継承 */
+:root{ --brand:var(--key); --bad:var(--full);
   --f:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",Meiryo,sans-serif; }
-*{ box-sizing:border-box; } body{ margin:0; background:var(--wash); color:var(--ink); font-family:var(--f); line-height:1.7; }
+*{ box-sizing:border-box; } body{ margin:0; background:var(--wash); color:var(--ink); font-family:var(--f-sans); line-height:1.7; }
 main{ max-width:560px; margin:0 auto; padding:24px var(--pad) 60px; }
 .hd{ background:#fff; border-bottom:1px solid var(--line); }
 .hd-in{ max-width:560px; margin:0 auto; height:52px; display:flex; align-items:center; padding:0 var(--pad); }
@@ -23,7 +25,7 @@ h1{ font-size:20px; margin:4px 0 6px; } .lede{ color:var(--ink-2); font-size:14p
 label{ display:block; font-size:13px; color:var(--ink-2); margin:10px 0 4px; }
 input,select,textarea{ width:100%; font-family:inherit; font-size:16px; padding:10px 12px; border:1px solid var(--line-2); border-radius:var(--r); background:#fff; }
 textarea{ min-height:90px; resize:vertical; }
-.btn{ display:block; width:100%; background:var(--ink); color:#fff; border:0; border-radius:var(--r); padding:13px; font-size:16px; font-weight:600; cursor:pointer; margin-top:16px; }
+.btn{ display:block; width:100%; background:var(--brand); color:#fff; border:0; border-radius:var(--r); padding:13px; font-size:16px; font-weight:600; cursor:pointer; margin-top:16px; }
 .btn.ghost{ background:#fff; color:var(--ink); border:1px solid var(--line-2); }
 .btn.brand{ background:var(--brand); }
 .msg{ font-size:14px; margin-top:12px; } .msg.bad{ color:var(--bad); } .msg.ok{ color:var(--ok); }

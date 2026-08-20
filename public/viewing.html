@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見学のお申し込み｜レンタルスペースALBE</title>
+<meta name="robots" content="noindex">
+<style>
+  :root{
+    --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --bg:#f7f7f8; --card:#fff;
+    --brand:#1d4ed8; --brand-d:#1e40af; --ok:#16a34a; --okbg:#f0fdf4; --bad:#dc2626;
+    --warnbg:#fff8e6; --warnln:#f0c36d; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.7}
+  .wrap{max-width:720px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:20px;margin:8px 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 16px;margin:14px 0}
+  .card h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .num{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;align-items:center;justify-content:center;flex:0 0 auto}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  .req{color:var(--bad);font-weight:700;margin-left:2px}
+  .opt{color:var(--sub);font-weight:400;font-size:12px;margin-left:4px}
+  input[type=text],input[type=email],input[type=tel],input[type=date],select,textarea{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink)}
+  textarea{resize:vertical;min-height:72px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .spaces{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media(max-width:560px){.spaces{grid-template-columns:1fr}}
+  .chk{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;font-weight:400;cursor:pointer;background:#fff}
+  .chk input{width:auto;margin:0}
+  .chk.on{border-color:var(--brand);background:#eff4ff}
+  .modes{display:flex;gap:8px;flex-wrap:wrap}
+  .mode{flex:1;min-width:180px;border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;background:#fff}
+  .mode.on{border-color:var(--brand);background:#eff4ff}
+  .mode b{display:block;font-size:14px}
+  .mode span{font-size:12px;color:var(--sub)}
+  .hidden{display:none!important}
+  .slotmsg{font-size:13px;margin:6px 0;padding:8px 10px;border-radius:8px}
+  .slotmsg.warn{background:var(--warnbg);border:1px solid var(--warnln)}
+  .slotmsg.ok{background:var(--okbg);border:1px solid #bbf7d0;color:#166534}
+  .radios{display:flex;gap:8px;flex-wrap:wrap}
+  .radios label{display:flex;align-items:center;gap:6px;font-weight:400;font-size:14px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0;cursor:pointer}
+  .radios input{width:auto}
+  .btn{appearance:none;border:none;border-radius:10px;padding:13px 18px;font-size:15px;font-weight:700;cursor:pointer}
+  .btn.primary{background:var(--brand);color:#fff;width:100%}
+  .btn.primary:disabled{background:#9db4ec;cursor:not-allowed}
+  .btn.ghost{background:#fff;border:1px solid var(--brand);color:var(--brand)}
+  .msg{font-size:14px;margin:10px 0;padding:10px 12px;border-radius:8px}
+  .msg.bad{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+  .note{font-size:12px;color:var(--sub);margin-top:6px}
+  .done{text-align:center;padding:30px 10px}
+  .done .ic{font-size:44px}
+  a{color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>見学のお申し込み</h1>
+  <p class="lead">レンタルスペースALBEの見学をご希望の方は、こちらからお申し込みください（無料・所要30分程度）。空き状況を確認のうえ、担当者より日時をご案内します。</p>
+
+  <!-- 申込フォーム -->
+  <div id="formView">
+    <div class="card">
+      <h2><span class="num">1</span>見学希望のスペース <span class="req">必須</span></h2>
+      <div class="note" style="margin:0 0 8px">複数選択できます（例：アルベホール名古屋＋名駅フリースペース）。複数選ぶと、いずれの施設も空いている時間が候補になります。</div>
+      <div class="spaces" id="spaceList"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">2</span>日時の指定方法 <span class="req">必須</span></h2>
+      <div class="modes">
+        <div class="mode on" id="modeSlotBtn" onclick="setMode('slot')">
+          <b>① 空き枠から選ぶ</b>
+          <span>空いている時間から第一・第二希望を選びます。</span>
+        </div>
+        <div class="mode" id="modeProposeBtn" onclick="setMode('propose')">
+          <b>② 希望時期を伝えて提案してもらう</b>
+          <span>おおよそのご希望をお知らせいただき、ALBEから候補日をご提案します。</span>
+        </div>
+      </div>
+
+      <!-- モードA -->
+      <div id="modeSlot">
+        <div id="slotHint" class="slotmsg warn hidden"></div>
+        <label>第一希望 <span class="req">必須</span></label>
+        <div class="row2">
+          <input type="date" id="d1" onchange="loadSlots(1)">
+          <select id="t1"><option value="">スペースと日付を選択</option></select>
+        </div>
+        <label>第二希望 <span class="req">必須</span></label>
+        <div class="row2">
+          <input type="date" id="d2" onchange="loadSlots(2)">
+          <select id="t2"><option value="">スペースと日付を選択</option></select>
+        </div>
+        <div class="note">見学は30分程度を目安にご案内します。表示される時間はいずれの選択施設も空いている枠です。</div>
+      </div>
+
+      <!-- モードB -->
+      <div id="modePropose" class="hidden">
+        <label>おおよそのご希望時期 <span class="req">必須</span></label>
+        <input type="text" id="desiredPeriod" placeholder="例：来週の平日午後／今月末の土日いずれか　など">
+        <div class="row2" style="margin-top:8px">
+          <div>
+            <label>曜日のご希望 <span class="opt">任意</span></label>
+            <select id="prefDaytype">
+              <option value="any">どちらでも</option>
+              <option value="weekday">平日</option>
+              <option value="weekend">土日祝</option>
+            </select>
+          </div>
+          <div>
+            <label>時間帯のご希望 <span class="opt">任意</span></label>
+            <select id="prefTimeband">
+              <option value="any">どちらでも</option>
+              <option value="morning">午前</option>
+              <option value="afternoon">午後</option>
+              <option value="evening">夜</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">3</span>お客様情報</h2>
+      <div class="row2">
+        <div><label>姓 <span class="req">必須</span></label><input type="text" id="lastName" placeholder="山田"></div>
+        <div><label>名 <span class="req">必須</span></label><input type="text" id="firstName" placeholder="太郎"></div>
+      </div>
+      <label>電話番号 <span class="req">必須</span></label>
+      <input type="tel" id="phone" placeholder="090-1234-5678">
+      <label>メールアドレス <span class="req">必須</span></label>
+      <input type="email" id="email" placeholder="taro@example.com">
+      <label>会社名・学校名・団体名 <span class="opt">任意</span></label>
+      <input type="text" id="orgName" placeholder="株式会社〇〇／〇〇大学　など">
+      <label>利用目的 <span class="req">必須</span></label>
+      <select id="purpose">
+        <option value="">選択してください</option>
+        <option value="撮影（静止画）">撮影（静止画）</option>
+        <option value="撮影（動画）">撮影（動画）</option>
+        <option value="撮影（MV撮影）">撮影（MV撮影）</option>
+        <option value="コスプレ">コスプレ</option>
+        <option value="会議・ミーティング">会議・ミーティング</option>
+        <option value="懇親会・パーティー">懇親会・パーティー</option>
+        <option value="音楽練習">音楽練習</option>
+        <option value="イベント">イベント</option>
+        <option value="展示会・フリマ・ポップアップストア">展示会・フリマ・ポップアップストア</option>
+        <option value="レッスン">レッスン</option>
+        <option value="撮影会">撮影会</option>
+        <option value="コンサート・発表会">コンサート・発表会</option>
+        <option value="その他">その他</option>
+      </select>
+      <label>現在の予約状況 <span class="req">必須</span></label>
+      <div class="radios">
+        <label><input type="radio" name="bs" value="booked">予約済み</label>
+        <label><input type="radio" name="bs" value="considering">予約検討中</label>
+        <label><input type="radio" name="bs" value="other">その他</label>
+      </div>
+      <label>ご質問・ご要望 <span class="opt">任意</span></label>
+      <textarea id="note" placeholder="ご不明点やご要望がありましたらご記入ください。"></textarea>
+    </div>
+
+    <div id="formMsg" class="msg bad hidden"></div>
+    <button class="btn primary" id="submitBtn" onclick="submit()">この内容で見学を申し込む</button>
+    <p class="note">お申し込み後、確認のメールを自動送信します。見学日時の確定は、担当者より改めてご連絡いたします。</p>
+  </div>
+
+  <!-- 完了 -->
+  <div id="doneView" class="card hidden">
+    <div class="done">
+      <div class="ic">✅</div>
+      <h2 style="justify-content:center">見学のお申し込みを受け付けました</h2>
+      <p>ご入力のメールアドレスに、受付内容の確認メールをお送りしました。<br>担当者が空き状況を確認し、見学日時について改めてご連絡いたします。</p>
+      <p class="note">メールが届かない場合は、迷惑メールフォルダをご確認ください。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const V = { spaces: [], mode: 'slot' };
+
+async function api(path, opts) {
+  const o = opts || {}; o.headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
+  const r = await fetch(path, o);
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, body: j };
+}
+
+// 施設一覧の読み込み
+async function loadSpaces() {
+  const { ok, body } = await api('/api/spaces');
+  if (!ok) return;
+  V.spaces = (body.spaces || []).filter(s => s.isActive !== false);
+  const el = document.getElementById('spaceList');
+  el.innerHTML = V.spaces.map(s =>
+    `<label class="chk" id="chk-${s.id}"><input type="checkbox" value="${s.id}" onchange="onSpaceToggle()">${escapeHtml(s.name)}</label>`
+  ).join('');
+}
+function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function selectedSpaces() {
+  return [...document.querySelectorAll('#spaceList input:checked')].map(i => i.value);
+}
+function onSpaceToggle() {
+  // 見た目の反映
+  V.spaces.forEach(s => {
+    const lab = document.getElementById('chk-' + s.id);
+    const chk = lab.querySelector('input');
+    lab.classList.toggle('on', chk.checked);
+  });
+  // 選択が変わったら候補を再取得
+  if (V.mode === 'slot') { loadSlots(1); loadSlots(2); }
+}
+
+function setMode(m) {
+  V.mode = m;
+  document.getElementById('modeSlotBtn').classList.toggle('on', m === 'slot');
+  document.getElementById('modeProposeBtn').classList.toggle('on', m === 'propose');
+  document.getElementById('modeSlot').classList.toggle('hidden', m !== 'slot');
+  document.getElementById('modePropose').classList.toggle('hidden', m !== 'propose');
+  if (m === 'slot') { loadSlots(1); loadSlots(2); }
+}
+
+// 指定の希望（1 or 2）について、選択施設の共通空き枠を取得してセレクトに反映
+async function loadSlots(which) {
+  const spaces = selectedSpaces();
+  const dateEl = document.getElementById('d' + which);
+  const sel = document.getElementById('t' + which);
+  const hint = document.getElementById('slotHint');
+  const date = dateEl.value;
+  if (spaces.length === 0 || !date) {
+    sel.innerHTML = '<option value="">スペースと日付を選択</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">確認中…</option>';
+  const { ok, body } = await api('/api/viewing/slots?spaces=' + encodeURIComponent(spaces.join(',')) + '&date=' + date);
+  if (!ok) {
+    sel.innerHTML = '<option value="">' + escapeHtml(body.error || '取得に失敗しました') + '</option>';
+    return;
+  }
+  const times = body.startTimes || [];
+  if (times.length === 0) {
+    sel.innerHTML = '<option value="">空き枠がありません</option>';
+    // 複数施設で共通枠が無いときは提案モードへ誘導
+    hint.classList.remove('hidden');
+    hint.innerHTML = (spaces.length > 1
+      ? 'ご選択の施設が同時に空いている枠が、この日にはありません。'
+      : 'この日は空き枠がありません。') +
+      '別の日をお試しいただくか、<a href="#" onclick="setMode(\'propose\');return false;">「希望時期を伝えて提案してもらう」</a>でお申し込みください。';
+  } else {
+    hint.classList.add('hidden');
+    sel.innerHTML = '<option value="">時間を選択</option>' +
+      times.map(t => `<option value="${t}">${t}〜（見学30分）</option>`).join('');
+  }
+}
+
+const isValidPhone = p => /^[0-9]{2,4}-[0-9]{2,4}-[0-9]{3,4}$/.test(p);
+const isValidEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+async function submit() {
+  const msg = document.getElementById('formMsg');
+  const show = (t) => { msg.textContent = t; msg.classList.remove('hidden'); msg.scrollIntoView({ behavior:'smooth', block:'center' }); };
+  msg.classList.add('hidden');
+
+  const spaces = selectedSpaces();
+  if (spaces.length === 0) return show('見学希望のスペースを選択してください。');
+
+  const lastName = document.getElementById('lastName').value.trim();
+  const firstName = document.getElementById('firstName').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const orgName = document.getElementById('orgName').value.trim();
+  const purpose = document.getElementById('purpose').value;
+  const bsEl = document.querySelector('input[name="bs"]:checked');
+  const note = document.getElementById('note').value.trim();
+
+  if (!lastName || !firstName) return show('お名前（姓・名）を入力してください。');
+  if (!phone) return show('電話番号を入力してください。');
+  if (!isValidPhone(phone)) return show('電話番号はハイフンありでご入力ください（例：090-1234-5678）。');
+  if (!email || !isValidEmail(email)) return show('有効なメールアドレスを入力してください。');
+  if (!purpose) return show('利用目的を選択してください。');
+  if (!bsEl) return show('現在の予約状況を選択してください。');
+
+  const payload = {
+    mode: V.mode, spaces, lastName, firstName, phone, email,
+    orgName: orgName || undefined, purpose, bookingStatus: bsEl.value, note: note || undefined,
+  };
+
+  if (V.mode === 'slot') {
+    const d1 = document.getElementById('d1').value, t1 = document.getElementById('t1').value;
+    const d2 = document.getElementById('d2').value, t2 = document.getElementById('t2').value;
+    if (!d1 || !t1) return show('第一希望の日時を選択してください。');
+    if (!d2 || !t2) return show('第二希望の日時を選択してください。');
+    payload.first = { date: d1, start: t1 };
+    payload.second = { date: d2, start: t2 };
+  } else {
+    const desiredPeriod = document.getElementById('desiredPeriod').value.trim();
+    if (!desiredPeriod) return show('おおよそのご希望時期を入力してください。');
+    payload.desiredPeriod = desiredPeriod;
+    payload.prefDaytype = document.getElementById('prefDaytype').value;
+    payload.prefTimeband = document.getElementById('prefTimeband').value;
+  }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '送信中…';
+  const { ok, body } = await api('/api/viewing/requests', { method: 'POST', body: JSON.stringify(payload) });
+  btn.disabled = false; btn.textContent = 'この内容で見学を申し込む';
+  if (!ok) {
+    show(body.error || 'お申し込みの送信に失敗しました。時間をおいて再度お試しください。');
+    // 空き枠が埋まっていた場合は候補を更新
+    if (body.mode === 'slot' && V.mode === 'slot') { loadSlots(1); loadSlots(2); }
+    return;
+  }
+  document.getElementById('formView').classList.add('hidden');
+  document.getElementById('doneView').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// 初期日付の下限＝本日
+(function initDates(){
+  const today = new Date();
+  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  const min = `${y}-${m}-${d}`;
+  document.getElementById('d1').min = min;
+  document.getElementById('d2').min = min;
+})();
+loadSpaces();
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import paypal from './routes/paypal';
 import documents from './routes/documents';
 import { availabilityApi, availabilityPage, sitemapXml } from './routes/availability';
 import guestChange from './routes/guest-change';
+import viewing from './routes/viewing';
 import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
@@ -84,6 +85,9 @@ app.use('*', async (c, next) => {
   // ゲスト予約変更ページ（公開・#75）とそのAPIも認証ゲートを通さない
   if (c.req.path === '/booking-change' || c.req.path.startsWith('/booking-change/') || c.req.path === '/booking-change.html') return next();
   if (c.req.path.startsWith('/api/guest-change')) return next();
+  // 見学申込ページ（公開・#81）とそのAPIも認証ゲートを通さない
+  if (c.req.path === '/viewing' || c.req.path.startsWith('/viewing/') || c.req.path === '/viewing.html') return next();
+  if (c.req.path.startsWith('/api/viewing')) return next();
 
   const expected = await gateToken(user, pass);
 
@@ -157,6 +161,7 @@ app.route('/api/paypal', paypal);
 app.route('/api/documents', documents);
 app.route('/api/availability', availabilityApi);
 app.route('/api/guest-change', guestChange);
+app.route('/api/viewing', viewing);
 
 // 空き状況ページ（SSR）と sitemap（静的アセットより先に登録）#74
 app.get('/availability', availabilityPage);
@@ -167,6 +172,8 @@ app.get('/sitemap.xml', sitemapXml);
 const serveBookingChange = (c: import('hono').Context<AppBindings>) => c.html(BOOKING_CHANGE_HTML);
 app.get('/booking-change', serveBookingChange);
 app.get('/booking-change/', serveBookingChange);
+// 見学申込ページ（公開・#81）は public/viewing.html を静的アセットとして配信する。
+// /viewing は catch-all（app.all('*')→ASSETS）が /viewing.html を返す（/mypage 等と同じ挙動）。
 
 /**
  * 静的アセット（public/）を Worker 経由で配信する。

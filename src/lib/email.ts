@@ -1149,3 +1149,193 @@ ${refundLine}`;
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ===== 見学申込メール（#81） =====
+
+const VIEWING_BOOKING_STATUS_LABEL: Record<string, string> = {
+  booked: '予約済み',
+  considering: '予約検討中',
+  other: 'その他',
+};
+
+export interface ViewingRequestEmailData {
+  customerName: string;
+  spaceNames: string;                 // 例：アルベホール名古屋 / 名駅フリースペース
+  mode: 'slot' | 'propose';
+  /** モードA：希望日時（第一・第二） */
+  choices?: ReadonlyArray<{ label: string; date: string; start: string }>;
+  /** モードB：おおよその希望時期 */
+  desiredPeriod?: string;
+  purpose?: string;
+  note?: string;
+}
+
+/** 見学申込 受付メール（お客様向け・自動返信） */
+export function viewingReceivedEmail(d: ViewingRequestEmailData): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】見学のお申し込みを受け付けました';
+  const wishText =
+    d.mode === 'slot' && d.choices?.length
+      ? `\n【ご希望日時】\n${d.choices.map((c) => `${c.label}：${c.date} ${c.start}〜（見学30分）`).join('\n')}`
+      : `\n【おおよそのご希望時期】\n${d.desiredPeriod ?? ''}\n※空き状況を確認のうえ、こちらから候補日時をご提案いたします。`;
+  const text = `${d.customerName} 様
+
+この度は、レンタルスペースALBEの見学をお申し込みいただきありがとうございます。
+下記の内容で受け付けいたしました。担当者が空き状況と対応可否を確認し、追ってご連絡いたします。
+
+【見学希望のスペース】
+${d.spaceNames}${wishText}
+${d.purpose ? `\n【利用目的】\n${d.purpose}` : ''}${d.note ? `\n\n【ご質問・ご要望】\n${d.note}` : ''}
+
+※このメールは「受付」の段階です。見学日時の確定は、あらためてメールでお知らせいたします。
+※ご予約状況の変化により、ご希望に添えない場合は代替日をご案内いたします。`;
+  const choicesHtml =
+    d.mode === 'slot' && d.choices?.length
+      ? `<p style="margin:6px 0;color:#6b7280">ご希望日時</p><ul style="margin:4px 0">${d.choices
+          .map((c) => `<li>${escapeHtml(c.label)}：${escapeHtml(c.date)} ${escapeHtml(c.start)}〜（見学30分）</li>`)
+          .join('')}</ul>`
+      : `<p style="margin:6px 0;color:#6b7280">おおよそのご希望時期</p><p style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(
+          d.desiredPeriod ?? '',
+        )}</p><p style="color:#6b7280;font-size:13px">※空き状況を確認のうえ、こちらから候補日時をご提案いたします。</p>`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>この度は、レンタルスペースALBEの見学をお申し込みいただきありがとうございます。<br>下記の内容で受け付けいたしました。担当者が空き状況と対応可否を確認し、追ってご連絡いたします。</p>
+<p style="margin:6px 0;color:#6b7280">見学希望のスペース</p>
+<p style="font-weight:600">${escapeHtml(d.spaceNames)}</p>
+${choicesHtml}
+${d.purpose ? `<p style="margin:6px 0;color:#6b7280">利用目的</p><p>${escapeHtml(d.purpose)}</p>` : ''}
+${d.note ? `<p style="margin:6px 0;color:#6b7280">ご質問・ご要望</p><p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.note)}</p>` : ''}
+<p style="color:#6b7280;font-size:13px">※このメールは「受付」の段階です。見学日時の確定は、あらためてメールでお知らせいたします。<br>※ご予約状況の変化により、ご希望に添えない場合は代替日をご案内いたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 見学申込 通知メール（スタッフ向け） */
+export function adminViewingRequestEmail(
+  d: ViewingRequestEmailData & { email: string; phone: string; orgName?: string; bookingStatus?: string; adminUrl?: string },
+): { subject: string; html: string; text: string } {
+  const subject = `【見学申込】${d.spaceNames}｜${d.customerName} 様`;
+  const wishText =
+    d.mode === 'slot' && d.choices?.length
+      ? `ご希望日時：\n${d.choices.map((c) => `  ${c.label}：${c.date} ${c.start}〜`).join('\n')}`
+      : `おおよその希望時期：${d.desiredPeriod ?? ''}（→こちらから候補提案）`;
+  const bs = d.bookingStatus ? VIEWING_BOOKING_STATUS_LABEL[d.bookingStatus] ?? d.bookingStatus : '';
+  const text = `見学の申し込みが入りました。
+
+お客様：${d.customerName}
+メール：${d.email}
+電話　：${d.phone}
+${d.orgName ? `会社/学校/団体：${d.orgName}\n` : ''}見学希望スペース：${d.spaceNames}
+受付方式：${d.mode === 'slot' ? '空き枠選択' : '希望時期→候補提案'}
+${wishText}
+${d.purpose ? `利用目的：${d.purpose}\n` : ''}${bs ? `現在の予約状況：${bs}\n` : ''}${d.note ? `\nご質問・ご要望：\n${d.note}\n` : ''}
+${d.adminUrl ? `\n▼管理画面（見学タブ）で確定/提案してください\n${d.adminUrl}` : '\n管理画面「見学」タブで確定/提案してください。'}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>見学の申し込みが入りました。</p>
+<table style="border-collapse:collapse;margin:8px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td><strong>${escapeHtml(d.customerName)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">メール</td><td>${escapeHtml(d.email)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">電話</td><td>${escapeHtml(d.phone)}</td></tr>
+${d.orgName ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">会社/学校/団体</td><td>${escapeHtml(d.orgName)}</td></tr>` : ''}
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">見学希望スペース</td><td>${escapeHtml(d.spaceNames)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">受付方式</td><td>${d.mode === 'slot' ? '空き枠選択' : '希望時期→候補提案'}</td></tr>
+${d.purpose ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">利用目的</td><td>${escapeHtml(d.purpose)}</td></tr>` : ''}
+${bs ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">現在の予約状況</td><td>${escapeHtml(bs)}</td></tr>` : ''}
+</table>
+${
+  d.mode === 'slot' && d.choices?.length
+    ? `<p style="margin:6px 0;color:#6b7280">ご希望日時</p><ul style="margin:4px 0">${d.choices.map((c) => `<li>${escapeHtml(c.label)}：${escapeHtml(c.date)} ${escapeHtml(c.start)}〜</li>`).join('')}</ul>`
+    : `<p style="margin:6px 0;color:#6b7280">おおよその希望時期</p><p style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.desiredPeriod ?? '')}</p>`
+}
+${d.note ? `<p style="margin:6px 0;color:#6b7280">ご質問・ご要望</p><p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.note)}</p>` : ''}
+${d.adminUrl ? `<p style="margin-top:12px"><a href="${escapeHtml(d.adminUrl)}" style="color:#1d4ed8">管理画面（見学タブ）で確定/提案する</a></p>` : '<p style="color:#6b7280">管理画面「見学」タブで確定/提案してください。</p>'}
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 見学 候補日時のご提案（お客様向け・モードB等） */
+export function viewingProposedEmail(d: {
+  customerName: string;
+  spaceNames: string;
+  date: string;
+  start: string;
+  end: string;
+  staffNote?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】見学の候補日時をご提案します';
+  const text = `${d.customerName} 様
+
+見学について、下記の日時でご案内が可能です。ご都合はいかがでしょうか。
+
+【見学スペース】${d.spaceNames}
+【候補日時】${d.date} ${d.start}〜${d.end}（見学30分程度）
+${d.staffNote ? `\n${d.staffNote}\n` : ''}
+ご都合が合う場合は、このメールにご返信ください。
+別の日時をご希望の場合も、ご遠慮なくお知らせください。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>見学について、下記の日時でご案内が可能です。ご都合はいかがでしょうか。</p>
+<table style="border-collapse:collapse;margin:8px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">見学スペース</td><td>${escapeHtml(d.spaceNames)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">候補日時</td><td><strong>${escapeHtml(d.date)} ${escapeHtml(d.start)}〜${escapeHtml(d.end)}</strong>（見学30分程度）</td></tr>
+</table>
+${d.staffNote ? `<p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.staffNote)}</p>` : ''}
+<p>ご都合が合う場合は、このメールにご返信ください。別の日時をご希望の場合も、ご遠慮なくお知らせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 見学 確定メール（お客様向け） */
+export function viewingConfirmedEmail(d: {
+  customerName: string;
+  spaceNames: string;
+  date: string;
+  start: string;
+  end: string;
+  staffNote?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】見学日時が確定しました';
+  const text = `${d.customerName} 様
+
+見学の日時が下記のとおり確定しました。当日はどうぞお気をつけてお越しください。
+
+【見学スペース】${d.spaceNames}
+【確定日時】${d.date} ${d.start}〜${d.end}（見学30分程度）
+${d.staffNote ? `\n${d.staffNote}\n` : ''}
+ご不明点やご変更のご希望がございましたら、このメールにご返信ください。
+当日お会いできますことを楽しみにしております。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>見学の日時が下記のとおり確定しました。当日はどうぞお気をつけてお越しください。</p>
+<table style="border-collapse:collapse;margin:8px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">見学スペース</td><td>${escapeHtml(d.spaceNames)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">確定日時</td><td><strong>${escapeHtml(d.date)} ${escapeHtml(d.start)}〜${escapeHtml(d.end)}</strong>（見学30分程度）</td></tr>
+</table>
+${d.staffNote ? `<p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.staffNote)}</p>` : ''}
+<p>ご不明点やご変更のご希望がございましたら、このメールにご返信ください。当日お会いできますことを楽しみにしております。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 見学 お断り／再調整のご案内（お客様向け） */
+export function viewingDeclinedEmail(d: {
+  customerName: string;
+  spaceNames: string;
+  staffNote?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】見学のお申し込みについて';
+  const text = `${d.customerName} 様
+
+この度は見学をお申し込みいただきありがとうございました。
+誠に恐れ入りますが、ご希望の日時でのご案内が難しい状況です。
+${d.staffNote ? `\n${d.staffNote}\n` : ''}
+別の日時であればご案内できる場合がございます。お手数ですが、あらためてご希望の時期をお知らせいただけますと幸いです。
+何卒よろしくお願いいたします。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>この度は見学をお申し込みいただきありがとうございました。<br>誠に恐れ入りますが、ご希望の日時でのご案内が難しい状況です。</p>
+<p style="margin:6px 0;color:#6b7280">見学スペース：${escapeHtml(d.spaceNames)}</p>
+${d.staffNote ? `<p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.staffNote)}</p>` : ''}
+<p>別の日時であればご案内できる場合がございます。お手数ですが、あらためてご希望の時期をお知らせいただけますと幸いです。何卒よろしくお願いいたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

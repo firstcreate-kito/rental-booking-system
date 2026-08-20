@@ -87,6 +87,9 @@ import {
   listChangeRequests,
   getChangeRequestById,
   resolveChangeRequest,
+  listViewingRequests,
+  getViewingRequest,
+  updateViewingRequest,
   type SpaceQuestionInput,
   type SpaceRow,
 } from '../db/repository';
@@ -96,7 +99,8 @@ import { buildXlsx, type Sheet } from '../lib/xlsx';
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail } from '../lib/email';
+import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
@@ -1095,6 +1099,97 @@ app.post('/change-requests/:id/resolve', async (c) => {
     );
   }
   return c.json({ ok: true, id, resolution });
+});
+
+// ---------------------------------------------------------------------------
+// 見学申込（#81）
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/viewing-requests?status= 見学申込一覧 */
+app.get('/viewing-requests', async (c) => {
+  const status = c.req.query('status') ?? undefined;
+  const rows = await listViewingRequests(c.env.DB, status);
+  const requests = rows.map((r) => ({
+    id: r.id,
+    mode: r.mode,
+    customerName: r.customer_name,
+    email: r.email,
+    phone: r.phone,
+    orgName: r.org_name ?? '',
+    purpose: r.purpose,
+    bookingStatus: r.booking_status,
+    spaceIds: (r.space_ids ?? '').split(',').filter(Boolean),
+    spaceNames: r.space_names ?? '',
+    first: r.first_date ? { date: r.first_date, start: r.first_start } : null,
+    second: r.second_date ? { date: r.second_date, start: r.second_start } : null,
+    desiredPeriod: r.desired_period ?? '',
+    prefDaytype: r.pref_daytype ?? '',
+    prefTimeband: r.pref_timeband ?? '',
+    note: r.note ?? '',
+    status: r.status,
+    confirmed: r.confirmed_date ? { date: r.confirmed_date, start: r.confirmed_start, end: r.confirmed_end } : null,
+    staffNote: r.staff_note ?? '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at ?? '',
+  }));
+  return c.json({ requests });
+});
+
+const VIEWING_TIME_RE = /^\d{1,2}:\d{2}$/;
+const VIEWING_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 見学の確定/提案（日時を指定してメール送信）。action=confirm|propose */
+async function handleViewingSchedule(c: Context<AppBindings>, action: 'confirm' | 'propose') {
+  const id = c.req.param('id') ?? '';
+  const body = (await c.req.json().catch(() => ({}))) as { date?: string; start?: string; staffNote?: string };
+  const date = String(body.date ?? '').trim();
+  const start = String(body.start ?? '').trim();
+  const staffNote = (body.staffNote ?? '').trim() || null;
+  if (!VIEWING_DATE_RE.test(date) || !VIEWING_TIME_RE.test(start)) {
+    return c.json({ error: '日付(YYYY-MM-DD)・開始時刻(HH:MM)を指定してください' }, 400);
+  }
+  const req = await getViewingRequest(c.env.DB, id);
+  if (!req) return c.json({ error: '見学申込が見つかりません' }, 404);
+  const startMin = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)) + VIEWING_DURATION_MIN;
+  const end = `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`;
+  const status = action === 'confirm' ? 'confirmed' : 'proposed';
+  await updateViewingRequest(c.env.DB, id, { status, confirmedDate: date, confirmedStart: start, confirmedEnd: end, staffNote, now: nowJST() });
+  const mailData = { customerName: req.customer_name, spaceNames: req.space_names ?? '', date, start, end, staffNote: staffNote ?? undefined };
+  const mail = action === 'confirm' ? viewingConfirmedEmail(mailData) : viewingProposedEmail(mailData);
+  c.executionCtx.waitUntil(sendEmail(c.env, { to: req.email, ...mail }));
+  return c.json({ ok: true, id, status, date, start, end });
+}
+
+/** POST /api/admin/viewing-requests/:id/confirm 確定（お客様へ確定メール） */
+app.post('/viewing-requests/:id/confirm', (c) => handleViewingSchedule(c, 'confirm'));
+
+/** POST /api/admin/viewing-requests/:id/propose 候補提案（お客様へ提案メール） */
+app.post('/viewing-requests/:id/propose', (c) => handleViewingSchedule(c, 'propose'));
+
+/** POST /api/admin/viewing-requests/:id/decline お断り／再調整のご案内 */
+app.post('/viewing-requests/:id/decline', async (c) => {
+  const id = c.req.param('id');
+  const body = (await c.req.json().catch(() => ({}))) as { staffNote?: string };
+  const staffNote = (body.staffNote ?? '').trim() || null;
+  const req = await getViewingRequest(c.env.DB, id);
+  if (!req) return c.json({ error: '見学申込が見つかりません' }, 404);
+  await updateViewingRequest(c.env.DB, id, { status: 'declined', confirmedDate: null, confirmedStart: null, confirmedEnd: null, staffNote, now: nowJST() });
+  c.executionCtx.waitUntil(
+    sendEmail(c.env, {
+      to: req.email,
+      ...viewingDeclinedEmail({ customerName: req.customer_name, spaceNames: req.space_names ?? '', staffNote: staffNote ?? undefined }),
+    }),
+  );
+  return c.json({ ok: true, id, status: 'declined' });
+});
+
+/** POST /api/admin/viewing-requests/:id/cancel 申込のクローズ（メールなし） */
+app.post('/viewing-requests/:id/cancel', async (c) => {
+  const id = c.req.param('id');
+  const req = await getViewingRequest(c.env.DB, id);
+  if (!req) return c.json({ error: '見学申込が見つかりません' }, 404);
+  await updateViewingRequest(c.env.DB, id, { status: 'cancelled', confirmedDate: req.confirmed_date, confirmedStart: req.confirmed_start, confirmedEnd: req.confirmed_end, staffNote: null, now: nowJST() });
+  return c.json({ ok: true, id, status: 'cancelled' });
 });
 
 // ---------------------------------------------------------------------------

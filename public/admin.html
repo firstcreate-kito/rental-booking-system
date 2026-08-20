@@ -90,6 +90,7 @@
     <div class="tabs">
       <button id="tab-list" class="active" onclick="showTab('list')">予約一覧</button>
       <button id="tab-changereq" onclick="showTab('changereq')">変更リクエスト<span id="crBadge" class="crbadge hidden">0</span></button>
+      <button id="tab-viewing" onclick="showTab('viewing')">見学申込<span id="vwBadge" class="crbadge hidden">0</span></button>
       <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
       <button id="tab-spaces" onclick="showTab('spaces')">スペース設定</button>
@@ -182,6 +183,16 @@
       </div>
       <p class="muted" style="font-size:13px">お客様がマイページから送信した変更希望です。内容を確認し、承認（変更を適用）または却下してください。日時変更で希望日時があるものは、そのままワンクリックで適用できます。</p>
       <div id="crList"><div class="muted">読み込み中…</div></div>
+    </section>
+
+    <!-- 見学申込（#81） -->
+    <section id="view-viewing" class="card hidden">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">見学申込</h2>
+        <label style="font-size:13px"><input type="checkbox" id="vwShowClosed" onchange="loadViewingRequests()"> 対応済みも表示</label>
+      </div>
+      <p class="muted" style="font-size:13px">サイトの見学申込フォームから届いた申込です。空き状況とスタッフの在席を確認し、日時を指定して「確定」または「候補提案」してください。ご希望に添えない場合は「お断り」で再調整をご案内できます。※見学はGoogleカレンダーには反映されません（記録のみ）。</p>
+      <div id="vwList"><div class="muted">読み込み中…</div></div>
     </section>
 
     <!-- 代理予約 -->
@@ -816,6 +827,7 @@ async function login() {
   await loadSpaces();
   loadBookings();
   refreshCrBadge();
+  refreshVwBadge();
 }
 
 /** 変更リクエストの未処理件数バッジを更新（タブを開かなくても分かるように） */
@@ -883,11 +895,12 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','changereq','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers','export'].forEach(x => {
+  ['list','changereq','viewing','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers','export'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'changereq') loadChangeRequests();
+  if (t === 'viewing') loadViewingRequests();
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'issuer') loadIssuer();
@@ -2089,6 +2102,99 @@ async function resolveReq(id, resolution) {
 }
 let _crHandleAfter = null;
 
+// ---- 見学申込（#81）----
+const VW_BS_LABEL = { booked:'予約済み', considering:'予約検討中', other:'その他' };
+const VW_STATUS_LABEL = { pending:'未対応', proposed:'提案済み', confirmed:'確定', declined:'お断り', cancelled:'クローズ' };
+async function loadViewingRequests() {
+  const showClosed = document.getElementById('vwShowClosed').checked;
+  const qs = showClosed ? '' : '?status=pending';
+  const { ok, body } = await api('/api/admin/viewing-requests' + qs);
+  const wrap = document.getElementById('vwList');
+  if (!ok) { wrap.innerHTML = '<div class="muted">読み込みに失敗しました</div>'; return; }
+  const rows = body.requests || [];
+  const pending = rows.filter(r => r.status === 'pending').length;
+  if (!showClosed) updateVwBadge(pending);
+  if (!rows.length) { wrap.innerHTML = '<div class="muted">' + (showClosed ? '見学申込はありません' : '未対応の見学申込はありません') + '</div>'; return; }
+  wrap.innerHTML = rows.map(vwCard).join('');
+}
+function updateVwBadge(n) {
+  const b = document.getElementById('vwBadge');
+  if (n > 0) { b.textContent = n; b.classList.remove('hidden'); } else { b.classList.add('hidden'); }
+}
+async function refreshVwBadge() {
+  const { ok, body } = await api('/api/admin/viewing-requests?status=pending');
+  if (ok) updateVwBadge((body.requests || []).length);
+}
+function vwCard(r) {
+  const active = r.status === 'pending' || r.status === 'proposed';
+  const contact = [r.customerName, r.email, r.phone].filter(Boolean).map(crEsc).join('　');
+  let wish = '';
+  if (r.mode === 'slot') {
+    const f = r.first ? crEsc(r.first.date + ' ' + r.first.start + '〜') : '—';
+    const s = r.second ? crEsc(r.second.date + ' ' + r.second.start + '〜') : '—';
+    wish = '<div><span class="muted">受付方式：</span>空き枠選択</div>' +
+      '<div><span class="muted">第一希望：</span>' + f + '　<span class="muted">第二希望：</span>' + s + '</div>';
+  } else {
+    wish = '<div><span class="muted">受付方式：</span>希望時期→候補提案</div>' +
+      '<div><span class="muted">希望時期：</span>' + crEsc(r.desiredPeriod || '—') +
+      (r.prefDaytype && r.prefDaytype !== 'any' ? '（' + crEsc({weekday:'平日',weekend:'土日祝'}[r.prefDaytype] || r.prefDaytype) + '）' : '') +
+      (r.prefTimeband && r.prefTimeband !== 'any' ? '（' + crEsc({morning:'午前',afternoon:'午後',evening:'夜'}[r.prefTimeband] || r.prefTimeband) + '）' : '') +
+      '</div>';
+  }
+  const confirmedLine = r.confirmed
+    ? '<div style="margin-top:4px"><span class="muted">' + (r.status === 'confirmed' ? '確定日時' : '提案日時') + '：</span><strong>' + crEsc(r.confirmed.date + ' ' + r.confirmed.start + '〜' + (r.confirmed.end || '')) + '</strong></div>'
+    : '';
+  const statusPill = '<span class="pill ' + (r.status === 'confirmed' ? 'completed' : r.status === 'pending' ? '' : 'muted') + '">' + (VW_STATUS_LABEL[r.status] || r.status) + '</span>';
+  let actions = '';
+  if (active) {
+    const idj = JSON.stringify(r.id);
+    const df = r.first ? r.first.date : (r.second ? r.second.date : '');
+    const tf = r.first ? r.first.start : '';
+    actions =
+      '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">' +
+        '<div><label style="font-size:12px">日付</label><input type="date" id="vwd-' + r.id + '" value="' + crEsc(df) + '"></div>' +
+        '<div><label style="font-size:12px">開始</label><input type="time" step="1800" id="vwt-' + r.id + '" value="' + crEsc(tf) + '"></div>' +
+        '<button class="btn sm" onclick="vwSchedule(' + idj + ',\'confirm\')">確定して通知</button>' +
+        '<button class="btn sm ghost" onclick="vwSchedule(' + idj + ',\'propose\')">候補として提案</button>' +
+        '<button class="btn sm ghost" onclick="vwDecline(' + idj + ')">お断り</button>' +
+      '</div>' +
+      '<div style="margin-top:4px"><input type="text" id="vwn-' + r.id + '" placeholder="お客様へのひとこと（任意・メールに記載されます）" style="width:100%"></div>';
+  } else {
+    actions = r.staffNote ? '<div class="muted" style="margin-top:4px">' + crEsc(r.staffNote) + '</div>' : '';
+  }
+  return '<div class="card" style="margin:8px 0">' +
+    '<div class="row" style="justify-content:space-between;align-items:center">' +
+      '<strong>' + crEsc(r.spaceNames || '(施設未設定)') + '</strong>' + statusPill +
+    '</div>' +
+    '<div style="font-size:14px;margin:2px 0">' + contact + '</div>' +
+    wish +
+    '<div style="font-size:13px;margin-top:2px"><span class="muted">利用目的：</span>' + crEsc(r.purpose || '—') +
+      '　<span class="muted">予約状況：</span>' + crEsc(VW_BS_LABEL[r.bookingStatus] || r.bookingStatus || '—') +
+      (r.orgName ? '　<span class="muted">団体：</span>' + crEsc(r.orgName) : '') + '</div>' +
+    (r.note ? '<div style="font-size:13px;margin-top:2px"><span class="muted">ご要望：</span>' + crEsc(r.note) + '</div>' : '') +
+    confirmedLine + actions +
+  '</div>';
+}
+async function vwSchedule(id, action) {
+  const date = document.getElementById('vwd-' + id).value;
+  const start = document.getElementById('vwt-' + id).value;
+  const staffNote = document.getElementById('vwn-' + id).value.trim();
+  if (!date || !start) { alert('日付と開始時刻を指定してください'); return; }
+  const verb = action === 'confirm' ? '確定（確定メール送信）' : '候補提案（提案メール送信）';
+  if (!confirm(date + ' ' + start + ' で' + verb + 'します。よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/viewing-requests/' + id + '/' + action, jsonBody({ date, start, staffNote: staffNote || undefined }));
+  if (!ok) { alert(body.error || '処理に失敗しました'); return; }
+  loadViewingRequests();
+}
+async function vwDecline(id) {
+  const staffNote = prompt('お断り／再調整のご案内メールに添えるひとこと（任意）', '');
+  if (staffNote === null) return;
+  if (!confirm('この見学申込を「お断り（再調整のご案内）」にします。よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/viewing-requests/' + id + '/decline', jsonBody({ staffNote: staffNote.trim() || undefined }));
+  if (!ok) { alert(body.error || '処理に失敗しました'); return; }
+  loadViewingRequests();
+}
+
 // --- 初回セットアップ / ログイン画面の出し分け ---
 async function submitSetup() {
   const msg = document.getElementById('setupMsg');
@@ -2113,6 +2219,7 @@ async function submitSetup() {
   await loadSpaces();
   loadBookings();
   refreshCrBadge();
+  refreshVwBadge();
 }
 function showLoginView() {
   document.getElementById('setupView').classList.add('hidden');
@@ -2134,6 +2241,7 @@ async function initAuth() {
     await loadSpaces();
     loadBookings();
     refreshCrBadge();
+  refreshVwBadge();
     return;
   }
   const { ok, body } = await api('/api/admin/needs-setup');

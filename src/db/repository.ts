@@ -2837,3 +2837,150 @@ export async function countPendingChangeRequests(db: D1Database): Promise<number
   const row = await db.prepare(`SELECT COUNT(*) AS n FROM change_requests WHERE status = 'pending'`).first<{ n: number }>();
   return row?.n ?? 0;
 }
+
+// ===== 見学申込（#81） =====
+
+export interface ViewingRequestInput {
+  id: string;
+  mode: 'slot' | 'propose';
+  customerName: string;
+  email: string;
+  phone: string;
+  orgName?: string | null;
+  purpose: string;
+  bookingStatus: string;
+  firstDate?: string | null;
+  firstStart?: string | null;
+  secondDate?: string | null;
+  secondStart?: string | null;
+  desiredPeriod?: string | null;
+  prefDaytype?: string | null;
+  prefTimeband?: string | null;
+  note?: string | null;
+  spaceIds: string[];
+  now: string;
+}
+
+export interface ViewingRequestRow {
+  id: string;
+  mode: string;
+  customer_name: string;
+  email: string;
+  phone: string;
+  org_name: string | null;
+  purpose: string;
+  booking_status: string;
+  first_date: string | null;
+  first_start: string | null;
+  second_date: string | null;
+  second_start: string | null;
+  desired_period: string | null;
+  pref_daytype: string | null;
+  pref_timeband: string | null;
+  note: string | null;
+  status: string;
+  confirmed_date: string | null;
+  confirmed_start: string | null;
+  confirmed_end: string | null;
+  staff_note: string | null;
+  created_at: string;
+  updated_at: string | null;
+  /** 施設ID・名称（カンマ区切り。表示・集計用） */
+  space_ids: string | null;
+  space_names: string | null;
+}
+
+/** 見学申込を作成（本体＋施設リスト） */
+export async function createViewingRequest(db: D1Database, d: ViewingRequestInput): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO viewing_requests
+       (id, mode, customer_name, email, phone, org_name, purpose, booking_status,
+        first_date, first_start, second_date, second_start,
+        desired_period, pref_daytype, pref_timeband, note, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(
+      d.id,
+      d.mode,
+      d.customerName,
+      d.email,
+      d.phone,
+      d.orgName ?? null,
+      d.purpose,
+      d.bookingStatus,
+      d.firstDate ?? null,
+      d.firstStart ?? null,
+      d.secondDate ?? null,
+      d.secondStart ?? null,
+      d.desiredPeriod ?? null,
+      d.prefDaytype ?? null,
+      d.prefTimeband ?? null,
+      d.note ?? null,
+      d.now,
+    )
+    .run();
+  for (const sid of d.spaceIds) {
+    await db
+      .prepare('INSERT OR IGNORE INTO viewing_request_spaces (request_id, space_id) VALUES (?, ?)')
+      .bind(d.id, sid)
+      .run();
+  }
+}
+
+const VIEWING_SELECT = `SELECT v.*,
+    (SELECT group_concat(vs.space_id) FROM viewing_request_spaces vs WHERE vs.request_id = v.id) AS space_ids,
+    (SELECT group_concat(s.name, ' / ') FROM viewing_request_spaces vs JOIN spaces s ON s.id = vs.space_id WHERE vs.request_id = v.id) AS space_names
+  FROM viewing_requests v`;
+
+/** 見学申込の一覧（status指定可） */
+export async function listViewingRequests(db: D1Database, status?: string): Promise<ViewingRequestRow[]> {
+  const where = status ? ' WHERE v.status = ?' : '';
+  const stmt = db.prepare(`${VIEWING_SELECT}${where} ORDER BY v.created_at DESC LIMIT 500`);
+  const bound = status ? stmt.bind(status) : stmt;
+  const { results } = await bound.all<ViewingRequestRow>();
+  return results ?? [];
+}
+
+/** 見学申込を1件取得 */
+export async function getViewingRequest(db: D1Database, id: string): Promise<ViewingRequestRow | null> {
+  return db.prepare(`${VIEWING_SELECT} WHERE v.id = ?`).bind(id).first<ViewingRequestRow>();
+}
+
+/** 見学申込の状態更新（確定/提案/お断り/キャンセル） */
+export async function updateViewingRequest(
+  db: D1Database,
+  id: string,
+  fields: {
+    status: string;
+    confirmedDate?: string | null;
+    confirmedStart?: string | null;
+    confirmedEnd?: string | null;
+    staffNote?: string | null;
+    now: string;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE viewing_requests
+       SET status = ?, confirmed_date = ?, confirmed_start = ?, confirmed_end = ?,
+           staff_note = COALESCE(?, staff_note), updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(
+      fields.status,
+      fields.confirmedDate ?? null,
+      fields.confirmedStart ?? null,
+      fields.confirmedEnd ?? null,
+      fields.staffNote ?? null,
+      fields.now,
+      id,
+    )
+    .run();
+}
+
+/** 見学申込の未処理件数（管理画面バッジ用・pending） */
+export async function countPendingViewingRequests(db: D1Database): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) AS n FROM viewing_requests WHERE status = 'pending'`).first<{ n: number }>();
+  return row?.n ?? 0;
+}

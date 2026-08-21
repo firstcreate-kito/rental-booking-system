@@ -27,8 +27,16 @@
       "migrations_dir": "migrations"
     }
   ],
+  // カスタムドメイン。デプロイ時に booking.space-albe.com を Worker に接続し、
+  // DNSレコードとSSL証明書を Cloudflare が自動発行する（ゾーンは同一アカウント）。
+  // workers.dev のURL（albe-booking-api.rental-space-albe.workers.dev）も引き続き有効。
+  "routes": [
+    { "pattern": "booking.space-albe.com", "custom_domain": true }
+  ],
   "vars": {
-    "APP_ENV": "development"
+    "APP_ENV": "development",
+    // 領収書・請求書の閲覧リンクや通知メール内リンクの基底URL（本番の顧客向けドメイン）。
+    "PUBLIC_BASE_URL": "https://booking.space-albe.com"
   },
   // 定期実行（Cron）。
   //  - "*/5 * * * *": 5分間隔でGoogleカレンダー取りこぼし補完（#25/#27）

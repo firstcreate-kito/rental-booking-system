@@ -56,6 +56,8 @@
   .crbadge { display:inline-block; min-width:16px; padding:0 5px; margin-left:5px; border-radius:999px; background:#dc2626; color:#fff; font-size:11px; line-height:16px; text-align:center; vertical-align:middle; }
   .crbadge.hidden { display:none; }
   .crcard { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  /* 見学申込など自由記入テキストが長くてもカードからはみ出さない */
+  .vwcard { overflow-wrap:anywhere; word-break:break-word; }
   .crcard.handled { opacity:.6; }
   .crtype { display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:6px; background:#eff6ff; color:#1d4ed8; }
 </style>
@@ -2147,7 +2149,8 @@ function vwCard(r) {
     const f = r.first ? crEsc(r.first.date + ' ' + r.first.start + '〜') : '—';
     const s = r.second ? crEsc(r.second.date + ' ' + r.second.start + '〜') : '—';
     wish = '<div><span class="muted">受付方式：</span>空き枠選択</div>' +
-      '<div><span class="muted">第一希望：</span>' + f + '　<span class="muted">第二希望：</span>' + s + '</div>';
+      '<div><span class="muted">第一希望：</span>' + f + '</div>' +
+      '<div><span class="muted">第二希望：</span>' + s + '</div>';
   } else {
     wish = '<div><span class="muted">受付方式：</span>希望時期→候補提案</div>' +
       '<div><span class="muted">希望時期：</span>' + crEsc(r.desiredPeriod || '—') +
@@ -2165,19 +2168,21 @@ function vwCard(r) {
     const df = r.first ? r.first.date : (r.second ? r.second.date : '');
     const tf = r.first ? r.first.start : '';
     actions =
-      '<div class="row" style="gap:6px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">' +
-        '<div><label style="font-size:12px">日付</label><input type="date" id="vwd-' + r.id + '" value="' + crEsc(df) + '"></div>' +
-        '<div><label style="font-size:12px">開始</label><input type="time" step="1800" id="vwt-' + r.id + '" value="' + crEsc(tf) + '"></div>' +
-        '<button class="btn sm" onclick="vwSchedule(' + idj + ',\'confirm\')">確定して通知</button>' +
-        '<button class="btn sm ghost" onclick="vwSchedule(' + idj + ',\'propose\')">候補として提案</button>' +
-        '<button class="btn sm ghost" onclick="vwDecline(' + idj + ')">お断り</button>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<div style="flex:1 1 140px"><label style="font-size:12px">日付</label><input type="date" id="vwd-' + r.id + '" value="' + crEsc(df) + '" style="width:100%"></div>' +
+        '<div style="flex:1 1 110px"><label style="font-size:12px">開始</label><input type="time" step="1800" id="vwt-' + r.id + '" value="' + crEsc(tf) + '" style="width:100%"></div>' +
       '</div>' +
-      '<div style="margin-top:4px"><input type="text" id="vwn-' + r.id + '" placeholder="お客様へのひとこと（任意・メールに記載されます）" style="width:100%"></div>';
+      '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn sm" style="flex:1 1 auto" onclick="vwSchedule(' + idj + ',\'confirm\')">確定して通知</button>' +
+        '<button class="btn sm ghost" style="flex:1 1 auto" onclick="vwSchedule(' + idj + ',\'propose\')">候補として提案</button>' +
+        '<button class="btn sm ghost" style="flex:1 1 auto" onclick="vwDecline(' + idj + ')">お断り</button>' +
+      '</div>' +
+      '<div style="margin-top:8px"><input type="text" id="vwn-' + r.id + '" placeholder="お客様へのひとこと（任意・メールに記載されます）" style="width:100%"></div>';
   } else {
     actions = r.staffNote ? '<div class="muted" style="margin-top:4px">' + crEsc(r.staffNote) + '</div>' : '';
   }
   const memberBadge = r.isMember ? '<span class="pill" style="background:#eff4ff;color:#1d4ed8">会員</span> ' : '';
-  return '<div class="card" style="margin:8px 0">' +
+  return '<div class="card vwcard" style="margin:8px 0">' +
     '<div class="row" style="justify-content:space-between;align-items:center">' +
       '<strong>' + crEsc(r.spaceNames || '(施設未設定)') + '</strong>' + '<span>' + memberBadge + statusPill + '</span>' +
     '</div>' +

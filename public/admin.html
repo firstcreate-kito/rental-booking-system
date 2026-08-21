@@ -27,6 +27,20 @@
   th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
   th { color:var(--muted); font-weight:600; font-size:12px; }
   .tablewrap { overflow-x:auto; }
+  /* スマホでは横に長い表を「1件＝1カード」の縦組みに切り替える（table.resp のみ対象） */
+  @media (max-width: 640px) {
+    .tabs { flex-wrap:wrap; }
+    table.resp, table.resp tbody, table.resp tr, table.resp td { display:block; width:100%; }
+    table.resp thead { display:none; }
+    table.resp tr { border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin-bottom:12px; background:#fff; }
+    table.resp td { border:none; border-bottom:1px solid var(--line); padding:9px 0; display:flex; justify-content:space-between; align-items:baseline; gap:12px; text-align:right; white-space:normal; }
+    table.resp td:last-child { border-bottom:none; }
+    table.resp td::before { content:attr(data-label); color:var(--muted); font-size:12px; font-weight:600; text-align:left; flex:0 0 auto; white-space:nowrap; }
+    table.resp td.act { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; padding-top:12px; }
+    table.resp td.act::before { content:""; display:none; }
+    table.resp td.act:empty { display:none; }
+    table.resp td.act .btn, table.resp td.act button { flex:1 1 auto; min-width:120px; }
+  }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
   .pill.confirmed { background:#dcfce7; color:#166534; }
   .pill.tentative { background:#fef3c7; color:#92400e; }
@@ -129,7 +143,7 @@
         <button class="btn ghost sm" onclick="loadBookings()">検索</button>
       </div>
       <div class="tablewrap" style="margin-top:12px">
-        <table>
+        <table class="resp">
           <thead><tr><th>日付</th><th>時間</th><th>スペース</th><th>状態</th><th>予約番号</th><th>イベント</th><th>顧客</th><th></th></tr></thead>
           <tbody id="listBody"></tbody>
         </table>
@@ -268,7 +282,7 @@
       </div>
       <div class="muted" style="margin:6px 0">追加・編集・非公開化ができます（owner / manager のみ）。</div>
       <div class="tablewrap" style="margin-top:10px">
-        <table>
+        <table class="resp">
           <thead><tr><th>名前</th><th>スラッグ(URL)</th><th>平日/土日祝(円)</th><th>1日料金</th><th>営業</th><th>公開</th><th></th></tr></thead>
           <tbody id="spBody"></tbody>
         </table>
@@ -429,7 +443,7 @@
       </div>
       <div class="msg" id="hdMsg"></div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>日付</th><th>区分</th><th>名称</th><th></th></tr></thead><tbody id="hdBody"></tbody></table>
+        <table class="resp"><thead><tr><th>日付</th><th>区分</th><th>名称</th><th></th></tr></thead><tbody id="hdBody"></tbody></table>
       </div>
 
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
@@ -444,7 +458,7 @@
       </div>
       <div class="msg" id="clMsg"></div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>日付</th><th>スペース</th><th>理由</th><th></th></tr></thead><tbody id="clBody"></tbody></table>
+        <table class="resp"><thead><tr><th>日付</th><th>スペース</th><th>理由</th><th></th></tr></thead><tbody id="clBody"></tbody></table>
       </div>
     </section>
 
@@ -456,7 +470,7 @@
       </div>
       <div class="muted" style="margin:6px 0">追加・編集・非公開化・在庫・対象スペースの設定（owner / manager のみ）。共通在庫は複数スペースに紐付けると自動で共有されます。</div>
       <div class="tablewrap" style="margin-top:10px">
-        <table>
+        <table class="resp">
           <thead><tr><th>名前</th><th>カテゴリ</th><th>料金</th><th>在庫</th><th>対象</th><th>公開</th><th></th></tr></thead>
           <tbody id="optBody"></tbody>
         </table>
@@ -504,7 +518,7 @@
         <div><label>スペース</label><select id="q_space" onchange="loadQuestions()"></select></div>
       </div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>質問</th><th>形式</th><th>必須</th><th>状態</th><th></th></tr></thead><tbody id="qBody"></tbody></table>
+        <table class="resp"><thead><tr><th>質問</th><th>形式</th><th>必須</th><th>状態</th><th></th></tr></thead><tbody id="qBody"></tbody></table>
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)" />
       <h2 id="qFormTitle" style="font-size:14px">質問を追加</h2>
@@ -554,7 +568,7 @@
           </div>
           <div class="msg" id="seMsg"></div>
         </div>
-        <div class="tablewrap" style="margin-top:10px"><table>
+        <div class="tablewrap" style="margin-top:10px"><table class="resp">
           <thead><tr><th>名称</th><th>期間</th><th>割増</th><th>状態</th><th></th></tr></thead>
           <tbody id="seasonalBody"></tbody>
         </table></div>
@@ -592,7 +606,7 @@
           </div>
           <div class="msg" id="cmMsg"></div>
         </div>
-        <div class="tablewrap" style="margin-top:10px"><table>
+        <div class="tablewrap" style="margin-top:10px"><table class="resp">
           <thead><tr><th>名称</th><th>期間</th><th>割引</th><th>対象</th><th>スペース</th><th>状態</th><th></th></tr></thead>
           <tbody id="campaignBody"></tbody>
         </table></div>
@@ -607,7 +621,7 @@
       </div>
       <div class="muted" style="margin-top:6px">お客様に販売する<strong>チケット商品</strong>を登録します。対象スペース・利用可能時間・販売料金・有効日数を設定でき、顧客への発行時にここから選べます。各行の右側の「編集」「削除」ボタンで内容の変更・削除ができます。</div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>チケット名</th><th>対象スペース</th><th>時間</th><th>販売料金</th><th>有効日数</th><th>状態</th><th style="white-space:nowrap">操作</th></tr></thead><tbody id="tpBody"></tbody></table>
+        <table class="resp"><thead><tr><th>チケット名</th><th>対象スペース</th><th>時間</th><th>販売料金</th><th>有効日数</th><th>状態</th><th style="white-space:nowrap">操作</th></tr></thead><tbody id="tpBody"></tbody></table>
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)" />
       <h2 id="tpFormTitle" style="font-size:14px">チケット商品を追加</h2>
@@ -657,7 +671,7 @@
         <div class="msg" id="ncMsg"></div>
       </div>
       <div class="tablewrap" style="margin-top:10px">
-        <table><thead><tr><th>お名前</th><th>メール</th><th>電話</th><th>ポイント</th><th>会員</th><th></th></tr></thead><tbody id="csBody"></tbody></table>
+        <table class="resp"><thead><tr><th>お名前</th><th>メール</th><th>電話</th><th>ポイント</th><th>会員</th><th></th></tr></thead><tbody id="csBody"></tbody></table>
       </div>
       <div class="muted" id="csEmpty"></div>
 
@@ -745,10 +759,10 @@
         </div>
 
         <h2 style="margin-top:16px">保有クーポン</h2>
-        <div class="tablewrap"><table><thead><tr><th>コード</th><th>名称</th><th>割引</th><th>残/総</th><th>期限</th><th>状態</th></tr></thead><tbody id="csCoupons"></tbody></table></div>
+        <div class="tablewrap"><table class="resp"><thead><tr><th>コード</th><th>名称</th><th>割引</th><th>残/総</th><th>期限</th><th>状態</th></tr></thead><tbody id="csCoupons"></tbody></table></div>
 
         <h2 style="margin-top:16px">保有チケット（回数券）</h2>
-        <div class="tablewrap"><table><thead><tr><th>名称</th><th>対象スペース</th><th>残/総</th><th>有効期間</th><th>状態</th></tr></thead><tbody id="csTickets"></tbody></table></div>
+        <div class="tablewrap"><table class="resp"><thead><tr><th>名称</th><th>対象スペース</th><th>残/総</th><th>有効期間</th><th>状態</th></tr></thead><tbody id="csTickets"></tbody></table></div>
       </div>
     </section>
   </div>
@@ -2252,6 +2266,32 @@ async function initAuth() {
     document.getElementById('loginView').classList.remove('hidden');
   }
 }
+// スマホ縦組み表示（table.resp）用：各行のセルに列見出しを data-label として自動付与。
+// 各テーブルの tbody を監視し、再描画のたびにラベルを貼り直す（各描画関数を個別に触らない）。
+function labelRespCells(table) {
+  const heads = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    [...tr.children].forEach((td, i) => {
+      if (td.tagName !== 'TD') return;
+      const label = heads[i] || '';
+      td.setAttribute('data-label', label);
+      // 操作列（見出しが空 or「操作」）はボタンを見やすく配置するため .act を付与
+      const isAction = (label === '' || label === '操作') && td.querySelector('button, a.btn');
+      td.classList.toggle('act', !!isAction);
+    });
+  });
+}
+function initRespTables() {
+  document.querySelectorAll('table.resp').forEach(table => {
+    labelRespCells(table);
+    const tb = table.querySelector('tbody');
+    if (tb && !tb._respObserved) {
+      tb._respObserved = true;
+      new MutationObserver(() => labelRespCells(table)).observe(tb, { childList: true });
+    }
+  });
+}
+initRespTables();
 initAuth();
 </script>
 </body>

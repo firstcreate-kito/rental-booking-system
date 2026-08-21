@@ -47,15 +47,22 @@
 
 ## 2. 画面から隠れさせない（要点3）
 
-### A2-1 幅の広い表は「枠の中でだけ」横スクロール（必須）
-- 予約一覧のような列の多い表は、**スクロール用の箱**で包む。ページ本体は動かさない。
+### A2-1 幅の広い表は「スマホ＝縦組みカード／PC・タブレット＝表」（必須）
+- 列の多い表は、**スマホ（640px以下）では「1件＝1カード」の縦組み**に切り替える（項目名＋値の2列）。横スクロールは項目名が見えなくなり読みにくいため、原則こちらを採用する。
+- **タブレット・PC（641px以上）は従来どおりの表**。それでも収まらない場合のみ、スクロール用の箱で包む。
+- 実装は `<table class="resp">` を付けるだけ。各セルへの項目名（`data-label`）は、描画後に**見出し行から自動付与**する共通処理（`initRespTables`／`labelRespCells`）が行う。各描画関数を個別に書き換えない。
 
 ```html
-<div class="tablewrap"><table>…</table></div>
+<table class="resp"><thead>…</thead><tbody id="xxBody"></tbody></table>
 ```
 ```css
-.tablewrap{ overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.tablewrap table{ min-width: 720px; } /* 潰れさせない下限 */
+@media (max-width: 640px){
+  table.resp thead{ display:none; }
+  table.resp tr{ display:block; border:1px solid var(--line); border-radius:10px; margin-bottom:12px; }
+  table.resp td{ display:flex; justify-content:space-between; } /* 左=項目名 右=値 */
+  table.resp td::before{ content:attr(data-label); color:var(--muted); font-weight:600; }
+  table.resp td.act{ /* 操作ボタンは横幅を確保して押しやすく */ }
+}
 ```
 
 ### A2-2 タブの帯は見切れさせない（必須）

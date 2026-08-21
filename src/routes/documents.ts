@@ -7,8 +7,17 @@ import {
   getIssuerInfo,
 } from '../db/repository';
 import { renderDocumentHtml, type DocumentData } from '../lib/documents';
+import { sendEmail, documentEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
+
+const isValidEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+
+/** 書類の閲覧URL（ログイン不要の公開トークンページ）を絶対URLで組み立てる */
+function documentUrl(c: { req: { url: string }; env: { PUBLIC_BASE_URL?: string } }, token: string): string {
+  const base = (c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin).replace(/\/$/, '');
+  return `${base}/api/documents/${token}`;
+}
 
 const PAY_LABEL: Record<string, string> = {
   stripe: 'クレジットカード等（Stripe）',
@@ -110,7 +119,66 @@ app.get('/:token', async (c) => {
     }
   }
 
-  return c.html(renderDocumentHtml({ ...data, pdfHref: pdfEnabled ? '?format=pdf' : undefined }));
+  // メール送信ボタンは Resend 設定時のみ表示。既定の宛先は顧客の登録メール。
+  const emailEnabled = !!(c.env.RESEND_API_KEY && c.env.MAIL_FROM);
+  const defaultEmail = (customer as { email?: string } | null)?.email || '';
+
+  return c.html(
+    renderDocumentHtml({
+      ...data,
+      pdfHref: pdfEnabled ? '?format=pdf' : undefined,
+      mailApiPath: emailEnabled ? `/api/documents/${token}/email` : undefined,
+      defaultEmail: emailEnabled ? defaultEmail : undefined,
+    }),
+  );
+});
+
+/**
+ * POST /api/documents/:token/email  領収書/請求書をメールで送信（閲覧リンク付き）
+ * 既定の宛先は顧客の登録メール。body.email があればそちらへ送る（任意変更）。
+ */
+app.post('/:token/email', async (c) => {
+  const token = c.req.param('token');
+  const doc = await getDocumentByToken(c.env.DB, token);
+  if (!doc) return c.json({ error: '書類が見つかりませんでした' }, 404);
+  if (!c.env.RESEND_API_KEY || !c.env.MAIL_FROM) {
+    return c.json({ error: 'メール送信が未設定のため送信できません' }, 400);
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    /* 空ボディ可（既定宛先へ送信） */
+  }
+
+  const customer = await getCustomerProfile(c.env.DB, doc.customer_id);
+  const cust = customer as { email?: string; company_name?: string; contact_name?: string } | null;
+  const invoiceName = await c.env.DB.prepare('SELECT invoice_name FROM booking_groups WHERE id = ?')
+    .bind(doc.group_id)
+    .first<{ invoice_name: string | null }>();
+  const recipientName =
+    (invoiceName?.invoice_name || '').trim() ||
+    (cust?.contact_name || '').trim() ||
+    (cust?.company_name || '').trim() ||
+    'お客様';
+
+  const requested = String((body.email as string) || '').trim();
+  const target = requested || (cust?.email || '').trim();
+  if (!target) return c.json({ error: '送信先メールアドレスがありません' }, 400);
+  if (!isValidEmail(target)) return c.json({ error: 'メールアドレスの形式が正しくありません' }, 400);
+
+  const mail = documentEmail({
+    type: doc.type,
+    documentNumber: doc.booking_number + (doc.type === 'receipt' ? '-RCP' : '-INV'),
+    bookingNumber: doc.booking_number,
+    recipientName,
+    total: doc.total_amount,
+    url: documentUrl(c, token),
+  });
+  const res = await sendEmail(c.env, { to: target, subject: mail.subject, html: mail.html, text: mail.text });
+  if (!res.ok) return c.json({ error: res.error || '送信に失敗しました' }, 502);
+  return c.json({ ok: true, sentTo: target });
 });
 
 export default app;

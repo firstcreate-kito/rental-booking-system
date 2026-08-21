@@ -39,6 +39,10 @@ export interface DocumentData {
   issuer: IssuerInfo;
   /** サーバー側PDF生成が有効なとき、ダウンロード用リンク（例: '?format=pdf'）。未指定なら印刷ボタンのみ。 */
   pdfHref?: string;
+  /** メール送信APIのパス（例: '/api/documents/<token>/email'）。設定時のみ「メールで送信」ボタンを表示。 */
+  mailApiPath?: string;
+  /** メール送信フォームの既定の宛先（顧客の登録メール）。 */
+  defaultEmail?: string;
 }
 
 /** 税込金額から消費税(10%)を割り戻す */
@@ -105,7 +109,17 @@ export function renderDocumentHtml(d: DocumentData): string {
   .toolbar button, .toolbar .btn-dl { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:11px 22px; font-size:15px; cursor:pointer; display:inline-block; text-decoration:none; }
   .toolbar .btn-dl { margin-right:8px; }
   .toolbar .btn-print { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .toolbar .btn-mail { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .toolbar .tb-row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
   .toolbar .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+  .toolbar .mailform { max-width:420px; margin:12px auto 0; text-align:left; }
+  .toolbar .mailrow { display:flex; gap:8px; }
+  .toolbar .mailform input { flex:1; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .toolbar .btn-send { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px 18px; font-size:14px; cursor:pointer; }
+  .toolbar .mailnote { color:var(--muted); font-size:11px; margin-top:6px; }
+  .toolbar .mailmsg { font-size:13px; margin-top:6px; min-height:18px; }
+  .toolbar .mailmsg.ok { color:#0f7b3f; }
+  .toolbar .mailmsg.bad { color:#c02a1e; }
   .sheet { background:#fff; width:210mm; max-width:96vw; margin:0 auto 30px; padding:18mm 16mm; box-shadow:0 2px 12px rgba(0,0,0,.12); }
   h1 { text-align:center; font-size:28px; letter-spacing:.4em; margin:0 0 6px; padding-left:.4em; }
   .doc-meta { text-align:right; font-size:12px; color:var(--muted); }
@@ -159,12 +173,26 @@ export function renderDocumentHtml(d: DocumentData): string {
 </style>
 </head><body>
   <div class="toolbar">
-    ${d.pdfHref
-      ? `<a class="btn-dl" href="${esc(d.pdfHref)}">⬇ PDFをダウンロード</a>
-         <button class="btn-print" onclick="window.print()">🖨 印刷</button>
-         <div class="hint">スマホは「PDFをダウンロード」がおすすめです。PCでは「印刷」→「PDFに保存」も使えます。</div>`
-      : `<button onclick="window.print()">🖨 PDFとして保存 / 印刷</button>
-         <div class="hint">ボタンから「送信先：PDFに保存」を選ぶとPDFで保存できます。スマホで動かない場合は、Safari / Chrome で開いてお試しください。</div>`}
+    <div class="tb-row">
+      ${d.pdfHref
+        ? `<a class="btn-dl" href="${esc(d.pdfHref)}">⬇ PDFをダウンロード</a>
+           <button class="btn-print" onclick="window.print()">🖨 印刷</button>`
+        : `<button onclick="window.print()">🖨 PDFとして保存 / 印刷</button>`}
+      ${d.mailApiPath ? `<button class="btn-mail" onclick="toggleMail()">✉ メールで送信</button>` : ''}
+    </div>
+    <div class="hint">${d.pdfHref
+      ? 'スマホは「PDFをダウンロード」がおすすめです。PCでは「印刷」→「PDFに保存」も使えます。'
+      : 'ボタンから「送信先：PDFに保存」を選ぶとPDFで保存できます。スマホで動かない場合は、Safari / Chrome で開いてお試しください。'}</div>
+    ${d.mailApiPath
+      ? `<div id="mailForm" class="mailform" style="display:none">
+           <div class="mailrow">
+             <input id="mailTo" type="email" value="${esc(d.defaultEmail || '')}" placeholder="送信先メールアドレス" />
+             <button class="btn-send" id="mailSend" onclick="sendMail()">送信</button>
+           </div>
+           <div class="mailnote">既定はご登録のメールアドレスです。変更する場合は上書きしてください。</div>
+           <div id="mailMsg" class="mailmsg"></div>
+         </div>`
+      : ''}
   </div>
   <div class="sheet">
     <h1>${title}</h1>
@@ -200,5 +228,23 @@ export function renderDocumentHtml(d: DocumentData): string {
       issuer.note ? '<br>' + nl2br(issuer.note) : ''
     }</div>
   </div>
+  ${d.mailApiPath
+    ? `<script>
+  function toggleMail(){var f=document.getElementById('mailForm');f.style.display=(f.style.display==='none')?'':'none';if(f.style.display===''){var i=document.getElementById('mailTo');if(i)i.focus();}}
+  async function sendMail(){
+    var to=(document.getElementById('mailTo').value||'').trim();
+    var msg=document.getElementById('mailMsg'),btn=document.getElementById('mailSend');
+    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(to)){msg.className='mailmsg bad';msg.textContent='メールアドレスの形式が正しくありません';return;}
+    btn.disabled=true;msg.className='mailmsg';msg.textContent='送信中…';
+    try{
+      var r=await fetch(${JSON.stringify(d.mailApiPath)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:to})});
+      var b=await r.json().catch(function(){return {};});
+      if(r.ok){msg.className='mailmsg ok';msg.textContent=(b.sentTo||to)+' に送信しました。';}
+      else{msg.className='mailmsg bad';msg.textContent=b.error||'送信に失敗しました';}
+    }catch(e){msg.className='mailmsg bad';msg.textContent='送信に失敗しました';}
+    btn.disabled=false;
+  }
+</script>`
+    : ''}
 </body></html>`;
 }

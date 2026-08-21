@@ -96,6 +96,47 @@ function withSignature(m: { subject: string; html: string; text: string }): { su
   return { subject: m.subject, html: m.html + '\n' + SIGNATURE_HTML, text: m.text + '\n' + SIGNATURE_TEXT };
 }
 
+export interface DocumentEmailData {
+  /** 'receipt' 領収書 / 'invoice' 請求書 */
+  type: 'receipt' | 'invoice';
+  documentNumber: string;
+  bookingNumber: string;
+  recipientName: string;
+  total: number;
+  /** 書類の閲覧URL（ログイン不要の公開トークンページ。PDF保存もここから） */
+  url: string;
+}
+
+/** 領収書・請求書をメールで送るための本文（ログイン不要の閲覧リンク付き） */
+export function documentEmail(d: DocumentEmailData): { subject: string; html: string; text: string } {
+  const label = d.type === 'receipt' ? '領収書' : '請求書';
+  const subject = `【レンタルスペースALBE】${label}のご案内（予約番号 ${d.bookingNumber}）`;
+  const name = escapeHtml(d.recipientName || 'お客様');
+  const html = `<div style="font-family:sans-serif;font-size:14px;color:#1a1a1a;line-height:1.8">
+<p>${name} 様</p>
+<p>レンタルスペースALBEをご利用いただきありがとうございます。<br>ご利用分の${label}を発行いたしましたので、下記よりご確認ください。</p>
+<p style="margin:16px 0"><a href="${escapeHtml(d.url)}" style="display:inline-block;background:#1f6feb;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:700">${label}を開く</a></p>
+<p style="font-size:13px;color:#6b7280">上のボタンが開かない場合は、次のURLをブラウザに貼り付けてください：<br><a href="${escapeHtml(d.url)}" style="color:#1d4ed8;word-break:break-all">${escapeHtml(d.url)}</a></p>
+<table style="border-collapse:collapse;font-size:13px;margin-top:8px">
+<tr><td style="color:#6b7280;padding:2px 10px 2px 0">${label}番号</td><td>${escapeHtml(d.documentNumber)}</td></tr>
+<tr><td style="color:#6b7280;padding:2px 10px 2px 0">金額（税込）</td><td>${yen(d.total)}</td></tr>
+</table>
+<p style="font-size:13px;color:#6b7280;margin-top:14px">※このリンクはログイン不要でご覧いただけます。ページを開いて「PDFをダウンロード」または「印刷」からPDFとして保存できます。</p>
+</div>`;
+  const text = `${d.recipientName || 'お客様'} 様
+
+レンタルスペースALBEをご利用いただきありがとうございます。
+ご利用分の${label}を発行いたしました。下記URLよりご確認ください（ログイン不要）。
+
+${label}：${d.url}
+
+${label}番号：${d.documentNumber}
+金額（税込）：${yen(d.total)}
+
+※ページを開いて「PDFをダウンロード」または「印刷」からPDFとして保存できます。`;
+  return withSignature({ subject, html, text });
+}
+
 export interface BookingEmailData {
   bookingNumber: string;
   spaceName: string;

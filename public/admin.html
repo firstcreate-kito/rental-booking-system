@@ -207,7 +207,7 @@
         <h2 style="margin:0">見学申込</h2>
         <label style="font-size:13px"><input type="checkbox" id="vwShowClosed" onchange="loadViewingRequests()"> 対応済みも表示</label>
       </div>
-      <p class="muted" style="font-size:13px">サイトの見学申込フォームから届いた申込です。空き状況とスタッフの在席を確認し、日時を指定して「確定」または「候補提案」してください。ご希望に添えない場合は「お断り」で再調整をご案内できます。※見学はGoogleカレンダーには反映されません（記録のみ）。</p>
+      <p class="muted" style="font-size:13px">サイトの見学申込フォームから届いた申込です（申込時に管理者・お客様へメール送信済み）。内容を確認し、日程調整はメール・お電話でお客様と直接行ってください。対応が済んだら「対応済みにする」で一覧を整理できます。※見学申込はGoogleカレンダーには反映されません（記録のみ）。</p>
       <div id="vwList"><div class="muted">読み込み中…</div></div>
     </section>
 
@@ -2120,7 +2120,7 @@ let _crHandleAfter = null;
 
 // ---- 見学申込（#81）----
 const VW_BS_LABEL = { booked:'予約済み', considering:'予約検討中', other:'その他' };
-const VW_STATUS_LABEL = { pending:'未対応', proposed:'提案済み', confirmed:'確定', declined:'お断り', cancelled:'クローズ' };
+const VW_STATUS_LABEL = { pending:'未対応', proposed:'提案済み', confirmed:'確定', declined:'お断り', cancelled:'対応済み' };
 async function loadViewingRequests() {
   const showClosed = document.getElementById('vwShowClosed').checked;
   const qs = showClosed ? '' : '?status=pending';
@@ -2162,22 +2162,15 @@ function vwCard(r) {
     ? '<div style="margin-top:4px"><span class="muted">' + (r.status === 'confirmed' ? '確定日時' : '提案日時') + '：</span><strong>' + crEsc(r.confirmed.date + ' ' + r.confirmed.start + '〜' + (r.confirmed.end || '')) + '</strong></div>'
     : '';
   const statusPill = '<span class="pill ' + (r.status === 'confirmed' ? 'completed' : r.status === 'pending' ? '' : 'muted') + '">' + (VW_STATUS_LABEL[r.status] || r.status) + '</span>';
+  // 日程調整はメール等でお客様と直接行う運用。管理画面は内容表示に専念し、
+  // 対応が済んだ申込は「対応済みにする」で一覧から整理できるようにする（メール送信なし）。
   let actions = '';
   if (active) {
     const idj = JSON.stringify(r.id);
-    const df = r.first ? r.first.date : (r.second ? r.second.date : '');
-    const tf = r.first ? r.first.start : '';
     actions =
-      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-        '<div style="flex:1 1 140px"><label style="font-size:12px">日付</label><input type="date" id="vwd-' + r.id + '" value="' + crEsc(df) + '" style="width:100%"></div>' +
-        '<div style="flex:1 1 110px"><label style="font-size:12px">開始</label><input type="time" step="1800" id="vwt-' + r.id + '" value="' + crEsc(tf) + '" style="width:100%"></div>' +
-      '</div>' +
-      '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button class="btn sm" style="flex:1 1 auto" onclick="vwSchedule(' + idj + ',\'confirm\')">確定して通知</button>' +
-        '<button class="btn sm ghost" style="flex:1 1 auto" onclick="vwSchedule(' + idj + ',\'propose\')">候補として提案</button>' +
-        '<button class="btn sm ghost" style="flex:1 1 auto" onclick="vwDecline(' + idj + ')">お断り</button>' +
-      '</div>' +
-      '<div style="margin-top:8px"><input type="text" id="vwn-' + r.id + '" placeholder="お客様へのひとこと（任意・メールに記載されます）" style="width:100%"></div>';
+      '<div style="margin-top:10px;display:flex;justify-content:flex-end">' +
+        '<button class="btn sm ghost" onclick="vwMarkHandled(' + idj + ')">対応済みにする</button>' +
+      '</div>';
   } else {
     actions = r.staffNote ? '<div class="muted" style="margin-top:4px">' + crEsc(r.staffNote) + '</div>' : '';
   }
@@ -2195,24 +2188,13 @@ function vwCard(r) {
     confirmedLine + actions +
   '</div>';
 }
-async function vwSchedule(id, action) {
-  const date = document.getElementById('vwd-' + id).value;
-  const start = document.getElementById('vwt-' + id).value;
-  const staffNote = document.getElementById('vwn-' + id).value.trim();
-  if (!date || !start) { alert('日付と開始時刻を指定してください'); return; }
-  const verb = action === 'confirm' ? '確定（確定メール送信）' : '候補提案（提案メール送信）';
-  if (!confirm(date + ' ' + start + ' で' + verb + 'します。よろしいですか？')) return;
-  const { ok, body } = await api('/api/admin/viewing-requests/' + id + '/' + action, jsonBody({ date, start, staffNote: staffNote || undefined }));
+// 対応済みにする（メール送信なし・一覧の整理のみ）。日程調整はメール等で直接行う運用。
+async function vwMarkHandled(id) {
+  if (!confirm('この見学申込を「対応済み」にします。（お客様へのメールは送信されません）よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/viewing-requests/' + id + '/cancel', jsonBody({}));
   if (!ok) { alert(body.error || '処理に失敗しました'); return; }
   loadViewingRequests();
-}
-async function vwDecline(id) {
-  const staffNote = prompt('お断り／再調整のご案内メールに添えるひとこと（任意）', '');
-  if (staffNote === null) return;
-  if (!confirm('この見学申込を「お断り（再調整のご案内）」にします。よろしいですか？')) return;
-  const { ok, body } = await api('/api/admin/viewing-requests/' + id + '/decline', jsonBody({ staffNote: staffNote.trim() || undefined }));
-  if (!ok) { alert(body.error || '処理に失敗しました'); return; }
-  loadViewingRequests();
+  refreshVwBadge();
 }
 
 // --- 初回セットアップ / ログイン画面の出し分け ---

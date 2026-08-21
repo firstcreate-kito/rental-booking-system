@@ -35,29 +35,50 @@
   .btn.sm { padding: 6px 10px; font-size: 13px; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-  .cal .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
-  .cal .day { aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: 8px; padding: 4px; font-size: 12px;
-              display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; }
-  .cal .day.weekend { background: #fffbea; }
-  .cal .day.closed { background: #f1f3f5; color: #adb5bd; }
-  .cal .day .closed-label { margin-top: 2px; font-size: 11px; font-weight: 700; color: #868e96; letter-spacing: 1px; }
-  .cal .day.seasonal { border-color: #fb923c; box-shadow: inset 0 0 0 1px #fb923c; }
-  .cal .day.bookable { cursor: pointer; }
-  .cal .day.bookable:hover { border-color: var(--brand); }
-  .cal .day.selected { background: #e7f0ff; border-color: var(--brand); }
-  .cal .day .sym { font-size: 15px; font-weight: 700; }
-  .cal .day .sym.ok { color: var(--ok); } .cal .day .sym.limited { color: var(--warn); } .cal .day .sym.full { color: var(--bad); }
-  .badge { font-size: 9px; background: #fde68a; color: #92400e; border-radius: 4px; padding: 0 3px; margin-top: 2px; }
-  .cal .day.inactive { background: #fafafa; color: #c9ced6; }
-  /* 閲覧のみ（予約可能期間超・空きは見せるがクリック不可）#77 */
-  .cal .day.viewonly { background: #fbfbfc; border-style: dashed; opacity: .6; cursor: help; }
-  .cal .day.viewonly:hover { border-color: var(--brand); }
-  /* 2か月表示（#79）: PC=横2列 / スマホ=縦2段 */
-  .cal2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .calpanel .calm { text-align: center; font-weight: 700; font-size: 14px; margin-bottom: 6px; }
-  @media (max-width: 640px) { .cal2 { grid-template-columns: 1fr; gap: 18px; } }
-  .empty { grid-column: span 1; }
+  /* ===== 予約カレンダー（サイト提供の見本デザインを適用・2か月表示#79維持） ===== */
+  .cal2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .cal2 { grid-template-columns: 1fr; gap: 14px; } }
+  .calpanel { border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--paper); }
+  .calm { padding: 9px 12px; background: var(--key-w); border-bottom: 1px solid var(--line);
+          font-family: var(--f-num); font-size: 15px; font-weight: 600; text-align: left; }
+  .caldow { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--wash); border-bottom: 1px solid var(--line); }
+  .caldow .dow { padding: 6px 0; text-align: center; font-size: 11px; color: var(--ink-2); }
+  .caldow .dow:first-child { color: var(--sun); }
+  .caldow .dow:last-child { color: var(--sat); }
+  .calgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); }
+  .d { background: var(--paper); min-height: 56px; padding: 5px 3px 6px; border: 0; font: inherit;
+       display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+  .d.out { background: var(--wash); }
+  .d .n { font-family: var(--f-num); font-size: 12px; color: var(--ink-2); line-height: 1.1; }
+  .d.we { background: var(--holiday-w); }
+  .d.sun .n { color: var(--sun); }
+  .d.sat .n { color: var(--sat); }
+  .d.na .n { color: var(--ink-3); }
+  .mk { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+        border-radius: var(--r-pill); font-size: 13px; font-weight: 600; line-height: 1; }
+  .ok .mk { background: var(--ok-w); color: var(--ok); box-shadow: inset 0 0 0 1.5px var(--ok); }
+  .few .mk { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
+  .full .mk { background: var(--full-w); color: var(--full); box-shadow: inset 0 0 0 1.5px var(--full); }
+  .closed .mk { background: var(--closed-w); color: var(--closed); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+  .d .st { font-size: 10px; line-height: 1.25; display: none; }
+  .ok .st { color: var(--ok); } .few .st { color: var(--few); } .full .st { color: var(--full); } .closed .st { color: var(--closed); }
+  .d.clickable { cursor: pointer; }
+  .d.clickable:hover { background: var(--key-w); }
+  .d.viewonly { cursor: help; }
+  .d.viewonly .mk { opacity: .5; }
+  .flagline { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
+  .f2 { font-size: 9px; line-height: 1.5; padding: 0 5px; border-radius: var(--r-pill); border: 1px solid currentColor; white-space: nowrap; }
+  .f-season { color: var(--full); }
+  .f-talk { color: var(--few); }
+  .callegend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 2px 0; font-size: 11px; color: var(--ink-2); }
+  .callegend span { display: inline-flex; align-items: center; gap: 5px; }
+  .callegend i { width: 15px; height: 15px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; font-style: normal; }
+  .l-ok { background: var(--ok-w); color: var(--ok); box-shadow: inset 0 0 0 1.5px var(--ok); }
+  .l-few { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
+  .l-full { background: var(--full-w); color: var(--full); box-shadow: inset 0 0 0 1.5px var(--full); }
+  .l-closed { background: var(--closed-w); color: var(--closed); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+  .l-we { background: var(--holiday-w); box-shadow: inset 0 0 0 1px var(--line-2); }
+  @media (min-width: 641px) { .d .st { display: block; } .d { min-height: 74px; } .mk { width: 26px; height: 26px; font-size: 14px; } }
   .slotbar { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 10px; }
   .slot { font-size: 10px; color: #374151; width: 40px; text-align: center; padding: 3px 0; border-radius: 4px; border: 1px solid var(--line); }
   .slot.st-free { background: #eaf7ee; border-color: #bbe6c8; }
@@ -130,18 +151,23 @@
     <div class="cal2">
       <div class="calpanel">
         <div class="calm" id="calM1"></div>
-        <div class="cal" id="dows1"></div>
-        <div class="cal" id="grid1" style="margin-top:4px"></div>
+        <div class="caldow" id="dows1"></div>
+        <div class="calgrid" id="grid1"></div>
       </div>
       <div class="calpanel">
         <div class="calm" id="calM2"></div>
-        <div class="cal" id="dows2"></div>
-        <div class="cal" id="grid2" style="margin-top:4px"></div>
+        <div class="caldow" id="dows2"></div>
+        <div class="calgrid" id="grid2"></div>
       </div>
     </div>
-    <div class="legend">
-      <span>○ 空きあり</span><span>△ 残りわずか</span><span>✕ 満枠</span>
-      <span>🟡 土日祝</span><span>🟧枠 季節料金</span><span>商談中=お問い合わせ</span><span>休業=お休み</span>
+    <div class="callegend">
+      <span><i class="l-ok">○</i>空きあり</span>
+      <span><i class="l-few">△</i>残りわずか</span>
+      <span><i class="l-full">✕</i>満枠</span>
+      <span><i class="l-closed">—</i>お休み</span>
+      <span><i class="l-we"></i>土日祝</span>
+      <span><i class="f2 f-season" style="width:auto;height:auto;padding:0 5px">季節料金</i></span>
+      <span><i class="f2 f-talk" style="width:auto;height:auto;padding:0 5px">商談中</i>お問い合わせください</span>
     </div>
   </section>
 
@@ -482,37 +508,41 @@ function addMonthStr(ym, delta) {
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
 }
 // 1日分のセルHTML（#79 で2か月共通化）
+// 見本デザイン準拠のマス: 日付＋状態（記号＋色＋文字）＋追加バッジ（季節料金/商談中）
+const CAL_ST_TEXT = { available: '空きあり', limited: '残りわずか', full: '満枠', closed: 'お休み' };
+const CAL_ST_CLASS = { available: 'ok', limited: 'few', full: 'full', closed: 'closed' };
 function dayCellHtml(d) {
   const dayNum = Number(d.date.slice(8, 10));
-  const cls = ['day'];
-  if (d.dayType === 'weekend') cls.push('weekend');
-  if (d.isSeasonal) cls.push('seasonal');
-  // 記号の出し分け: 休業=「休業」/ 過去・受付期間外=記号なし / 満枠=✕ / 予約可=○△ / 閲覧のみ=薄色
-  let symHtml = '';
+  const dow = new Date(d.date + 'T12:00:00Z').getUTCDay(); // 0=日,6=土
+  const cls = ['d'];
+  if (d.dayType === 'weekend') cls.push('we');                 // 土日祝の地色
+  if (dow === 0 || (dow !== 6 && d.dayType === 'weekend')) cls.push('sun'); // 日曜・祝日=赤
+  else if (dow === 6) cls.push('sat');                         // 土曜=青
+  let inner = '<span class="n">' + dayNum + '</span>';
+  let onclick = '', hover = '';
   if (d.closed || d.status === 'closed') {
     cls.push('closed');
-    symHtml = '<div class="closed-label">休業</div>';
-  } else if (d.viewOnly) {
-    cls.push('viewonly'); // 予約可能期間超・閲覧可能期間内（#77）
-    const symClass = d.status === 'full' ? 'full' : (d.status === 'available' ? 'ok' : 'limited');
-    symHtml = '<div class="sym ' + symClass + '">' + (d.status === 'full' ? '✕' : d.symbol) + '</div>';
-  } else if (d.past || (!d.bookable && d.status !== 'full')) {
-    cls.push('inactive');
-  } else if (d.status === 'full') {
-    symHtml = '<div class="sym full">✕</div>';
+    inner += '<span class="mk">—</span><span class="st">お休み</span>';
+  } else if (d.viewOnly) { // 予約可能期間超・閲覧可能期間内（#77）: 空きは見せるがクリックで案内
+    cls.push(CAL_ST_CLASS[d.status] || 'ok', 'viewonly');
+    inner += '<span class="mk">' + (d.status === 'full' ? '✕' : d.symbol) + '</span><span class="st">' + (CAL_ST_TEXT[d.status] || '') + '</span>';
+    onclick = ' onclick="showViewOnlyInfo(this, event)"';
   } else if (d.bookable) {
-    cls.push('bookable');
-    const symClass = d.status === 'available' ? 'ok' : 'limited';
-    symHtml = '<div class="sym ' + symClass + '">' + d.symbol + '</div>';
+    cls.push(CAL_ST_CLASS[d.status] || 'ok', 'clickable');
+    inner += '<span class="mk">' + d.symbol + '</span><span class="st">' + (CAL_ST_TEXT[d.status] || '') + '</span>';
+    onclick = ' onclick="openModal(\'' + d.date + '\')"';
+  } else if (d.status === 'full') {
+    cls.push('full');
+    inner += '<span class="mk">✕</span><span class="st">満枠</span>';
+    if (d.hasTentative) hover = ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"';
+  } else {
+    cls.push('na'); // 過去・受付期間外は日付のみ
   }
-  const onclick = d.bookable
-    ? ' onclick="openModal(\'' + d.date + '\')"'
-    : (d.viewOnly ? ' onclick="showViewOnlyInfo(this, event)"' : '');
-  const tentFull = (d.status === 'full' && d.hasTentative);
-  const hover = tentFull ? ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"' : '';
-  return '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' +
-    '<div>' + dayNum + '</div>' + symHtml +
-    (d.hasTentative ? '<div class="badge">商談中</div>' : '') + '</div>';
+  const flags = [];
+  if (d.isSeasonal) flags.push('<span class="f2 f-season">季節料金</span>');
+  if (d.hasTentative) flags.push('<span class="f2 f-talk">商談中</span>');
+  if (flags.length) inner += '<span class="flagline">' + flags.join('') + '</span>';
+  return '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' + inner + '</div>';
 }
 // 1か月分のパネル（見出し・曜日・日セル）を描画
 function renderMonthPanel(labelId, dowsId, gridId, ym, days) {
@@ -520,7 +550,7 @@ function renderMonthPanel(labelId, dowsId, gridId, ym, days) {
   document.getElementById(dowsId).innerHTML = DOWS.map(d => '<div class="dow">' + d + '</div>').join('');
   const offset = new Date(ym + '-01T12:00:00Z').getUTCDay();
   let html = '';
-  for (let i = 0; i < offset; i++) html += '<div class="empty"></div>';
+  for (let i = 0; i < offset; i++) html += '<div class="d out"></div>';
   for (const d of (days || [])) html += dayCellHtml(d);
   document.getElementById(gridId).innerHTML = html;
 }

@@ -80,6 +80,9 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api/documents/')) return next();
   // 共有デザインアセット（トークン・共通ヘッダーCSS・ロゴ等・非機密）は認証ゲートを通さない
   if (c.req.path.startsWith('/assets/')) return next();
+  // PWA関連ファイル（Service Worker・マニフェスト・オフライン表示）は非機密。
+  // Service Worker はルート(/)スコープで配信する必要があるため /assets/ には置けない。
+  if (c.req.path === '/sw.js' || c.req.path === '/manifest.webmanifest' || c.req.path === '/offline.html') return next();
   // 空き状況ページ（公開・SEO対象）とその取得API・sitemap は認証ゲートを通さない（#74）
   if (c.req.path === '/availability' || c.req.path.startsWith('/availability/')) return next();
   if (c.req.path.startsWith('/api/availability')) return next();

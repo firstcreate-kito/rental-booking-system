@@ -12,6 +12,14 @@ export const BOOKING_CHANGE_HTML = `<!DOCTYPE html>
 <title>ご予約の確認・変更｜レンタルスペースALBE</title>
 <link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/albe-header.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0068b7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ALBE予約">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="icon" href="/assets/icon-192.png" type="image/png">
+<script src="/assets/pwa.js" defer></script>
 <style>
 /* サイト共通の見た目（tokens.css）に対応づけ。中間色・角丸・余白は tokens.css を継承 */
 :root{ --brand:var(--key); --bad:var(--full);

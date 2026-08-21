@@ -4,12 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ALBE パスワード再設定</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/albe-header.css">
 <style>
-  :root { --brand:#1f6feb; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --ok:#16a34a; --bad:#dc2626; }
+  /* サイト共通の見た目（tokens.css）に対応づけ。--ink/--line は tokens.css を継承 */
+  :root { --brand:var(--key); --muted:var(--ink-2); --bg:var(--wash); --ok:var(--ok); --bad:var(--full); }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
-  header { background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; }
-  header h1 { font-size:16px; margin:0; }
+  body { margin:0; font-family:var(--f-sans); color:var(--ink); background:var(--bg); line-height:1.6; }
   main { max-width:420px; margin:40px auto; padding:0 20px; }
   .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; }
   h2 { font-size:16px; margin:0 0 12px; }
@@ -24,7 +25,15 @@
 </style>
 </head>
 <body>
-<header><h1>レンタルスペースALBE</h1></header>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.png" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav">
+    <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
+  </nav>
+</header>
 <main>
   <div class="card">
     <h2>パスワードの再設定</h2>

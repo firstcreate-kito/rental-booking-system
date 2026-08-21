@@ -4,10 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ALBE お支払い</title>
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/albe-header.css">
 <style>
-  :root { --brand:#1f6feb; --ink:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --ok:#16a34a; --warn:#f59e0b; --bad:#dc2626; }
+  /* サイト共通の見た目（tokens.css）に対応づけ。--ink/--line は tokens.css を継承 */
+  :root { --brand:var(--key); --muted:var(--ink-2); --bg:var(--wash); --ok:var(--ok); --warn:var(--few); --bad:var(--full); }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+  body { margin:0; font-family:var(--f-sans); color:var(--ink); background:var(--bg); line-height:1.7; }
   main { max-width:560px; margin:0 auto; padding:40px 20px; }
   .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:28px 24px; text-align:center; }
   .icon { font-size:52px; line-height:1; }
@@ -29,6 +32,15 @@
 </style>
 </head>
 <body>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.png" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav">
+    <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
+  </nav>
+</header>
 <main>
   <div class="card" id="box">
     <div class="icon" id="icon">⏳</div>

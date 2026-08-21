@@ -109,8 +109,11 @@ export function renderDocumentHtml(d: DocumentData): string {
   .recipient { flex:1; }
   .recipient .to { font-size:18px; font-weight:700; border-bottom:2px solid var(--ink); padding-bottom:4px; display:inline-block; min-width:60%; }
   .recipient .sub { font-size:12px; color:var(--muted); margin-top:8px; }
-  .issuer { flex:0 0 auto; text-align:right; font-size:12px; }
+  .issuer { flex:0 0 auto; text-align:right; font-size:12px; position:relative; padding-right:78px; }
   .issuer .name { font-size:15px; font-weight:700; margin-bottom:4px; }
+  /* 社印（角印）：発行者情報の右側に配置。用意が無ければ非表示（onerror） */
+  .issuer .seal { position:absolute; top:-4px; right:-6px; width:70px; height:70px; object-fit:contain; opacity:.92;
+    mix-blend-mode:multiply; -webkit-print-color-adjust:exact; print-color-adjust:exact; pointer-events:none; }
   .amount { margin:22px 0; border:2px solid var(--ink); border-radius:6px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
   .amount .lbl { font-size:15px; font-weight:700; }
   .amount .val { font-size:26px; font-weight:800; }
@@ -127,6 +130,22 @@ export function renderDocumentHtml(d: DocumentData): string {
   .bank { margin-top:10px; border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:#fafafa; }
   .bank-h { font-weight:700; margin-bottom:2px; }
   .foot { margin-top:24px; font-size:12px; color:var(--muted); }
+  /* スマホ表示：A4固定幅で見切れないよう、余白を詰めて縦積みにする（印刷時はA4のまま） */
+  @media screen and (max-width:640px) {
+    .sheet { width:auto; max-width:none; padding:20px 16px; margin:0 8px 24px; }
+    h1 { font-size:22px; letter-spacing:.3em; }
+    .doc-meta { font-size:11px; }
+    .head { flex-direction:column; gap:12px; margin-top:14px; }
+    .recipient .to { min-width:0; font-size:16px; }
+    .issuer { text-align:left; padding-right:0; overflow-wrap:anywhere; }
+    .issuer .name { font-size:14px; }
+    .issuer .seal { position:static; display:block; margin:10px 0 0; }
+    .amount { padding:10px 12px; }
+    .amount .val { font-size:22px; }
+    table { font-size:12px; }
+    th, td { padding:6px 6px; }
+    .totals { width:100%; }
+  }
   @media print {
     body { background:#fff; }
     .toolbar { display:none; }
@@ -152,6 +171,7 @@ export function renderDocumentHtml(d: DocumentData): string {
       <div class="issuer">
         <div class="name">${esc(issuer.name)}</div>
         ${issuerLines}
+        <img class="seal" src="/assets/company-seal.png" alt="社印" onerror="this.style.display='none'">
       </div>
     </div>
     <div class="amount">

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ALBE チケット購入</title>
 <link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/albe-header.css">
 <style>
   /* サイト共通の見た目（tokens.css）に対応づけ。--ink/--line/--ok は tokens.css を継承 */
   :root { --brand:var(--key); --muted:var(--ink-2); --bg:var(--wash); --warn:var(--few); --bad:var(--full); }
@@ -46,9 +47,15 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>レンタルスペースALBE チケット購入</h1>
-  <div class="who" id="who"></div>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.svg" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav">
+    <span class="albe-who" id="who"></span>
+    <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
+  </nav>
 </header>
 <main>
   <!-- 決済結果バナー -->

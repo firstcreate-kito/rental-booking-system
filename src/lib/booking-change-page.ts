@@ -11,6 +11,7 @@ export const BOOKING_CHANGE_HTML = `<!DOCTYPE html>
 <meta name="robots" content="noindex,nofollow">
 <title>ご予約の確認・変更｜レンタルスペースALBE</title>
 <link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/albe-header.css">
 <style>
 /* サイト共通の見た目（tokens.css）に対応づけ。中間色・角丸・余白は tokens.css を継承 */
 :root{ --brand:var(--key); --bad:var(--full);
@@ -41,7 +42,13 @@ a.link{ color:var(--brand); }
 </style>
 </head>
 <body>
-<header class="hd"><div class="hd-in"><a href="/" class="logo">ALBE</a></div></header>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.svg" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav"><a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a></nav>
+</header>
 <main>
   <h1>ご予約の確認・変更</h1>
   <p class="lede">会員登録なしでご予約されたお客様も、ご予約時の情報でご予約内容の確認・変更のご相談ができます。</p>

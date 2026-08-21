@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 40" role="img" aria-label="レンタルスペースALBE">
+  <!-- 仮ロゴ（差し替え用）。public/assets/albe-logo.svg を正式ロゴに置き換えてください。 -->
+  <text x="0" y="13" font-family="-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif" font-size="7" letter-spacing="3" fill="#6f6c66">RENTAL SPACE</text>
+  <text x="0" y="35" font-family="-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif" font-size="24" font-weight="700" letter-spacing="5" fill="#0068b7">ALBE</text>
+</svg>

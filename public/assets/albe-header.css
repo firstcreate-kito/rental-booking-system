@@ -1,0 +1,39 @@
+/* =================================================================
+   予約システム 共通ヘッダー（最小構成）
+   左：ALBEロゴ（→ サイトトップ）／右：お問い合わせ のみ。
+   グローバルナビは意図的に置かない（申込に集中させる）。
+   色・寸法は tokens.css の変数を使用（未読込時のフォールバックも指定）。
+   ================================================================= */
+.albe-topbar{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:var(--paper,#fff);
+  border-bottom:1px solid var(--line,#eae8e3);
+  padding:0 var(--pad,16px);
+  min-height:56px;
+  position:sticky; top:0; z-index:30;
+}
+.albe-brand{ display:inline-flex; align-items:center; height:56px; text-decoration:none; flex:0 0 auto; }
+.albe-brand img.albe-logo{ height:26px; width:auto; display:block; }
+/* ロゴ画像が無いときのテキスト代替（onerror で表示） */
+.albe-brand .albe-brand-text{ display:none; font-weight:700; letter-spacing:.18em;
+  color:var(--ink,#1a1917); font-size:15px; }
+
+.albe-nav{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.albe-who{ font-size:12px; color:var(--ink-2,#6f6c66); }
+
+/* お問い合わせ（案内リンク・押しやすい大きさ） */
+.albe-contact{
+  display:inline-flex; align-items:center; min-height:40px; padding:0 14px;
+  border:1px solid var(--line-2,#d8d5ce); border-radius:var(--r,8px);
+  color:var(--ink,#1a1917); background:#fff; text-decoration:none; font-size:14px;
+  white-space:nowrap;
+}
+.albe-contact:hover{ background:var(--wash,#f8f7f5); }
+
+/* ヘッダー内の副操作（ログアウト等）を置く場合の共通小ボタン */
+.albe-nav .albe-mini{
+  display:inline-flex; align-items:center; min-height:40px; padding:0 12px;
+  border:1px solid var(--line-2,#d8d5ce); border-radius:var(--r,8px);
+  background:#fff; color:var(--ink,#1a1917); font-size:13px; cursor:pointer; text-decoration:none;
+}
+.albe-nav .albe-mini:hover{ background:var(--wash,#f8f7f5); }

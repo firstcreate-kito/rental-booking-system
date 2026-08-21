@@ -125,6 +125,7 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(desc)}">
 <link rel="canonical" href="https://space-albe.com/availability/">
+<link rel="stylesheet" href="/assets/albe-header.css">
 <style>
 :root{ --ink:#1a1917; --ink-2:#6f6c66; --ink-3:#a8a49c; --paper:#fff; --wash:#f8f7f5; --line:#eae8e3; --line-2:#d8d5ce; --r:2px; --pad:16px; --maxw:1080px;
   --f-sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif; --f-num:ui-monospace,"SF Mono",Menlo,monospace; }
@@ -164,7 +165,16 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
 </style>
 </head>
 <body>
-<header class="hd"><div class="hd-in wrap"><a href="/" class="logo">ALBE</a><a href="${escapeHtml(ctx.loginUrl)}" class="login">ログイン</a></div></header>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.svg" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav">
+    <a class="albe-mini" href="${escapeHtml(ctx.loginUrl)}">ログイン</a>
+    <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
+  </nav>
+</header>
 <nav class="crumb"><a href="/">ホーム</a> ／ 空き状況</nav>
 <h1>空き状況</h1>
 <p class="lede">日付を選ぶと、その日に使える施設が一覧で表示されます。当日のご予約も可能です。</p>

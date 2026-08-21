@@ -412,6 +412,61 @@ const api = async (path, opts) => {
   return { ok: r.ok, status: r.status, body: j };
 };
 function authHeaders(base) { const h = Object.assign({}, base || {}); if (S.token) h['Authorization'] = 'Bearer ' + S.token; return h; }
+
+// ── ログインセッションの保持（mypage.html と共通の sessionStorage キー） ─────────────
+// 一度ログインすれば、予約カレンダー↔お客様情報↔マイページ 等ページを移動しても
+// タブ内はログイン状態を維持する。無操作15分で自動ログアウト（サーバ側と一致）。
+const MEMBER_SS_KEY = 'albe_my_session';
+const MEMBER_IDLE_MS = 15 * 60 * 1000;
+let _memberIdleTimer = null;
+function saveMemberSession() {
+  if (!S.token) return;
+  try { sessionStorage.setItem(MEMBER_SS_KEY, JSON.stringify({ token: S.token, member: S.member, at: Date.now() })); } catch (e) {}
+}
+function clearMemberSession() { try { sessionStorage.removeItem(MEMBER_SS_KEY); } catch (e) {} }
+function readMemberSession() {
+  let s = null;
+  try { s = JSON.parse(sessionStorage.getItem(MEMBER_SS_KEY) || 'null'); } catch (e) {}
+  if (!s || !s.token) return null;
+  if (Date.now() - (s.at || 0) > MEMBER_IDLE_MS) { clearMemberSession(); return null; } // 既に無操作タイムアウト
+  return s;
+}
+function resetMemberIdle() {
+  if (_memberIdleTimer) clearTimeout(_memberIdleTimer);
+  if (!S.token) return;
+  saveMemberSession(); // 最終操作時刻を更新（スライド）
+  _memberIdleTimer = setTimeout(() => { if (S.token) memberLogout(true); }, MEMBER_IDLE_MS);
+}
+['click','keydown','mousemove','scroll','touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => { if (S.token) resetMemberIdle(); }, { passive: true }));
+// ログイン済みUI（会員名・入力欄プリフィル）を反映する共通処理
+function applyMemberLoggedInUI(p) {
+  document.getElementById('memberName').textContent = (p.contact_name || p.contactName || p.email || '');
+  document.getElementById('loginForm').classList.add('hidden');
+  document.getElementById('memberBox').classList.remove('hidden');
+  const ptEl = document.getElementById('ptBal'); if (ptEl && (p.point_balance != null)) ptEl.textContent = p.point_balance;
+  const nm = (p.contact_name || p.contactName || '').trim();
+  if (nm && !document.getElementById('f_lastName').value && !document.getElementById('f_firstName').value) {
+    const parts = nm.split(/[\s　]+/);
+    document.getElementById('f_lastName').value = parts[0] || '';
+    document.getElementById('f_firstName').value = parts.slice(1).join(' ');
+  }
+  if (!document.getElementById('f_email').value) document.getElementById('f_email').value = p.email || '';
+  if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = p.phone || '';
+}
+// 保存済みセッションからログイン状態を復元（他ページから移動してきた場合など）
+async function restoreMemberSession() {
+  const s = readMemberSession();
+  if (!s) return false;
+  S.token = s.token; S.member = s.member;
+  const pr = await api('/api/mypage/profile', { headers: authHeaders() }); // トークン検証＆サーバ側セッションのスライド
+  if (!pr.ok || !pr.body.profile) { clearMemberSession(); S.token = null; S.member = null; return false; }
+  const p = pr.body.profile;
+  S.member = { id: p.id, email: p.email, contactName: p.contact_name };
+  applyMemberLoggedInUI(p);
+  saveMemberSession(); resetMemberIdle();
+  return true;
+}
 const STEP_LABELS = ['スペース', 'カレンダー', 'カート', 'オプション', 'お客様情報', '完了'];
 function setStep(i) {
   document.getElementById('steps').innerHTML = STEP_LABELS
@@ -438,6 +493,8 @@ async function loadSpaces() {
   if (new URLSearchParams(location.search).get('resume') === '1') {
     if (await resumeBookingFromRegister()) return;
   }
+  // 保存済みログインセッションがあれば復元（マイページ等から移動してきてもログイン継続）
+  await restoreMemberSession();
   // 部屋ごとの固有URL: ?space=<id> があればその部屋へ直接入る（公式サイト埋め込み用）
   const wanted = new URLSearchParams(location.search).get('space');
   if (wanted) {
@@ -475,6 +532,7 @@ async function resumeBookingFromRegister() {
       document.getElementById('f_phone').value = p.phone || '';
       document.getElementById('loginForm').classList.add('hidden');
       document.getElementById('memberBox').classList.remove('hidden');
+      saveMemberSession(); resetMemberIdle(); // 以降のページ移動でもログイン継続
     }
   }
   // スペース・カート・オプション選択を復元
@@ -1029,6 +1087,7 @@ async function memberLogin() {
   const { ok, body } = await api('/api/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
   if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
   S.token = body.token; S.member = body.customer;
+  saveMemberSession(); resetMemberIdle(); // ページ移動してもログイン継続（無操作15分で失効）
   document.getElementById('memberName').textContent = body.customer.contactName || body.customer.email;
   document.getElementById('loginForm').classList.add('hidden');
   document.getElementById('memberBox').classList.remove('hidden');
@@ -1049,13 +1108,17 @@ async function memberLogin() {
   renderPayment(); // 会員になったので振込等も選べるように更新（#55）
   recomputeSummary();
 }
-function memberLogout() {
+function memberLogout(idle) {
   S.token = null; S.member = null;
+  clearMemberSession();
+  if (_memberIdleTimer) { clearTimeout(_memberIdleTimer); _memberIdleTimer = null; }
   document.getElementById('loginForm').classList.remove('hidden');
   document.getElementById('memberBox').classList.add('hidden');
   document.getElementById('ticketRow').classList.add('hidden');
   document.getElementById('ticketBuyPrompt').classList.add('hidden');
   clearTicketSel();
+  const lm = document.getElementById('loginMsg');
+  if (lm) lm.textContent = (idle === true) ? 'しばらく操作がなかったため、自動的にログアウトしました。再度ログインしてください。' : '';
   renderPayment(); // 非会員に戻ったのでカード決済のみに更新（#55）
   recomputeSummary();
 }

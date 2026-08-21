@@ -37,6 +37,8 @@ export interface DocumentData {
   total: number; // 税込合計
   paymentMethodLabel: string; // 支払い方法の表示名
   issuer: IssuerInfo;
+  /** サーバー側PDF生成が有効なとき、ダウンロード用リンク（例: '?format=pdf'）。未指定なら印刷ボタンのみ。 */
+  pdfHref?: string;
 }
 
 /** 税込金額から消費税(10%)を割り戻す */
@@ -100,7 +102,9 @@ export function renderDocumentHtml(d: DocumentData): string {
   * { box-sizing:border-box; }
   body { margin:0; background:#eceef1; color:var(--ink); font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; line-height:1.6; }
   .toolbar { text-align:center; padding:14px; }
-  .toolbar button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:11px 22px; font-size:15px; cursor:pointer; }
+  .toolbar button, .toolbar .btn-dl { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:11px 22px; font-size:15px; cursor:pointer; display:inline-block; text-decoration:none; }
+  .toolbar .btn-dl { margin-right:8px; }
+  .toolbar .btn-print { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .toolbar .hint { color:var(--muted); font-size:12px; margin-top:8px; }
   .sheet { background:#fff; width:210mm; max-width:96vw; margin:0 auto 30px; padding:18mm 16mm; box-shadow:0 2px 12px rgba(0,0,0,.12); }
   h1 { text-align:center; font-size:28px; letter-spacing:.4em; margin:0 0 6px; padding-left:.4em; }
@@ -155,8 +159,12 @@ export function renderDocumentHtml(d: DocumentData): string {
 </style>
 </head><body>
   <div class="toolbar">
-    <button onclick="window.print()">🖨 PDFとして保存 / 印刷</button>
-    <div class="hint">ボタンから「送信先：PDFに保存」を選ぶとPDFで保存できます。</div>
+    ${d.pdfHref
+      ? `<a class="btn-dl" href="${esc(d.pdfHref)}">⬇ PDFをダウンロード</a>
+         <button class="btn-print" onclick="window.print()">🖨 印刷</button>
+         <div class="hint">スマホは「PDFをダウンロード」がおすすめです。PCでは「印刷」→「PDFに保存」も使えます。</div>`
+      : `<button onclick="window.print()">🖨 PDFとして保存 / 印刷</button>
+         <div class="hint">ボタンから「送信先：PDFに保存」を選ぶとPDFで保存できます。スマホで動かない場合は、Safari / Chrome で開いてお試しください。</div>`}
   </div>
   <div class="sheet">
     <h1>${title}</h1>

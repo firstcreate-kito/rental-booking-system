@@ -67,7 +67,50 @@ app.get('/:token', async (c) => {
       note: issuer.note,
     },
   };
-  return c.html(renderDocumentHtml(data));
+
+  // サーバー側PDF生成が使えるとき（CFクレデンシャル設定時）だけダウンロードボタンを出す
+  const pdfEnabled = !!(c.env.CF_ACCOUNT_ID && c.env.CF_BROWSER_API_TOKEN);
+  const format = c.req.query('format');
+
+  // ?format=pdf：Browser Rendering REST API で本物のPDFを生成して返す。
+  // スマホのアプリ内ブラウザ（window.print()が効かない）でも確実に保存できる。
+  if (format === 'pdf' && pdfEnabled) {
+    try {
+      // 実ページ（?format=html）をブラウザで開かせることで、社印・フォント等の
+      // アセットもそのまま反映させる（htmlを直接渡すと /assets/ が解決できないため）。
+      const htmlUrl = new URL(c.req.url);
+      htmlUrl.searchParams.set('format', 'html');
+      const api = `https://api.cloudflare.com/client/v4/accounts/${c.env.CF_ACCOUNT_ID}/browser-rendering/pdf`;
+      const resp = await fetch(api, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${c.env.CF_BROWSER_API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: htmlUrl.toString(),
+          gotoOptions: { waitUntil: 'networkidle0' },
+        }),
+      });
+      const ct = resp.headers.get('content-type') || '';
+      if (resp.ok && ct.includes('application/pdf')) {
+        const label = doc.type === 'receipt' ? '領収書' : '請求書';
+        const fname = encodeURIComponent(`${label}_${data.documentNumber}.pdf`);
+        return new Response(resp.body, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename*=UTF-8''${fname}`,
+            'Cache-Control': 'no-store',
+          },
+        });
+      }
+      // 失敗時は下のHTML表示にフォールバック（画面から印刷でも保存できる）
+    } catch {
+      // ネットワーク等の失敗時もHTML表示にフォールバック
+    }
+  }
+
+  return c.html(renderDocumentHtml({ ...data, pdfHref: pdfEnabled ? '?format=pdf' : undefined }));
 });
 
 export default app;

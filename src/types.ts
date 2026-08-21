@@ -36,6 +36,13 @@ export interface Env {
    * 実際に匿名化する。未設定・それ以外は「ドライラン」（対象件数のログのみ・変更しない）。
    */
   ANONYMIZE_ENABLED?: string;
+  /**
+   * 領収書/請求書のサーバー側PDF生成（Cloudflare Browser Rendering REST API）。
+   * CF_ACCOUNT_ID と CF_BROWSER_API_TOKEN の両方をセットしたときのみ ?format=pdf でPDFを返す。
+   * 未設定・失敗時はHTML表示（印刷→PDF保存）にフォールバックするため、既存挙動は壊れない。
+   */
+  CF_ACCOUNT_ID?: string;
+  CF_BROWSER_API_TOKEN?: string;
 }
 
 /** 認証済み顧客（コンテキストに載る最小情報） */

@@ -30,6 +30,19 @@
   th,td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
   th { color:var(--muted); font-weight:600; font-size:12px; }
   .tablewrap { overflow-x:auto; }
+  /* スマホでは表を「1件＝1カード」に組み替えて縦につぶれないようにする（table.resp のみ対象） */
+  @media (max-width: 640px) {
+    table.resp, table.resp tbody, table.resp tr, table.resp td { display:block; width:100%; }
+    table.resp thead { display:none; }
+    table.resp tr { border:1px solid var(--line); border-radius:10px; padding:4px 14px; margin-bottom:12px; background:#fff; }
+    table.resp td { border:none; border-bottom:1px solid var(--line); padding:10px 0; display:flex; justify-content:space-between; align-items:baseline; gap:14px; text-align:right; font-size:14px; }
+    table.resp td:last-child { border-bottom:none; }
+    table.resp td::before { content:attr(data-label); color:var(--muted); font-size:12px; font-weight:600; text-align:left; flex:0 0 auto; white-space:nowrap; }
+    table.resp td.act { display:block; text-align:center; padding:12px 0 8px; }
+    table.resp td.act::before { content:""; }
+    table.resp td.act:empty { display:none; }
+    table.resp td.act .btn { width:100%; }
+  }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
   .pill.confirmed { background:#dcfce7; color:#166534; }
   .pill.cancelled { background:#fee2e2; color:#991b1b; }
@@ -143,7 +156,7 @@
 
     <section id="view-bookings" class="card">
       <h2>予約履歴</h2>
-      <div class="tablewrap"><table>
+      <div class="tablewrap"><table class="resp">
         <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
         <tbody id="bkBody"></tbody>
       </table></div>
@@ -151,14 +164,14 @@
       <!-- 過去のご利用（利用日が経過した予約）#56 -->
       <div id="bkPastWrap" class="hidden" style="margin-top:16px">
         <button id="bkPastToggle" class="btn ghost sm" onclick="togglePast()" style="margin-bottom:8px"></button>
-        <div id="bkPastList" class="hidden tablewrap"><table>
+        <div id="bkPastList" class="hidden tablewrap"><table class="resp">
           <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
           <tbody id="bkPastBody"></tbody>
         </table></div>
       </div>
       <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
         <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
-        <div id="bkArchiveList" class="hidden tablewrap"><table>
+        <div id="bkArchiveList" class="hidden tablewrap"><table class="resp">
           <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
           <tbody id="bkArchiveBody"></tbody>
         </table></div>
@@ -170,7 +183,7 @@
       <div>保有ポイント：<span class="big" id="ptBal">-</span> P</div>
       <div id="ptExpiry" class="muted" style="font-size:13px;margin-top:4px;display:none">有効期限：<strong id="ptExpiryDate"></strong> まで</div>
       <div class="muted" style="font-size:13px;margin-top:6px">ご利用金額に応じてポイントが貯まります。1ポイント=1円で、次回以降のご予約にご利用いただけます（付与はご利用完了後に自動で行われます）。有効期限は最終のご利用・獲得から1年間で、ご利用があるたびに延長されます。</div>
-      <div class="tablewrap" style="margin-top:12px"><table>
+      <div class="tablewrap" style="margin-top:12px"><table class="resp">
         <thead><tr><th>日時</th><th>種別</th><th>増減</th><th>残高</th><th>内容</th></tr></thead>
         <tbody id="ptBody"></tbody>
       </table></div>
@@ -448,10 +461,10 @@ async function loadDocuments() {
   const docs = body.documents || [];
   document.getElementById('docEmpty').textContent = docs.length ? '' : '発行済みの書類はありません。ご予約・お支払いが確定すると、こちらに請求書・領収書が表示されます。';
   const typeLabel = t => t === 'receipt' ? '領収書' : '請求書';
-  document.getElementById('docList').innerHTML = docs.length ? ('<div class="tablewrap"><table>' +
-    '<tr><th>種類</th><th>予約番号</th><th>金額</th><th>発行日</th><th></th></tr>' +
-    docs.map(d => '<tr><td>' + typeLabel(d.type) + '</td><td>' + d.bookingNumber + '</td><td>' + yen(d.total) +
-      '</td><td>' + (d.issuedAt||'').slice(0,10) + '</td><td><a class="btn sm" href="' + d.url + '" target="_blank" rel="noopener">表示 / PDF保存</a></td></tr>').join('') +
+  document.getElementById('docList').innerHTML = docs.length ? ('<div class="tablewrap"><table class="resp">' +
+    '<thead><tr><th>種類</th><th>予約番号</th><th>金額</th><th>発行日</th><th></th></tr></thead>' +
+    docs.map(d => '<tr><td data-label="種類">' + typeLabel(d.type) + '</td><td data-label="予約番号">' + d.bookingNumber + '</td><td data-label="金額">' + yen(d.total) +
+      '</td><td data-label="発行日">' + (d.issuedAt||'').slice(0,10) + '</td><td class="act"><a class="btn sm" href="' + d.url + '" target="_blank" rel="noopener">表示 / PDF保存</a></td></tr>').join('') +
     '</table></div>') : '';
 }
 
@@ -463,8 +476,14 @@ function bookingRow(b) {
   const action = canRequest
     ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ',' + JSON.stringify(b.space_id || '') + ',' + JSON.stringify(b.original_date || b.first_date || '') + ')\'>変更リクエスト</button>'
     : '';
-  return '<tr><td>' + b.booking_number + '</td><td>' + (b.space_name||'') + '</td><td>' + b.event_name +
-    '</td><td>' + span + '</td><td>' + yen(b.total_amount) + '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td><td>' + action + '</td></tr>';
+  return '<tr>' +
+    '<td data-label="予約番号">' + b.booking_number + '</td>' +
+    '<td data-label="スペース">' + (b.space_name||'') + '</td>' +
+    '<td data-label="イベント">' + b.event_name + '</td>' +
+    '<td data-label="日程">' + span + '</td>' +
+    '<td data-label="金額">' + yen(b.total_amount) + '</td>' +
+    '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td>' +
+    '<td class="act">' + action + '</td></tr>';
 }
 
 // ---- 予約変更リクエスト（#54）----
@@ -649,9 +668,14 @@ async function loadPoints() {
     exWrap.style.display = 'none';
   }
   const neg = t => t.includes('use') || t.includes('remove') || t.includes('expire');
+  // 種別コードを日本語に（未知の値はそのまま表示）
+  const ptTypeLabel = t => ({
+    earn: '獲得', use: '利用', manual_add: '手動付与', manual_remove: '手動減算',
+    expire: '失効', adjust: '調整', refund: '返金'
+  }[t] || t);
   document.getElementById('ptBody').innerHTML = (body.log||[]).map(l =>
-    '<tr><td>' + l.created_at + '</td><td>' + l.type + '</td><td>' + (neg(l.type) ? '-' : '+') + Math.abs(l.amount) +
-    '</td><td>' + l.balance_after + '</td><td>' + (l.description||'') + '</td></tr>').join('');
+    '<tr><td data-label="日時">' + l.created_at + '</td><td data-label="種別">' + ptTypeLabel(l.type) + '</td><td data-label="増減">' + (neg(l.type) ? '-' : '+') + Math.abs(l.amount) +
+    '</td><td data-label="残高">' + l.balance_after + '</td><td data-label="内容">' + (l.description||'') + '</td></tr>').join('');
 }
 async function loadCoupons() {
   const { body } = await api('/api/mypage/coupons');

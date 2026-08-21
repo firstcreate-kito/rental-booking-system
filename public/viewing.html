@@ -377,7 +377,8 @@ async function loadSlots(which) {
   }
 }
 
-const isValidPhone = p => /^[0-9]{2,4}-[0-9]{2,4}-[0-9]{3,4}$/.test(p);
+// 国内（ハイフン有無どちらでも）・海外番号を許容。数字8〜15桁（先頭+可）。
+const isValidPhone = p => /^\+?\d{8,15}$/.test((p||'').replace(/[\s()\-]/g, ''));
 const isValidEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 async function submit() {
@@ -399,7 +400,7 @@ async function submit() {
 
   if (!lastName || !firstName) return show('お名前（姓・名）を入力してください。');
   if (!phone) return show('電話番号を入力してください。');
-  if (!isValidPhone(phone)) return show('電話番号はハイフンありでご入力ください（例：090-1234-5678）。');
+  if (!isValidPhone(phone)) return show('電話番号を正しくご入力ください（国内例：090-1234-5678／海外は国番号からご入力ください）。');
   if (!email || !isValidEmail(email)) return show('有効なメールアドレスを入力してください。');
   if (!purpose) return show('利用目的を選択してください。');
   if (!bsEl) return show('現在の予約状況を選択してください。');

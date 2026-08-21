@@ -276,7 +276,7 @@
     <label>メールアドレス <span style="color:var(--bad)">*</span></label>
     <input id="f_email" type="email" />
     <label>電話番号 <span style="color:var(--bad)">*</span></label>
-    <input id="f_phone" inputmode="tel" placeholder="例）052-485-5975（ハイフンありでご入力ください）" />
+    <input id="f_phone" inputmode="tel" placeholder="例）052-485-5975（海外は国番号から）" />
     <label>会社名（任意）</label>
     <input id="f_company" />
     <div id="f_questions"></div>
@@ -1150,8 +1150,8 @@ async function submitBooking() {
   if (!lastName || !firstName) return showErr('お名前（姓・名）を入力してください');
   if (!email) return showErr('メールアドレスを入力してください');
   if (!phone) return showErr('電話番号を入力してください');
-  // 電話番号はハイフンありで統一（数字とハイフンのみ、ハイフンを含む）
-  if (!/^[0-9]{2,4}-[0-9]{2,4}-[0-9]{3,4}$/.test(phone)) return showErr('電話番号はハイフンありでご入力ください（例：052-485-5975）');
+  // 国内（ハイフン有無どちらでも）・海外番号を許容。数字8〜15桁（先頭+可）。
+  if (!/^\+?\d{8,15}$/.test(phone.replace(/[\s()\-]/g, ''))) return showErr('電話番号を正しくご入力ください（国内例：090-1234-5678／海外は国番号からご入力ください）');
   if (!termsAgreed) return showErr('ご利用規約への同意が必要です');
   // 追加質問の回答を収集＋必須チェック
   const answers = [];

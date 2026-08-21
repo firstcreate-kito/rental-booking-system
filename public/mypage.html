@@ -717,7 +717,8 @@ async function loadFavorites() {
   document.getElementById('favEmpty').textContent = rows.length ? '' : 'お気に入りはありません';
   document.getElementById('favList').innerHTML = rows.map(f =>
     '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><span>' + f.space_name + '</span>' +
-    '<button class="btn danger sm" onclick="removeFav(\'' + f.space_id + '\')">削除</button></div>').join('');
+    '<span style="display:flex;gap:8px"><a class="btn sm" href="index.html?space=' + encodeURIComponent(f.space_id) + '">予約する</a>' +
+    '<button class="btn danger sm" onclick="removeFav(\'' + f.space_id + '\')">削除</button></span></div>').join('');
 }
 async function removeFav(spaceId) {
   await api('/api/mypage/favorites', jsonBody({ spaceId, action:'remove' }));

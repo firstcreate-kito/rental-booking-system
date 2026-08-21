@@ -148,6 +148,7 @@
     <div class="row" style="margin-bottom:10px">
       <button class="btn ghost sm" id="backToSpacesBtn" onclick="backToSpaces()">← スペース選択へ</button>
       <strong id="calSpaceName"></strong>
+      <button class="btn ghost sm hidden" id="favBtn" onclick="toggleFavorite()" style="margin-left:auto"></button>
     </div>
     <div class="cal-head">
       <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
@@ -464,6 +465,7 @@ async function restoreMemberSession() {
   const p = pr.body.profile;
   S.member = { id: p.id, email: p.email, contactName: p.contact_name };
   applyMemberLoggedInUI(p);
+  await loadFavorites(); renderFavBtn();
   saveMemberSession(); resetMemberIdle();
   return true;
 }
@@ -656,6 +658,7 @@ function showCalendar() {
   show('view-calendar'); setStep(1);
   // 部屋直リンク時は「スペース選択へ」を隠す（単一部屋の埋め込み想定）
   document.getElementById('backToSpacesBtn').style.display = S.deepLinked ? 'none' : '';
+  renderFavBtn(); // お気に入りボタンの表示状態を更新
   if (S.cart.length) renderCart();
 }
 
@@ -1105,6 +1108,7 @@ async function memberLogin() {
     if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = pr.body.profile.phone || '';
   }
   await loadUsableTickets();
+  await loadFavorites(); renderFavBtn();
   renderPayment(); // 会員になったので振込等も選べるように更新（#55）
   recomputeSummary();
 }
@@ -1119,8 +1123,33 @@ function memberLogout(idle) {
   clearTicketSel();
   const lm = document.getElementById('loginMsg');
   if (lm) lm.textContent = (idle === true) ? 'しばらく操作がなかったため、自動的にログアウトしました。再度ログインしてください。' : '';
+  S.favorites = new Set(); renderFavBtn(); // お気に入りボタンを非表示に
   renderPayment(); // 非会員に戻ったのでカード決済のみに更新（#55）
   recomputeSummary();
+}
+// --- お気に入りスペース（会員のみ・予約カレンダーから登録/解除） ---
+async function loadFavorites() {
+  S.favorites = new Set();
+  if (!S.token) return;
+  const { ok, body } = await api('/api/mypage/favorites', { headers: authHeaders() });
+  if (ok && Array.isArray(body.favorites)) S.favorites = new Set(body.favorites.map(f => f.space_id));
+}
+function renderFavBtn() {
+  const btn = document.getElementById('favBtn');
+  if (!btn) return;
+  if (!S.token || !S.space) { btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  const on = S.favorites && S.favorites.has(S.space.id);
+  btn.textContent = on ? '★ お気に入り登録済み' : '☆ お気に入りに追加';
+}
+async function toggleFavorite() {
+  if (!S.token || !S.space) return;
+  const on = S.favorites && S.favorites.has(S.space.id);
+  const action = on ? 'remove' : 'add';
+  const { ok, body } = await api('/api/mypage/favorites', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ spaceId: S.space.id, action }) });
+  if (ok && Array.isArray(body.favorites)) S.favorites = new Set(body.favorites.map(f => f.space_id));
+  else if (ok) { if (on) S.favorites.delete(S.space.id); else S.favorites.add(S.space.id); }
+  renderFavBtn();
 }
 function clearTicketSel() { const t = document.getElementById('d_ticket'); if (t) t.value = ''; }
 function onCouponInput() { if (document.getElementById('d_coupon').value.trim()) { document.getElementById('d_points').value = ''; clearTicketSel(); } recomputeSummary(); }

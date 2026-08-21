@@ -23,7 +23,7 @@ INSERT OR IGNORE INTO ticket_product_spaces (product_id, space_id) VALUES
 -- 東別院グランドピアノ練習室チケット（対象: higashibetsuin-piano-24h）
 INSERT OR REPLACE INTO ticket_products (id, name, total_hours, price, validity_days, is_active, sort_order) VALUES
   ('tkp-higashi-6',  '東別院グランドピアノ練習室チケット 6時間',  6,  8250, 365, 1, 20),
-  ('tkp-higashi-12', '東別院グランドピアノ練習室チケット 12時間', 12, 1650, 365, 1, 21),
+  ('tkp-higashi-12', '東別院グランドピアノ練習室チケット 12時間', 12, 16500, 365, 1, 21),
   ('tkp-higashi-19', '東別院グランドピアノ練習室チケット 19時間', 19, 24750, 365, 1, 22),
   ('tkp-higashi-26', '東別院グランドピアノ練習室チケット 26時間', 26, 33000, 365, 1, 23);
 

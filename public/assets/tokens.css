@@ -65,3 +65,16 @@
             "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
   --f-num:  ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
 }
+
+/* --- 必須／任意バッジ（WEBサイトのお問い合わせフォームと統一） -------
+   フォームのラベル横に置く。必須＝赤の塗りバッジ、任意＝淡いグレーバッジ。
+   例: <label>メールアドレス <span class="req">必須</span></label>
+       <label>会社名 <span class="opt">任意</span></label>
+   予約システム・サイトのどちらも同じ見た目になるよう共通CSSに置く。 */
+.req, .opt {
+  display: inline-block; vertical-align: middle; margin-left: 6px;
+  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: .04em;
+  padding: 3px 7px; border-radius: 5px; white-space: nowrap;
+}
+.req { background: var(--full); color: #fff; }                                   /* 必須：赤の塗り＋白文字 */
+.opt { background: var(--wash); color: var(--ink-3); border: 1px solid var(--line-2); font-weight: 600; } /* 任意：淡いグレー */

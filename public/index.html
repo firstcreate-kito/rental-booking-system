@@ -294,9 +294,9 @@
       </div>
     </div>
 
-    <label>イベント名 <span style="color:var(--bad)">*</span></label>
+    <label>イベント名 <span class="req">必須</span></label>
     <input id="f_event" placeholder="例）撮影会 / セミナー" />
-    <label>利用目的 <span style="color:var(--bad)">*</span></label>
+    <label>利用目的 <span class="req">必須</span></label>
     <select id="f_purpose">
       <option value="">選択してください</option>
       <option value="撮影（静止画）">撮影（静止画）</option>
@@ -313,15 +313,15 @@
       <option value="コンサート・発表会">コンサート・発表会</option>
       <option value="その他">その他</option>
     </select>
-    <label>利用人数 <span style="color:var(--bad)">*</span></label>
+    <label>利用人数 <span class="req">必須</span></label>
     <input id="f_headcount" type="number" min="1" placeholder="例）10" />
-    <label>過去のご利用実績（任意）</label>
+    <label>過去のご利用実績 <span class="opt">任意</span></label>
     <select id="f_pastuse">
       <option value="">選択してください</option>
       <option value="利用経験あり">利用経験あり</option>
       <option value="利用経験なし">利用経験なし</option>
     </select>
-    <label>レンタルスペースALBEを知ったきっかけ（任意）</label>
+    <label>レンタルスペースALBEを知ったきっかけ <span class="opt">任意</span></label>
     <select id="f_referral">
       <option value="">選択してください</option>
       <option value="ネット検索">ネット検索</option>
@@ -330,16 +330,16 @@
       <option value="看板">看板</option>
       <option value="その他">その他</option>
     </select>
-    <label>お名前 <span style="color:var(--bad)">*</span></label>
+    <label>お名前 <span class="req">必須</span></label>
     <div style="display:flex;gap:8px">
       <input id="f_lastName" placeholder="姓" style="flex:1" />
       <input id="f_firstName" placeholder="名" style="flex:1" />
     </div>
-    <label>メールアドレス <span style="color:var(--bad)">*</span></label>
+    <label>メールアドレス <span class="req">必須</span></label>
     <input id="f_email" type="email" />
-    <label>電話番号 <span style="color:var(--bad)">*</span></label>
+    <label>電話番号 <span class="req">必須</span></label>
     <input id="f_phone" inputmode="tel" placeholder="例）052-485-5975（海外は国番号から）" />
-    <label>会社名（任意）</label>
+    <label>会社名 <span class="opt">任意</span></label>
     <input id="f_company" />
     <div id="f_questions"></div>
     <!-- お支払い方法（#38） -->
@@ -347,7 +347,7 @@
       <strong>お支払い方法</strong>
       <div id="payMethods" style="margin-top:8px"></div>
       <div id="invoiceNameWrap" class="hidden" style="margin-top:8px">
-        <label>請求書名（宛名）<span class="muted">（任意）</span></label>
+        <label>請求書名（宛名） <span class="opt">任意</span></label>
         <input id="f_invoiceName" placeholder="例）株式会社アルベ　※未入力の場合はお申込者のお名前で発行します" />
         <div class="muted" style="font-size:12px;margin-top:4px">会社名などの宛名がある場合はご入力ください。未入力の場合はお申込者のお名前で請求書・領収書を発行します。</div>
       </div>
@@ -363,7 +363,7 @@
     </div>
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-weight:normal;cursor:pointer">
       <input type="checkbox" id="f_terms" style="width:auto;margin-top:3px;flex:0 0 auto" />
-      <span><a href="https://space-albe.com/terms/" target="_blank" rel="noopener" style="color:var(--brand)">ご利用規約</a>に同意する <span style="color:var(--bad)">*</span></span>
+      <span><a href="https://space-albe.com/terms/" target="_blank" rel="noopener" style="color:var(--brand)">ご利用規約</a>に同意する <span class="req">必須</span></span>
     </label>
     <div class="row" style="margin-top:14px">
       <button class="btn ghost sm" onclick="show('view-options')">← 戻る</button>
@@ -1062,7 +1062,7 @@ async function renderQuestions() {
   const { body } = await api('/api/spaces/' + S.space.id + '/questions');
   S.questions = body.questions || [];
   wrap.innerHTML = S.questions.map(q => {
-    const req = q.required ? ' <span style="color:var(--bad)">*</span>' : '';
+    const req = q.required ? ' <span class="req">必須</span>' : ' <span class="opt">任意</span>';
     const ctrl = q.inputType === 'select'
       ? '<select class="q-input" data-qid="' + q.id + '"><option value="">選択してください</option>' + (q.options || []).map(o => '<option>' + o + '</option>').join('') + '</select>'
       : '<input class="q-input" data-qid="' + q.id + '" />';

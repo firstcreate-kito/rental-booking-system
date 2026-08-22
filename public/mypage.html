@@ -125,16 +125,16 @@
   <section id="registerView" class="card hidden" style="max-width:420px;margin:40px auto">
     <h2>新規会員登録</h2>
     <div class="muted" style="margin-bottom:6px">会員登録すると、予約時にクーポン・ポイントが使えます。</div>
-    <label>お名前 *</label>
+    <label>お名前 <span class="req">必須</span></label>
     <div style="display:flex;gap:8px">
       <input id="r_lastName" placeholder="姓" style="flex:1" />
       <input id="r_firstName" placeholder="名" style="flex:1" />
     </div>
-    <label>メールアドレス *</label><input id="r_email" type="email" />
-    <label>電話番号 *</label><input id="r_phone" inputmode="tel" placeholder="例）052-485-5975（海外は国番号から）" />
-    <label>会社名（任意）</label><input id="r_company" />
-    <label>パスワード *（8文字以上）</label><input id="r_pass" type="password" />
-    <label>パスワード（確認）*</label><input id="r_pass2" type="password" onkeydown="if(event.key==='Enter')submitRegister()" />
+    <label>メールアドレス <span class="req">必須</span></label><input id="r_email" type="email" />
+    <label>電話番号 <span class="req">必須</span></label><input id="r_phone" inputmode="tel" placeholder="例）052-485-5975（海外は国番号から）" />
+    <label>会社名 <span class="opt">任意</span></label><input id="r_company" />
+    <label>パスワード <span class="req">必須</span>（8文字以上）</label><input id="r_pass" type="password" />
+    <label>パスワード（確認） <span class="req">必須</span></label><input id="r_pass2" type="password" onkeydown="if(event.key==='Enter')submitRegister()" />
     <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
       <button class="btn ghost sm" onclick="showLogin()">← ログインに戻る</button>
       <button class="btn" onclick="submitRegister()">登録する</button>

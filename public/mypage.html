@@ -76,6 +76,13 @@
   /* モーダル内の入力欄も共通スタイル（tokens.css）を使用。個別指定はしない（R13-11） */
   .cr-modal .row input { width:auto; }
   .crpolicy { font-size:12.5px; line-height:1.7; color:#7a4b00; background:#fff8e6; border:1px solid #f0c36d; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+  /* 変更・キャンセルポリシーのアコーディオン（開閉できるポリシー表示） */
+  .cracc { font-size:12.5px; line-height:1.7; color:#7a4b00; background:#fff8e6; border:1px solid #f0c36d; border-radius:8px; margin-bottom:8px; overflow:hidden; }
+  .cracc > summary { cursor:pointer; list-style:none; padding:9px 12px; font-weight:700; display:flex; align-items:center; gap:6px; min-height:44px; box-sizing:border-box; }
+  .cracc > summary::-webkit-details-marker { display:none; }
+  .cracc > summary::before { content:'▸'; font-size:11px; transition:transform .15s; }
+  .cracc[open] > summary::before { transform:rotate(90deg); }
+  .cracc-body { padding:0 12px 10px; }
 </style>
 </head>
 <body>
@@ -267,16 +274,24 @@
         <option value="other">その他の相談</option>
       </select>
     </div>
-    <div id="cr_cancelPolicy" class="crpolicy" style="display:none">
-      <strong>キャンセルについて</strong><br>
-      ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
-      ・キャンセル料：31日前まで無料／30〜15日前 50%／14日前〜前日 80%／当日 100%。発生する場合はお手続き前に金額をご案内します。
-    </div>
-    <div id="cr_reschedulePolicy" class="crpolicy" style="display:none">
-      <strong>日時変更について</strong><br>
-      ・31日前まで：当初ご予定日の前後1ヶ月以内へのお振替を承ります（空き次第）。<br>
-      ・30日前以降：キャンセル＋新規のお取り扱いとなります。<br>
-      ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
+    <!-- 変更・キャンセルポリシー（アコーディオン）：選択中の種類に合うものを自動で開く。
+         どちらもいつでも開いて確認できる（#76 / アコーディオン化）。 -->
+    <div id="cr_policies" style="margin-bottom:10px">
+      <details id="cr_pol_reschedule" class="cracc">
+        <summary>日時変更について</summary>
+        <div class="cracc-body">
+          ・31日前まで：当初ご予定日の前後1ヶ月以内へのお振替を承ります（空き次第）。<br>
+          ・30日前以降：キャンセル＋新規のお取り扱いとなります。<br>
+          ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
+        </div>
+      </details>
+      <details id="cr_pol_cancel" class="cracc">
+        <summary>キャンセルについて</summary>
+        <div class="cracc-body">
+          ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
+          ・キャンセル料：31日前まで無料／30〜15日前 50%／14日前〜前日 80%／当日 100%。発生する場合はお手続き前に金額をご案内します。
+        </div>
+      </details>
     </div>
     <div id="cr_cancelBlock" class="msg bad" style="display:none;margin-bottom:10px"></div>
     <div id="cr_dt" style="margin-bottom:10px">
@@ -568,9 +583,11 @@ function crToggle() {
   const type = document.getElementById('cr_type').value;
   // 日時変更のときだけ希望日時の入力欄を出す
   document.getElementById('cr_dt').style.display = (type === 'reschedule') ? '' : 'none';
-  // ポリシーの事前表示（#76）
-  document.getElementById('cr_cancelPolicy').style.display = (type === 'cancel') ? '' : 'none';
-  document.getElementById('cr_reschedulePolicy').style.display = (type === 'reschedule') ? '' : 'none';
+  // ポリシーはアコーディオンで常時表示。選択中の種類に合うものを自動で開く（#76）
+  const polR = document.getElementById('cr_pol_reschedule');
+  const polC = document.getElementById('cr_pol_cancel');
+  if (polR) polR.open = (type === 'reschedule');
+  if (polC) polC.open = (type === 'cancel');
   // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
   const blocked = (type === 'cancel') && (_crDaysUntil != null) && (_crDaysUntil < CR_CANCEL_CUTOFF);
   const cb = document.getElementById('cr_cancelBlock');

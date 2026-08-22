@@ -102,6 +102,16 @@ function renderDetails(b) {
   $('details').innerHTML = html;
   $('details').classList.remove('hidden');
 }
+// GA4 コンバージョン：予約完了（購入）。予約番号で二重計上を防止。
+function firePurchase(b) {
+  if (!b) return;
+  try {
+    window.albePurchase && window.albePurchase({
+      transactionId: b.bookingNumber, value: b.total,
+      itemId: b.spaceId || 'space', itemName: b.spaceName || '予約', category: 'booking',
+    });
+  } catch (e) {}
+}
 
 async function run() {
   // キャンセルで戻ってきた場合
@@ -120,6 +130,7 @@ async function run() {
       if (r.ok && j.status === 'paid') {
         base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
         renderDetails(j.booking);
+        firePurchase(j.booking);
       } else if (j.status === 'failed') {
         base('⚠️', 'ご予約が成立しませんでした', 'ご決済の直前に他のお客様のご予約が確定したため、今回のご予約は成立しませんでした。PayPalでのお支払いは確定しておりませんのでご請求は発生いたしません。');
         renderDetails(j.booking);
@@ -145,6 +156,7 @@ async function run() {
       setWarn('お振込みは前ページに表示された「専用口座」宛にお願いします。ご入金確認まで数営業日かかる場合があります。ご予約は確保されています。');
     }
     renderDetails(booking);
+    firePurchase(booking);
     return;
   }
   // 予約のカード決済（成功で戻ってきた）＝決済先行（#68）
@@ -158,6 +170,7 @@ async function run() {
       if (j.status === 'paid') {
         base('✅', 'お支払いが完了しました', 'ご予約とお支払いが確定しました。確認メールをお送りします。');
         renderDetails(j.booking);
+        firePurchase(j.booking);
         return;
       }
       if (j.status === 'failed') {

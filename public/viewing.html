@@ -449,6 +449,13 @@ async function submit() {
   document.getElementById('formView').classList.add('hidden');
   document.getElementById('doneView').classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  // GA4 コンバージョン：見学申込（リード獲得）。予約IDがあれば重複防止に利用。
+  try {
+    var lid = (body && (body.id || body.requestId)) || String(Date.now());
+    window.albeTrackOnce
+      ? window.albeTrackOnce('lead_' + lid, 'generate_lead', { currency: 'JPY', value: 0, method: 'viewing_request' })
+      : (window.albeTrack && window.albeTrack('generate_lead', { currency: 'JPY', value: 0, method: 'viewing_request' }));
+  } catch (e) {}
 }
 
 // 初期日付の下限＝本日

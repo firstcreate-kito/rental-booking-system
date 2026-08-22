@@ -205,6 +205,11 @@ async function buy(productId, btn) {
     btn.disabled = false; btn.textContent = '購入する';
     return;
   }
+  // GA4 コンバージョン用に購入予定の金額・商品を保存（決済成功後の戻りで送信）
+  try {
+    var pp = (T.products || []).find(function (p) { return p.id === productId; }) || {};
+    sessionStorage.setItem('albe_pending_ticket', JSON.stringify({ id: productId, name: pp.name || 'チケット', price: pp.price || 0 }));
+  } catch (e) {}
   // Stripe の決済ページへ遷移
   window.location.href = body.url;
 }
@@ -244,6 +249,15 @@ async function handleReturn() {
       const { body } = await api('/api/tickets/purchase-status?session=' + encodeURIComponent(session || ''));
       if (body.status === 'paid') {
         showComplete('チケットのご購入が完了しました', 'ありがとうございます。チケットをマイページに反映しました。');
+        // GA4 コンバージョン：チケット購入（金額つき・セッションIDで二重計上防止）
+        try {
+          var pend = JSON.parse(sessionStorage.getItem('albe_pending_ticket') || '{}');
+          window.albePurchase && window.albePurchase({
+            transactionId: session || body.ticketId, value: pend.price || 0,
+            itemId: pend.id || 'ticket', itemName: pend.name || 'チケット', category: 'ticket',
+          });
+          sessionStorage.removeItem('albe_pending_ticket');
+        } catch (e) {}
         return;
       }
       await new Promise(r => setTimeout(r, 1500));

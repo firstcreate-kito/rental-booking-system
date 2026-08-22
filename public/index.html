@@ -1339,6 +1339,14 @@ async function submitBooking() {
   }
   document.getElementById('donePay').textContent = payTxt;
   show('view-done'); setStep(5);
+  // GA4 コンバージョン：予約完了（オンライン決済以外＝銀行振込/請求書/¥0はこの画面で完了）。
+  // カード/PayPal は決済ページ経由で pay-complete 側で計測（二重計上は予約番号で防止）。
+  try {
+    window.albePurchase && window.albePurchase({
+      transactionId: body.bookingNumber, value: body.total,
+      itemId: (S.space && S.space.id) || 'space', itemName: (S.space && S.space.name) || '予約', category: 'booking',
+    });
+  } catch (e) {}
 }
 
 loadSpaces();

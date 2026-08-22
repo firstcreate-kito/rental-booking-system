@@ -22,7 +22,7 @@
 入力欄の共通スタイルは **`tokens.css` に1か所だけ**定義する（下記）。各ページで
 `input`/`select`/`textarea` に枠色・文字サイズ等を直書きしない。
 
-- **R13-7 枠のコントラスト**: 枠は背景に対して 3:1 以上（WCAG 1.4.11）。トークン **`--field`（#8b8781）** を使う。
+- **R13-7 枠のコントラスト**: 枠は背景に対して 3:1 以上（WCAG 1.4.11）。トークン **`--field`（#8a867e）** を使う。
   従来の `--line-2`（#d8d5ce）は白に 1.47:1 で見えなかった。面は `--wash` でわずかに沈める。
 - **R13-8 サイズ**: 文字 **16px以上**・高さ **44px以上**（16px未満だと iOS Safari が触れた瞬間に拡大するため）。
 - **R13-9 フォーカス**: `outline: 2px solid var(--key); outline-offset: 2px;`。`outline: none` で消さない。
@@ -31,7 +31,7 @@
 
 ```css
 /* tokens.css（抜粋） */
---field: #8b8781;   /* 入力欄の枠。白/--wash に対して 3:1 以上 */
+--field: #8a867e;   /* 入力欄の枠。白/--wash に対して 3:1 以上（サイトと同値） */
 
 input:not([type=checkbox]):not([type=radio]):not([type=file])…, select, textarea {
   width:100%; box-sizing:border-box; min-height:var(--tap)/*44px*/;
@@ -42,8 +42,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=file])…, select, textar
 ```
 
 - 対象外: チェックボックス／ラジオ／ファイル／レンジ等（セレクタで除外済み）。
-- `--field` は **WEBサイト側 `_handover/tokens.css` の `--field` と同値**にすること（両サイト統一）。
-  ※現在は暫定値 #8b8781（3:1適合）。サイト側の正式値が判明したら合わせる。
+- `--field` は **WEBサイト側 `_handover/tokens.css` の `--field`（#8a867e）と同値**（両サイト統一）。
 
 ---
 

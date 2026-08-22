@@ -545,6 +545,92 @@ async function loadSpaces() {
     }
   }
   show('view-spaces');
+  maybeShowDraftBanner(); // 入力途中の下書きがあれば「続きから入力」バナーを出す
+}
+
+// ── 入力途中の下書き 自動保存・復元（安全策つき）───────────────────
+// 想定は個人のPC/スマホ。個人情報を含むため 24時間で自動失効し、予約完了時に削除する。
+// 保存対象：スペース・日時（カート）・オプション・お客様情報・追加質問の回答。
+// 保存しない：パスワード／規約同意（毎回チェック）／支払い方法（毎回選択）。
+const DRAFT_KEY = 'albe_booking_draft';
+const DRAFT_TTL = 24 * 60 * 60 * 1000; // 24時間
+let draftTimer = null;
+function draftAnswers() {
+  const a = {};
+  document.querySelectorAll('#f_questions .q-input').forEach((el) => { const id = el.getAttribute('data-qid'); if (id) a[id] = el.value || ''; });
+  return a;
+}
+function saveDraft() {
+  try {
+    if (!S.space || !Array.isArray(S.cart) || !S.cart.length) return; // 日時未選択なら保存しない
+    const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      v: 1, ts: Date.now(), spaceId: S.space.id, cart: S.cart, optQty: S.optQty || {}, custMode: S.custMode || '',
+      fields: {
+        event: g('f_event'), purpose: g('f_purpose'), headcount: g('f_headcount'),
+        pastUse: g('f_pastuse'), referral: g('f_referral'),
+        lastName: g('f_lastName'), firstName: g('f_firstName'),
+        email: g('f_email'), phone: g('f_phone'), company: g('f_company'), invoiceName: g('f_invoiceName'),
+      },
+      answers: draftAnswers(),
+    }));
+  } catch (e) {}
+}
+function saveDraftSoon() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 500); }
+function readDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (!d || !d.spaceId || !Array.isArray(d.cart) || !d.cart.length) return null;
+    if (Date.now() - (d.ts || 0) > DRAFT_TTL) { clearDraft(); return null; }
+    return d;
+  } catch (e) { return null; }
+}
+function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+// お客様情報フォームの入力のたびに自動保存（テキスト・セレクト）
+document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#view-customer')) saveDraftSoon(); });
+document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#view-customer')) saveDraftSoon(); });
+
+// 再訪時：入力途中の下書きがあれば復元バナーを出す
+function maybeShowDraftBanner() {
+  const d = readDraft();
+  if (!d) return;
+  const sp = S.spaces.find((s) => s.id === d.spaceId);
+  if (!sp) { clearDraft(); return; }
+  const dt = new Date(d.ts);
+  const when = (dt.getMonth() + 1) + '/' + dt.getDate() + ' ' + String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+  const bar = document.createElement('div');
+  bar.id = 'draftBar';
+  bar.style.cssText = 'background:var(--key-w);border:1px solid var(--key);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px';
+  bar.innerHTML = '<span style="flex:1;min-width:180px">入力途中の予約があります（<b>' + escHtml(sp.name) + '</b>／保存 ' + when + '）</span>'
+    + '<button class="btn sm" id="draftResume">続きから入力</button>'
+    + '<button class="btn ghost sm" id="draftDiscard">破棄</button>';
+  const host = document.getElementById('view-spaces');
+  if (host && host.parentNode) host.parentNode.insertBefore(bar, host);
+  document.getElementById('draftResume').onclick = () => { bar.remove(); restoreDraft(d); };
+  document.getElementById('draftDiscard').onclick = () => { bar.remove(); clearDraft(); };
+}
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// 下書きから復元して、お客様情報画面まで進める（resumeBookingFromRegister と同じ流れ）
+async function restoreDraft(d) {
+  const sp = S.spaces.find((s) => s.id === d.spaceId);
+  if (!sp) { clearDraft(); return; }
+  S.space = sp; S.cart = Array.isArray(d.cart) ? d.cart : []; S.optQty = d.optQty || {};
+  if (d.custMode) S.custMode = d.custMode;
+  document.getElementById('calSpaceName').textContent = sp.name;
+  try { if (S.cart.length) { const { body } = await api('/api/spaces/' + sp.id + '/options?date=' + S.cart[0].date); S.options = body.options || []; } } catch (e) {}
+  if (!S.cart.length) { show('view-spaces'); return; }
+  await loadUsableTickets();
+  await goCustomer(); // お客様情報画面へ（追加質問・支払いが描画される）
+  const f = d.fields || {};
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  set('f_event', f.event); set('f_purpose', f.purpose); set('f_headcount', f.headcount);
+  set('f_pastuse', f.pastUse); set('f_referral', f.referral);
+  set('f_lastName', f.lastName); set('f_firstName', f.firstName);
+  set('f_email', f.email); set('f_phone', f.phone); set('f_company', f.company); set('f_invoiceName', f.invoiceName);
+  const ans = d.answers || {};
+  document.querySelectorAll('#f_questions .q-input').forEach((el) => { const id = el.getAttribute('data-qid'); if (id && ans[id] != null) el.value = ans[id]; });
+  try { recomputeSummary(); } catch (e) {}
 }
 
 // 会員登録完了→「予約を続ける」で戻ってきたときの復元（#55）
@@ -994,6 +1080,7 @@ async function goOptions() {
       return '<div class="opt"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + soldOutTag + '</div></div><div>' + ctrl + '</div></div>';
     }).join('');
   show('view-options');
+  saveDraft(); // ここまで（スペース・日時）を下書き保存
 }
 // 数量を在庫上限の範囲に丸めて反映（上限超えの入力を防ぐ）
 function clampQty(el, cap, id) {
@@ -1023,6 +1110,7 @@ async function goCustomer() {
   await loadUsableTickets();
   renderPayment();
   await recomputeSummary();
+  saveDraft(); // お客様情報画面に到達した時点でも下書き保存
 }
 function showCustGate() {
   document.getElementById('custGate').classList.remove('hidden');
@@ -1354,7 +1442,7 @@ async function submitBooking() {
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動
   // オンライン決済へ。埋め込み(iframe)時は決済ページをiframe内で開けない(Stripe/PayPalが拒否)ため、
   // 親ウィンドウ全体を決済ページへ遷移させる（#19）。通常時は従来どおり同ページ遷移。
-  if (body.checkoutUrl) { (S.embed && window.top ? window.top : window).location.href = body.checkoutUrl; return; }
+  if (body.checkoutUrl) { clearDraft(); (S.embed && window.top ? window.top : window).location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
   const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' }[body.paymentMethod] || '';
@@ -1378,6 +1466,7 @@ async function submitBooking() {
   }
   document.getElementById('donePay').textContent = payTxt;
   show('view-done'); setStep(5);
+  clearDraft(); // 予約完了。入力途中の下書きは削除する
   // GA4 コンバージョン：予約完了（オンライン決済以外＝銀行振込/請求書/¥0はこの画面で完了）。
   // カード/PayPal は決済ページ経由で pay-complete 側で計測（二重計上は予約番号で防止）。
   try {

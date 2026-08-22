@@ -191,6 +191,34 @@
       </div>
     </div>
 
+    <!-- 返金モーダル（カード/PayPal=自動返金、銀行振込/コンビニ=手動記録） -->
+    <div id="rfOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow:auto;margin:0">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">返金</h2>
+          <button class="btn ghost sm" onclick="closeRefund()">✕</button>
+        </div>
+        <div class="muted" id="rfInfo" style="margin:6px 0 10px"></div>
+        <div id="rfBox" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc;font-size:13px"></div>
+        <div id="rfManualNote" class="hidden" style="margin-top:10px;padding:10px;border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;font-size:13px;color:#7a4b00"></div>
+        <div style="margin-top:10px">
+          <label style="display:block;font-size:13px;margin-bottom:4px">返金額（円・調整できます）</label>
+          <input id="rf_amount" type="number" min="1" step="1" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:15px" />
+          <div class="muted" id="rfHint" style="font-size:11px;margin-top:4px"></div>
+        </div>
+        <div style="margin-top:8px">
+          <label style="display:block;font-size:13px;margin-bottom:4px">理由メモ（任意・記録に残ります）</label>
+          <input id="rf_reason" type="text" placeholder="例）日時変更による差額返金 / キャンセル料を差し引いた返金" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px" />
+        </div>
+        <div id="rfHistory" style="margin-top:10px;font-size:12px"></div>
+        <div class="msg" id="rfMsg"></div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost" onclick="closeRefund()">閉じる</button>
+          <button class="btn" id="rfSubmit" onclick="submitRefund()">返金する</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 変更リクエスト（マイページ発／承認制）#54 -->
     <section id="view-changereq" class="card hidden">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -1064,14 +1092,12 @@ async function loadBookings() {
   document.getElementById('listBody').innerHTML = rows.map(b => {
     const cust = [b.company_name, b.contact_name].filter(Boolean).join(' / ') || '—';
     let actions = '';
-    const isPast = b.date < today; // 過去日の予約は操作不可
-    if (isPast) {
-      actions = '<span class="muted" style="font-size:12px">終了</span>';
-    } else if (b.status === 'tentative') {
+    const isPast = b.date < today; // 過去日の予約は操作不可（返金は過去日でも可）
+    if (!isPast && b.status === 'tentative') {
       actions = '<button class="btn tent sm" onclick="confirmTentative(\'' + b.booking_number + '\')">本予約化</button> ' +
         '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>';
-    } else if (b.status === 'confirmed') {
+    } else if (!isPast && b.status === 'confirmed') {
       actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
       // 請求書払い：入金確認後に領収書を発行（#41）
@@ -1079,6 +1105,11 @@ async function loadBookings() {
         actions += ' <button class="btn sm" style="background:#0d9488" onclick="issueReceipt(\'' + b.booking_number + '\')">領収書発行</button>';
       }
     }
+    // 返金ボタン：入金済みの本予約・キャンセル済みに表示（差額返金・キャンセル返金／過去日でも可）
+    if (b.payment_status === 'paid' && (b.status === 'confirmed' || b.status === 'cancelled')) {
+      actions += ' <button class="btn ghost sm" onclick="openRefund(\'' + b.booking_number + '\')">返金</button>';
+    }
+    if (!actions) actions = '<span class="muted" style="font-size:12px">終了</span>';
     const payBadge = (b.status === 'confirmed' && b.payment_status === 'unpaid')
       ? ' <span class="pill cancelled" title="カード/PayPal/銀行振込 未入金">未入金</span>'
       : (b.payment_method === 'invoice' && b.status === 'confirmed')
@@ -1862,7 +1893,84 @@ async function cancelBooking(number) {
   const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody({}));
   if (!res.ok) { alert(res.body.error || 'キャンセルに失敗しました'); return; }
   alert('キャンセルしました。キャンセル料 ' + yen(res.body.cancelFee) + '（手動徴収）');
-  loadBookings();
+  await loadBookings();
+  // 入金済みなら続けて返金モーダルを自動で開く（キャンセル料を差し引いた額を初期表示）
+  openRefund(number, { deductFee: res.body.cancelFee || 0, auto: true });
+}
+
+// --- 返金（カード/PayPal=自動、銀行振込/コンビニ=手動記録）---
+let _rfNum = null, _rfMode = null;
+function rfEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+function refundModeLabel(mode, status) {
+  if (mode === 'manual') return status === 'manual_done' ? '手動振込・完了' : '手動振込・要対応';
+  return (mode === 'paypal' ? 'PayPal' : 'カード') + '自動返金';
+}
+async function openRefund(number, opts) {
+  opts = opts || {};
+  const res = await api('/api/admin/bookings/' + number + '/refund-info');
+  if (!res.ok) { if (!opts.auto) alert(res.body.error || '返金情報を取得できませんでした'); return; }
+  const d = res.body;
+  // キャンセル直後の自動オープンで、返金可能額が無ければ何もしない（未入金など）
+  if (opts.auto && d.maxRefundable <= 0) return;
+  _rfNum = number; _rfMode = d.refundMode;
+  const methodLabel = { stripe:'カード（Stripe）', paypal:'PayPal', bank_transfer:'銀行振込（Stripe収納代行）', invoice:'請求書払い' }[d.paymentMethod] || d.paymentMethod || '—';
+  document.getElementById('rfInfo').textContent = '予約 ' + number + '／支払い方法：' + methodLabel;
+  document.getElementById('rfBox').innerHTML =
+    '入金額：<strong>' + yen(d.paidAmount) + '</strong>　返金済み：' + yen(d.refundedAmount) +
+    '　返金可能：<strong>' + yen(d.maxRefundable) + '</strong>';
+  const manual = d.refundMode === 'manual';
+  const note = document.getElementById('rfManualNote');
+  const submit = document.getElementById('rfSubmit');
+  if (manual) {
+    note.classList.remove('hidden');
+    note.innerHTML = 'この予約は<strong>' + methodLabel + '</strong>です。自動返金は行いません。<br>お客様に<strong>返金先口座を伺い、銀行振込で返金</strong>してください。振込が完了したら下のボタンで記録します。';
+    submit.textContent = '振込済みとして記録';
+  } else {
+    note.classList.add('hidden');
+    submit.textContent = (d.refundMode === 'auto_paypal') ? 'PayPalで返金する' : 'カードへ返金する';
+  }
+  // 初期の返金額：キャンセル料などを差し引いた額（上限でクランプ）
+  let suggest = d.maxRefundable;
+  const hint = document.getElementById('rfHint');
+  if (opts.deductFee && opts.deductFee > 0) {
+    suggest = Math.max(0, d.maxRefundable - opts.deductFee);
+    hint.textContent = 'キャンセル料 ' + yen(opts.deductFee) + ' を差し引いた金額を初期表示しています（必要に応じて調整してください）。';
+  } else {
+    hint.textContent = '';
+  }
+  const amt = document.getElementById('rf_amount');
+  amt.value = suggest > 0 ? suggest : '';
+  amt.max = d.maxRefundable;
+  document.getElementById('rf_reason').value = '';
+  const msg = document.getElementById('rfMsg'); msg.textContent=''; msg.className='msg';
+  submit.disabled = d.maxRefundable <= 0;
+  const hist = d.history || [];
+  document.getElementById('rfHistory').innerHTML = hist.length
+    ? '<div style="font-weight:600;margin-bottom:4px">返金履歴</div>' + hist.map(h =>
+        '・' + String(h.created_at || '').slice(0,16) + '　' + yen(h.amount) + '（' + refundModeLabel(h.mode, h.status) + '）' + (h.reason ? '／' + rfEsc(h.reason) : '')).join('<br>')
+    : '';
+  document.getElementById('rfOverlay').style.display = 'flex';
+}
+function closeRefund() { document.getElementById('rfOverlay').style.display = 'none'; _rfNum = null; }
+async function submitRefund() {
+  if (!_rfNum) return;
+  const amount = Math.round(Number(document.getElementById('rf_amount').value));
+  const reason = document.getElementById('rf_reason').value.trim();
+  const msg = document.getElementById('rfMsg');
+  if (!(amount > 0)) { msg.textContent = '返金額を入力してください'; msg.className = 'msg bad'; return; }
+  const isManual = _rfMode === 'manual';
+  const confirmText = isManual
+    ? '手動振込 ' + yen(amount) + ' を「振込済み」として記録します。\n実際の銀行振込はお済みですか？'
+    : yen(amount) + ' を返金します。よろしいですか？\n（この操作は取り消せません）';
+  if (!confirm(confirmText)) return;
+  const submit = document.getElementById('rfSubmit');
+  submit.disabled = true; msg.textContent = '処理中…'; msg.className = 'msg';
+  const payload = { amount, reason };
+  if (isManual) payload.markManualDone = true;
+  const res = await api('/api/admin/bookings/' + _rfNum + '/refund', jsonBody(payload));
+  if (!res.ok) { msg.textContent = res.body.error || '返金に失敗しました'; msg.className = 'msg bad'; submit.disabled = false; return; }
+  msg.textContent = res.body.message || '完了しました'; msg.className = 'msg ok';
+  setTimeout(() => { closeRefund(); loadBookings(); }, 1600);
 }
 
 // --- 予約内容変更（管理者：日時＋オプション） ---

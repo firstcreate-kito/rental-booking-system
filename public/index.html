@@ -119,6 +119,11 @@
   .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; z-index: 10; }
   .modal-bg.show { display: flex; }
   .modal { background: var(--paper); border-radius: var(--r-lg); padding: 20px; width: min(420px, 92vw); }
+  /* WEBサイト埋め込み（?embed=1）: ヘッダーを隠し、時刻選択モーダルはiframe内で見切れないよう
+     オーバーレイではなくインライン表示（カレンダーの下に出す）にする（#19） */
+  .embed .albe-topbar { display: none !important; }
+  .embed .modal-bg { position: static; background: transparent; z-index: auto; padding: 8px 0; }
+  .embed .modal { width: min(560px, 96vw); box-shadow: 0 0 0 1px var(--line); }
   .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
   .hidden { display: none; }
   .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 13px; }
@@ -411,7 +416,9 @@
 </div>
 
 <script>
-const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done', usableTickets: [], ticketProducts: [], ticketContactUrl: '' };
+const S = { spaces: [], space: null, month: null, slots: [], selectedDate: null, cart: [], options: [], optQty: {}, token: null, member: null, pastCutoffMin: -1, pickState: 'done', usableTickets: [], ticketProducts: [], ticketContactUrl: '', embed: new URLSearchParams(location.search).get('embed') === '1' };
+// WEBサイト埋め込み時（?embed=1）はヘッダー非表示・モーダルをインライン表示にする（#19）
+if (S.embed) document.documentElement.classList.add('embed');
 // 本番（localhost 以外）では開発用の表示・デモ会員ヒントを隠す
 if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
   const dev = document.getElementById('devBadge'); if (dev) dev.style.display = 'none';
@@ -1315,7 +1322,9 @@ async function submitBooking() {
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動
-  if (body.checkoutUrl) { window.location.href = body.checkoutUrl; return; }
+  // オンライン決済へ。埋め込み(iframe)時は決済ページをiframe内で開けない(Stripe/PayPalが拒否)ため、
+  // 親ウィンドウ全体を決済ページへ遷移させる（#19）。通常時は従来どおり同ページ遷移。
+  if (body.checkoutUrl) { (S.embed && window.top ? window.top : window).location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
   const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' }[body.paymentMethod] || '';
@@ -1350,6 +1359,18 @@ async function submitBooking() {
 }
 
 loadSpaces();
+
+// WEBサイト埋め込み（?embed=1）：中身の高さを親ウィンドウへ通知し、iframeを自動リサイズさせる。
+// カレンダー→時刻選択（インライン表示）→カート等で高さが変わるたびに追従する。
+if (S.embed) {
+  var albePostHeight = function () {
+    try { parent.postMessage({ albeEmbedHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) }, '*'); } catch (e) {}
+  };
+  window.addEventListener('load', albePostHeight);
+  window.addEventListener('resize', albePostHeight);
+  if (window.ResizeObserver) { try { new ResizeObserver(albePostHeight).observe(document.body); } catch (e) {} }
+  setTimeout(albePostHeight, 500); setTimeout(albePostHeight, 1500);
+}
 </script>
 </body>
 </html>

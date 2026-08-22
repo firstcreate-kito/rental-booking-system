@@ -33,8 +33,7 @@ main{ max-width:560px; margin:0 auto; padding:24px var(--pad) 60px; }
 h1{ font-size:20px; margin:4px 0 6px; } .lede{ color:var(--ink-2); font-size:14px; margin:0 0 18px; }
 .card{ background:#fff; border:1px solid var(--line); border-radius:var(--r); padding:18px var(--pad); margin-bottom:14px; }
 label{ display:block; font-size:13px; color:var(--ink-2); margin:10px 0 4px; }
-input,select,textarea{ width:100%; font-family:inherit; font-size:16px; padding:10px 12px; border:1px solid var(--line-2); border-radius:var(--r); background:#fff; }
-textarea{ min-height:90px; resize:vertical; }
+/* 入力欄の共通スタイルは tokens.css に集約（R13-7〜R13-11） */
 .btn{ display:block; width:100%; background:var(--brand); color:#fff; border:0; border-radius:var(--r); padding:13px; font-size:16px; font-weight:600; cursor:pointer; margin-top:16px; }
 .btn.ghost{ background:#fff; color:var(--ink); border:1px solid var(--line-2); }
 .btn.brand{ background:var(--brand); }

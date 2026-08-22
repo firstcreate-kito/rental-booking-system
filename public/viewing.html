@@ -35,9 +35,7 @@
   .num{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;align-items:center;justify-content:center;flex:0 0 auto}
   label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
   /* .req / .opt（必須・任意バッジ）は共通CSS tokens.css の定義を使用（サイトと統一） */
-  input[type=text],input[type=email],input[type=tel],input[type=date],select,textarea{
-    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink)}
-  textarea{resize:vertical;min-height:72px}
+  /* 入力欄の共通スタイルは tokens.css に集約（R13-7〜R13-11） */
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .spaces{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   @media(max-width:560px){.spaces{grid-template-columns:1fr}}

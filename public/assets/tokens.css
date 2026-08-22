@@ -18,6 +18,10 @@
   --wash:   #f8f7f5;   /* 面の切り替え */
   --line:   #eae8e3;   /* 罫線 */
   --line-2: #d8d5ce;   /* やや強い罫線・ボタン枠 */
+  /* 入力欄の枠（R13-7 / WCAG 1.4.11）。背景(白・--wash)に対して 3:1 以上。
+     従来の --line-2(#d8d5ce) は白に 1.47:1 で枠が見えなかったため専用色を用意。
+     ※WEBサイト側 _handover/tokens.css の --field と同値にすること（両サイト統一）。 */
+  --field:  #8b8781;
 
   /* --- ブランド色 -------------------------------------------------
      ロゴの青。使いどころは2つだけ。
@@ -78,3 +82,33 @@
 }
 .req { background: var(--full); color: #fff; }                                   /* 必須：赤の塗り＋白文字 */
 .opt { background: var(--wash); color: var(--ink-3); border: 1px solid var(--line-2); font-weight: 600; } /* 任意：淡いグレー */
+
+/* --- 入力欄の共通スタイル（R13-7〜R13-11・サイトと統一） --------------
+   入力欄のCSSはここ1か所に集約する（R13-11）。各ページで input に枠色・
+   文字サイズを直書きしない。チェックボックス／ラジオ／ファイル等は対象外。
+     R13-7 枠は背景に対して3:1以上（--field）＋面を--washでわずかに沈める
+     R13-8 文字16px以上・高さ44px以上（iOS Safariの自動ズーム防止）
+     R13-9 フォーカスは 2px の実線アウトライン（outline:none で消さない） */
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=submit]):not([type=button]):not([type=image]):not([type=color]),
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--tap);        /* 44px（R13-8） */
+  padding: 10px 12px;
+  font-size: 16px;               /* R13-8：16px未満だとiOSで拡大される */
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--wash);        /* R13-7：面をわずかに沈める */
+  border: 1px solid var(--field); /* R13-7：3:1以上で枠を見せる */
+  border-radius: var(--r);
+}
+textarea { min-height: 90px; resize: vertical; line-height: 1.6; }
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=submit]):not([type=button]):not([type=image]):not([type=color]):focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--key);  /* R13-9：フォーカスを必ず見せる */
+  outline-offset: 2px;
+  border-color: var(--key);
+}
+input::placeholder, textarea::placeholder { color: var(--ink-3); } /* R13-10：例示は薄く */

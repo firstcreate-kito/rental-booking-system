@@ -131,6 +131,7 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(desc)}">
 <link rel="canonical" href="https://space-albe.com/availability/">
+<link rel="stylesheet" href="/assets/tokens.css">
 <link rel="stylesheet" href="/assets/albe-header.css">
 ${embed ? '' : `<link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0068b7">
@@ -158,7 +159,7 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
 .dchip,.chip{ font-size:13px; line-height:1; color:var(--ink-2); background:var(--paper); border:1px solid var(--line-2); border-radius:var(--r); min-height:38px; display:flex; align-items:center; padding:0 14px; }
 .chip{ background:transparent; min-height:36px; }
 .dchip.on,.chip.on{ background:var(--ink); border-color:var(--ink); color:#fff; }
-.dpick{ display:flex; align-items:center; gap:8px; padding:10px var(--pad) 0; } .dpick input{ font-family:var(--f-num); font-size:14px; padding:8px 10px; border:1px solid var(--line-2); border-radius:var(--r); min-height:38px; }
+.dpick{ display:flex; align-items:center; gap:8px; padding:10px var(--pad) 0; } .dpick input{ font-family:var(--f-num); width:auto; } /* 入力欄の基本スタイルは tokens.css（R13-7〜R13-11） */
 .frow{ padding:11px 0; border-bottom:1px solid var(--line); }
 .headline{ padding:18px var(--pad) 12px; } .headline b{ display:block; font-size:19px; font-weight:600; } .headline span{ font-size:13px; color:var(--ink-2); }
 .ghead{ padding:10px var(--pad) 8px; font-size:12px; letter-spacing:.1em; color:var(--ink-3); border-top:1px solid var(--line); background:var(--wash); }

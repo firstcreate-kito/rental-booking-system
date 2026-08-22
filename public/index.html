@@ -122,9 +122,16 @@
   input, select { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
   .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .opt .qty { width: 64px; }
-  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; z-index: 10; }
+  /* スマホ: 時間選択モーダルを画面内に収める。時間ボタンをコンパクトにして上部(見出し・凡例)まで表示 */
+  @media (max-width: 640px) {
+    .modal { padding: 16px; }
+    .slotbar { gap: 4px; margin: 5px 0 8px; }
+    .slot { font-size: 14px; padding: 6px 0; }
+  }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 12px; }
   .modal-bg.show { display: flex; }
-  .modal { background: var(--paper); border-radius: var(--r-lg); padding: 20px; width: min(420px, 92vw); }
+  .modal { background: var(--paper); border-radius: var(--r-lg); padding: 20px; width: min(420px, 92vw);
+           max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   /* WEBサイト埋め込み（?embed=1）: ヘッダーを隠し、時刻選択モーダルはiframe内で見切れないよう
      オーバーレイではなくインライン表示（カレンダーの下に出す）にする（#19） */
   .embed .albe-topbar { display: none !important; }

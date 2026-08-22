@@ -44,6 +44,10 @@
   var path = location.pathname;
   var isTopPage = (path === '/' || path === '/index.html');
 
+  // 予約の日付ディープリンク（?date=）で来た場合は「時間選択モーダル」が自動で開くので、
+  // 案内バナーがモーダルに重ならないよう表示しない（予約操作を優先）。
+  try { if (new URLSearchParams(location.search).get('date')) return; } catch (e) {}
+
   try { if (localStorage.getItem(DISMISS_KEY)) return; } catch (e) {}
 
   var shown = false;

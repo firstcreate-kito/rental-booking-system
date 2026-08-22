@@ -519,7 +519,17 @@ async function loadSpaces() {
   const wanted = new URLSearchParams(location.search).get('space');
   if (wanted) {
     const match = S.spaces.find(s => s.id === wanted || s.slug === wanted);
-    if (match) { S.deepLinked = true; selectSpace(match.id); return; }
+    if (match) {
+      S.deepLinked = true;
+      selectSpace(match.id);
+      // サイトの埋め込みカレンダーから ?date=YYYY-MM-DD 付きで遷移してきた場合、
+      // カレンダー表示後にその日の時刻選択モーダルを自動で開く（#19）。
+      const wantDate = new URLSearchParams(location.search).get('date');
+      if (wantDate && /^\d{4}-\d{2}-\d{2}$/.test(wantDate)) {
+        setTimeout(() => { try { openModal(wantDate); } catch (e) {} }, 400);
+      }
+      return;
+    }
   }
   show('view-spaces');
 }
@@ -856,6 +866,13 @@ function setDefaultEnd() {
   en.value = chosen || lastValid || st.value;
 }
 async function openModal(date) {
+  // WEBサイト埋め込み(?embed=1)時は、日付クリックで予約システム本体（全画面）へ遷移し、
+  // その日付の時刻選択を開いて予約を進める。予約プロセスはiframe内では行わない（#19）。
+  if (S.embed) {
+    const top = window.top || window;
+    top.location.href = location.origin + '/?space=' + encodeURIComponent(S.space.id) + '&date=' + encodeURIComponent(date);
+    return;
+  }
   S.selectedDate = date;
   S.pastCutoffMin = -1;
   document.getElementById('modalDate').textContent = date + ' の時間を選択';

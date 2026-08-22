@@ -52,11 +52,11 @@
   .calpanel { border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--paper); }
   .calm { padding: 9px 12px; background: var(--key-w); border-bottom: 1px solid var(--line);
           font-family: var(--f-num); font-size: 15px; font-weight: 600; text-align: left; }
-  .caldow { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--wash); border-bottom: 1px solid var(--line); }
+  .caldow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--wash); border-bottom: 1px solid var(--line); }
   .caldow .dow { padding: 6px 0; text-align: center; font-size: 11px; color: var(--ink-2); }
   .caldow .dow:first-child { color: var(--sun); }
   .caldow .dow:last-child { color: var(--sat); }
-  .calgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); }
+  .calgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); }
   .d { background: var(--paper); min-height: 56px; padding: 5px 3px 6px; border: 0; font: inherit;
        display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
   .d.out { background: var(--wash); }
@@ -81,6 +81,12 @@
   .f2 { font-size: 9px; line-height: 1.5; padding: 0 5px; border-radius: var(--r-pill); border: 1px solid currentColor; white-space: nowrap; }
   .f-season { color: var(--full); }
   .f-talk { color: var(--few); }
+  /* スマホ: 7列を狭い画面に収めるため、季節料金/商談中バッジを小さく＆セル左右余白を詰める（見切れ防止） */
+  @media (max-width: 640px) {
+    .f2 { font-size: 8px; padding: 0 3px; letter-spacing: -.03em; }
+    .d { padding: 5px 2px 6px; }
+    .flagline { gap: 2px; }
+  }
   .callegend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 2px 0; font-size: 11px; color: var(--ink-2); }
   .callegend span { display: inline-flex; align-items: center; gap: 5px; }
   .callegend i { width: 15px; height: 15px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; font-style: normal; }

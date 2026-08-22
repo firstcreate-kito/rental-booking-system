@@ -4,7 +4,7 @@
   "description": "レンタルスペースALBEの予約・チケット購入・マイページ",
   "lang": "ja",
   "dir": "ltr",
-  "start_url": "/?source=pwa",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

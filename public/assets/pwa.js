@@ -36,6 +36,14 @@
   var iOSOtherBrowser = isIOS && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
   if (iOSOtherBrowser) return;
 
+  // iOSは「追加した瞬間に開いていたURL」をそのままアイコンに保存する
+  // （マニフェストの start_url は無視される）。見学申込などサブページで追加すると
+  // そのページのアイコンになってしまうため、iOSの案内は予約トップ（/）でのみ出す。
+  // これで「案内どおり追加＝必ず予約トップが保存される」ようにする。
+  // ※Androidはインストール時に start_url(=/) が使われるので、どのページで追加してもトップが開く。
+  var path = location.pathname;
+  var isTopPage = (path === '/' || path === '/index.html');
+
   try { if (localStorage.getItem(DISMISS_KEY)) return; } catch (e) {}
 
   var shown = false;
@@ -143,8 +151,9 @@
   // インストール完了後は二度と出さない
   window.addEventListener('appinstalled', dismiss);
 
-  // iOS：beforeinstallprompt が無いので、少し待ってから手動手順を案内
-  if (isIOS) {
+  // iOS：beforeinstallprompt が無いので、少し待ってから手動手順を案内。
+  // ただし予約トップ（/）でのみ表示し、保存されるアイコンが必ずトップになるようにする。
+  if (isIOS && isTopPage) {
     window.addEventListener('load', function () {
       setTimeout(function () { render('ios'); }, 1500);
     });

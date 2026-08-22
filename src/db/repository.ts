@@ -2222,15 +2222,15 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
 // ---------------------------------------------------------------------------
 export async function createBookingPayment(
   db: D1Database,
-  p: { id: string; groupId: string; provider: string; amount: number; sessionId: string },
+  p: { id: string; groupId: string; provider: string; amount: number; sessionId: string; kind?: 'booking' | 'additional' },
   now: string,
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO booking_payments (id, group_id, provider, stripe_session_id, amount, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO booking_payments (id, group_id, provider, stripe_session_id, amount, status, kind, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
-    .bind(p.id, p.groupId, p.provider, p.sessionId, p.amount, now)
+    .bind(p.id, p.groupId, p.provider, p.sessionId, p.amount, p.kind ?? 'booking', now)
     .run();
 }
 
@@ -2263,6 +2263,8 @@ export async function getBookingPaymentBySession(db: D1Database, sessionId: stri
     id: string;
     group_id: string;
     status: string;
+    kind: string;
+    amount: number;
   }>();
 }
 

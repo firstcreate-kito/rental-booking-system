@@ -96,8 +96,9 @@ import {
   addRefundedAmount,
   recordRefundLog,
   getRefundLogForGroup,
+  createBookingPayment,
 } from '../db/repository';
-import { refundPaymentAmount, retrievePaymentIntentMethodType } from '../lib/stripe';
+import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
@@ -106,7 +107,7 @@ import { buildXlsx, type Sheet } from '../lib/xlsx';
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
 import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
@@ -786,6 +787,72 @@ app.post('/bookings/:number/refund', async (c) => {
     now,
   );
   return c.json({ ok: true, mode, status: 'done', refundId, refundedTotal: refunded + amount, message: `¥${amount.toLocaleString()} を返金しました。` });
+});
+
+/**
+ * POST /api/admin/bookings/:number/additional-charge 追加請求リンクの発行
+ * 予約内容変更で料金が上がったときの差額を、Stripe決済リンクで集金する。
+ * body: { amount:number, reason?:string }
+ * 案A：そのスペースで許可された方法を出す（カード＋コンビニ）。お客様へリンクをメール。
+ * 入金は webhook（kind='additional'）で確定し、領収書を最終金額で再発行（Stage4）。
+ */
+app.post('/bookings/:number/additional-charge', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status !== 'confirmed') return c.json({ error: '確定済みの予約にのみ追加請求できます' }, 400);
+  const body = await c.req
+    .json<{ amount?: number; reason?: string }>()
+    .catch(() => ({}) as { amount?: number; reason?: string });
+  const amount = Math.round(Number(body.amount));
+  if (!(amount > 0)) return c.json({ error: '追加金額は1円以上を指定してください' }, 400);
+  if (!stripeConfigured(c.env)) return c.json({ error: 'Stripeが未設定です' }, 503);
+
+  const space = await getSpaceById(db, g.space_id);
+  const prof = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+  const email = prof?.email ? String(prof.email) : '';
+  const customerName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+
+  // 案A：そのスペースで許可された方法を出す。銀行振込(customer_balance)は単独セッションが
+  // 必要なため、この即時リンクでは カード＋コンビニ（スペースが許可していれば）に対応する。
+  const konbiniReady = String(c.env.STRIPE_KONBINI_ENABLED ?? '').toLowerCase() === 'true';
+  const konbiniOk = konbiniReady && space?.payment_mode === 'card_konbini_bank';
+  const payId = crypto.randomUUID();
+  try {
+    const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
+      productName: `追加料金 ${g.booking_number}（${space?.name ?? ''}）`,
+      amountJpy: amount,
+      successUrl: `${origin}/pay-complete.html?type=additional&session={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/pay-complete.html?type=additional&status=cancel&num=${encodeURIComponent(g.booking_number)}`,
+      customerEmail: email || undefined,
+      clientReferenceId: payId,
+      metadata: { kind: 'additional', groupId: g.id, bookingNumber: g.booking_number },
+      paymentMethodTypes: konbiniOk ? ['card', 'konbini'] : ['card'],
+      konbiniExpiresAfterDays: konbiniOk ? 3 : undefined,
+    });
+    await createBookingPayment(
+      db,
+      { id: payId, groupId: g.id, provider: 'stripe', amount, sessionId: session.id, kind: 'additional' },
+      nowJST(),
+    );
+    let emailed = false;
+    if (email) {
+      const mail = additionalChargeEmail({
+        customerName,
+        bookingNumber: g.booking_number,
+        spaceName: space?.name ?? '',
+        amount,
+        payUrl: session.url,
+        reason: body.reason,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
+      emailed = true;
+    }
+    return c.json({ ok: true, url: session.url, emailed, amount });
+  } catch (err) {
+    return c.json({ error: '追加請求リンクの作成に失敗しました：' + (err as Error).message }, 502);
+  }
 });
 
 /**

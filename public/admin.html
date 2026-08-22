@@ -219,6 +219,31 @@
       </div>
     </div>
 
+    <!-- 追加請求モーダル（差額をStripe決済リンクで集金・案A） -->
+    <div id="acOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:460px;width:100%;max-height:90vh;overflow:auto;margin:0">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">追加請求</h2>
+          <button class="btn ghost sm" onclick="closeAdditional()">✕</button>
+        </div>
+        <div class="muted" id="acInfo" style="margin:6px 0 10px"></div>
+        <div style="margin-top:6px">
+          <label style="display:block;font-size:13px;margin-bottom:4px">追加金額（円・税込）</label>
+          <input id="ac_amount" type="number" min="1" step="1" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:15px" />
+        </div>
+        <div style="margin-top:8px">
+          <label style="display:block;font-size:13px;margin-bottom:4px">内容メモ（任意・お客様への案内に表示）</label>
+          <input id="ac_reason" type="text" placeholder="例）利用時間の延長分" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px" />
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:8px">承認するとお客様にお支払いリンクをメールで送ります（クレジットカード／対象スペースで可能ならコンビニ払い）。入金確認後、領収書を最終金額で再発行します。</div>
+        <div class="msg" id="acResult" style="font-size:13px"></div>
+        <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
+          <button class="btn ghost" onclick="closeAdditional()">閉じる</button>
+          <button class="btn" id="acSubmit" onclick="submitAdditional()">お支払いリンクを発行</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 変更リクエスト（マイページ発／承認制）#54 -->
     <section id="view-changereq" class="card hidden">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -1099,7 +1124,8 @@ async function loadBookings() {
         '<button class="btn danger sm" onclick="releaseTentative(\'' + b.booking_number + '\')">解除</button>';
     } else if (!isPast && b.status === 'confirmed') {
       actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
-        '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>';
+        '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>' +
+        ' <button class="btn ghost sm" onclick="openAdditional(\'' + b.booking_number + '\',' + JSON.stringify(b.space_name || '') + ')">追加請求</button>';
       // 請求書払い：入金確認後に領収書を発行（#41）
       if (b.payment_method === 'invoice') {
         actions += ' <button class="btn sm" style="background:#0d9488" onclick="issueReceipt(\'' + b.booking_number + '\')">領収書発行</button>';
@@ -1971,6 +1997,35 @@ async function submitRefund() {
   if (!res.ok) { msg.textContent = res.body.error || '返金に失敗しました'; msg.className = 'msg bad'; submit.disabled = false; return; }
   msg.textContent = res.body.message || '完了しました'; msg.className = 'msg ok';
   setTimeout(() => { closeRefund(); loadBookings(); }, 1600);
+}
+
+// --- 追加請求（差額をStripe決済リンクで集金・案A）---
+let _acNum = null;
+function openAdditional(number, spaceName) {
+  _acNum = number;
+  document.getElementById('acInfo').textContent = '予約 ' + number + (spaceName ? '（' + spaceName + '）' : '');
+  document.getElementById('ac_amount').value = '';
+  document.getElementById('ac_reason').value = '';
+  const r = document.getElementById('acResult'); r.textContent = ''; r.className = 'msg';
+  document.getElementById('acSubmit').disabled = false;
+  document.getElementById('acOverlay').style.display = 'flex';
+}
+function closeAdditional() { document.getElementById('acOverlay').style.display = 'none'; _acNum = null; }
+async function submitAdditional() {
+  if (!_acNum) return;
+  const amount = Math.round(Number(document.getElementById('ac_amount').value));
+  const reason = document.getElementById('ac_reason').value.trim();
+  const r = document.getElementById('acResult');
+  if (!(amount > 0)) { r.textContent = '追加金額を入力してください'; r.className = 'msg bad'; return; }
+  if (!confirm(yen(amount) + ' の追加請求リンクを発行し、お客様にメールで送ります。よろしいですか？')) return;
+  const submit = document.getElementById('acSubmit');
+  submit.disabled = true; r.textContent = '発行中…'; r.className = 'msg';
+  const res = await api('/api/admin/bookings/' + _acNum + '/additional-charge', jsonBody({ amount, reason }));
+  if (!res.ok) { r.textContent = res.body.error || '発行に失敗しました'; r.className = 'msg bad'; submit.disabled = false; return; }
+  const emailed = res.body.emailed ? 'お客様にメールを送信しました。' : 'お客様のメール未登録のため、下記リンクを直接お伝えください。';
+  r.innerHTML = '<span style="color:#0f7b3f;font-weight:600">リンクを発行しました。</span>' + emailed
+    + '<br><a href="' + res.body.url + '" target="_blank" rel="noopener" style="word-break:break-all;color:#0068b7">' + res.body.url + '</a>';
+  r.className = 'msg';
 }
 
 // --- 予約内容変更（管理者：日時＋オプション） ---

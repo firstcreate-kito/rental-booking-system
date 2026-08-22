@@ -40,9 +40,18 @@ app.post('/stripe', async (c) => {
       const bookingPay = await getBookingPaymentBySession(c.env.DB, session.id);
       if (bookingPay) {
         const origin = c.env.PUBLIC_BASE_URL || '';
+        const piForRefund = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+
+        // 追加請求（差額の後日徴収）の入金：本予約フローとは別扱い。
+        // 入金を記録し、領収書を最終金額で再発行する（Stage4）。
+        if (bookingPay.kind === 'additional') {
+          const ar = await markBookingPaymentPaid(c.env.DB, session.id, nowJST(), { paymentIntent: piForRefund });
+          if (!ar.ok) return c.json({ received: true, paid: false }, 500);
+          return c.json({ received: true, paid: true, additional: true, groupId: ar.groupId });
+        }
+
         const group = await getBookingGroupById(c.env.DB, bookingPay.group_id);
         // 課金は成立しているので、まず入金を記録する（返金用に payment_intent も保存）
-        const piForRefund = typeof session.payment_intent === 'string' ? session.payment_intent : null;
         const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST(), { paymentIntent: piForRefund });
         if (!r.ok) return c.json({ received: true, paid: false }, 500);
         const groupId = r.groupId!;

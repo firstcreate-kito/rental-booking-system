@@ -315,6 +315,18 @@
   </div>
 </div>
 
+<!-- お振込先モーダル（銀行振込・未入金の口座案内） -->
+<div id="biOverlay" class="cr-overlay hidden" onclick="if(event.target===this)closeBankInfo()">
+  <div class="cr-modal">
+    <h3 style="margin:0 0 4px">お振込先</h3>
+    <p class="muted" id="bi_sub" style="margin:0 0 12px"></p>
+    <div id="bi_body" style="font-size:14px"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn" onclick="closeBankInfo()">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const M = { token:null, member:null };
 
@@ -499,9 +511,16 @@ function bookingRow(b) {
   // 変更リクエストボタンは「キャンセル以外」かつ「利用日が本日以降」の予約のみ
   const today = new Date().toISOString().slice(0, 10);
   const canRequest = b.status !== 'cancelled' && (b.last_date || '') >= today;
-  const action = canRequest
+  let action = canRequest
     ? '<button class="btn ghost sm" onclick=\'openChangeReq(' + JSON.stringify(b.booking_number) + ',' + JSON.stringify(b.space_name || '') + ',' + JSON.stringify(b.space_id || '') + ',' + JSON.stringify(b.original_date || b.first_date || '') + ')\'>変更リクエスト</button>'
     : '';
+  // 銀行振込・未入金は「振込先」ボタンを出す（口座情報をマイページでも確認できる）
+  if (b.payment_method === 'bank_transfer' && b.payment_status === 'unpaid' && b.bank_transfer_info) {
+    try {
+      _bankInfoMap[b.booking_number] = { info: JSON.parse(b.bank_transfer_info), amount: b.total_amount };
+      action += ' <button class="btn sm" style="background:#0068b7" onclick="showBankInfo(\'' + b.booking_number + '\')">🏦 振込先</button>';
+    } catch (e) {}
+  }
   return '<tr>' +
     '<td data-label="予約番号">' + b.booking_number + '</td>' +
     '<td data-label="スペース">' + (b.space_name||'') + '</td>' +
@@ -511,6 +530,23 @@ function bookingRow(b) {
     '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td>' +
     '<td class="act">' + action + '</td></tr>';
 }
+// 銀行振込の振込先（予約番号→口座情報）。bookingRow 描画時に格納。
+const _bankInfoMap = {};
+function biEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+function showBankInfo(num) {
+  const e = _bankInfoMap[num]; if (!e) return;
+  const i = e.info;
+  const line = (k, v) => '<tr><td style="padding:3px 12px 3px 0;color:#6b7280;white-space:nowrap">' + k + '</td><td>' + v + '</td></tr>';
+  document.getElementById('bi_sub').textContent = '予約番号 ' + num + '／お振込金額 ' + yen(e.amount);
+  document.getElementById('bi_body').innerHTML =
+    '<div style="padding:12px;background:#f0f6ff;border:1px solid #c7ddff;border-radius:8px"><table style="border-collapse:collapse">' +
+    line('銀行名', biEsc(i.bankName)) + line('支店名', biEsc(i.branchName)) + line('口座種別', biEsc(i.accountType)) +
+    line('口座番号', '<strong>' + biEsc(i.accountNumber) + '</strong>') + line('口座名義', biEsc(i.accountHolderName)) +
+    '</table></div>' +
+    '<p class="muted" style="font-size:12px;margin-top:8px">※この口座はお客様専用です。お振込手数料はお客様のご負担となります。ご入金確認後に予約が確定し、領収書を発行します。</p>';
+  document.getElementById('biOverlay').classList.remove('hidden');
+}
+function closeBankInfo() { document.getElementById('biOverlay').classList.add('hidden'); }
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;

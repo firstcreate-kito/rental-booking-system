@@ -221,6 +221,67 @@ export async function createBankTransferCheckout(
   return { id: json.id, url: json.url };
 }
 
+export interface JpBankTransferInfo {
+  bankName: string;
+  branchName: string;
+  accountType: string; // 普通 / 当座 等（Stripeは 'futsu' 等で返すことがある）
+  accountNumber: string;
+  accountHolderName: string;
+}
+
+/** Stripe funding_instructions のレスポンスから日本の振込先口座を取り出す（純関数）。 */
+export function parseJpBankTransfer(json: unknown): JpBankTransferInfo | null {
+  const j = json as {
+    bank_transfer?: {
+      financial_addresses?: Array<{
+        jp_bank_transfer?: {
+          bank_name?: string;
+          branch_name?: string;
+          account_type?: string;
+          account_number?: string;
+          account_holder_name?: string;
+        };
+      }>;
+    };
+  };
+  const a = j.bank_transfer?.financial_addresses?.find((f) => f.jp_bank_transfer)?.jp_bank_transfer;
+  if (!a || !a.account_number) return null;
+  const typeLabel = a.account_type === 'futsu' ? '普通' : a.account_type === 'toza' ? '当座' : a.account_type || '';
+  return {
+    bankName: a.bank_name || '',
+    branchName: a.branch_name || '',
+    accountType: typeLabel,
+    accountNumber: a.account_number,
+    accountHolderName: a.account_holder_name || '',
+  };
+}
+
+/**
+ * 顧客の「日本の銀行振込」振込先（仮想口座）を発行して取り出す。
+ * Stripeのホスト決済ページに出るのと同じ口座。メール／マイページ表示用。
+ * 取得失敗時は null（決済フローは止めない）。
+ */
+export async function createJpBankTransferFundingInstructions(
+  secretKey: string,
+  customerId: string,
+): Promise<JpBankTransferInfo | null> {
+  try {
+    const body = new URLSearchParams();
+    body.set('currency', 'jpy');
+    body.set('funding_type', 'bank_transfer');
+    body.set('bank_transfer[type]', 'jp_bank_transfer');
+    const res = await fetch(`https://api.stripe.com/v1/customers/${customerId}/funding_instructions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    if (!res.ok) return null;
+    return parseJpBankTransfer(await res.json());
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Webhook 署名検証（Stripe-Signature: t=...,v1=...）
 // ---------------------------------------------------------------------------

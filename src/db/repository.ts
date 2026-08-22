@@ -726,6 +726,10 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
     .prepare(
       `SELECT bg.booking_number, bg.space_id, s.name AS space_name, bg.event_name,
               bg.total_amount, bg.original_date, bg.status, bg.created_at,
+              bg.payment_method, bg.payment_status,
+              (SELECT bp.bank_transfer_info FROM booking_payments bp
+                 WHERE bp.group_id = bg.id AND bp.bank_transfer_info IS NOT NULL
+                 ORDER BY bp.created_at DESC LIMIT 1) AS bank_transfer_info,
               MIN(b.date) AS first_date, MAX(b.date) AS last_date, COUNT(b.id) AS day_count
        FROM booking_groups bg
        LEFT JOIN bookings b ON b.group_id = bg.id
@@ -2256,6 +2260,24 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
     paymentMethod: g.payment_method,
     items: (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
   };
+}
+
+/** 銀行振込の振込先（仮想口座）情報をJSONで保存する。 */
+export async function setBookingPaymentBankInfo(db: D1Database, paymentId: string, infoJson: string): Promise<void> {
+  await db.prepare('UPDATE booking_payments SET bank_transfer_info = ? WHERE id = ?').bind(infoJson, paymentId).run();
+}
+
+/** 予約グループの銀行振込 振込先情報（未入金の案内表示用）。無ければ null。 */
+export async function getBankTransferInfoForGroup(db: D1Database, groupId: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT bank_transfer_info FROM booking_payments
+        WHERE group_id = ? AND provider = 'stripe' AND bank_transfer_info IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(groupId)
+    .first<{ bank_transfer_info: string | null }>();
+  return row?.bank_transfer_info ?? null;
 }
 
 export async function getBookingPaymentBySession(db: D1Database, sessionId: string) {

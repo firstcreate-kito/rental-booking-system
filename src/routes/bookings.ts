@@ -20,6 +20,7 @@ import {
   getTicketUsageForGroup,
   buildTicketRescheduleStmts,
   createBookingPayment,
+  setBookingPaymentBankInfo,
   createDocumentForGroup,
   getBookingPaymentBySession,
   getBookingSummaryForGroup,
@@ -60,9 +61,9 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, bankTransferInfoEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
-import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout } from '../lib/stripe';
+import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions } from '../lib/stripe';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
 
 const app = new Hono<AppBindings>();
@@ -775,6 +776,27 @@ app.post('/', async (c) => {
         });
         await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
         checkoutUrl = session.url;
+        // 振込先（仮想口座）を取得して保存し、お客様にメールでも案内する（マイページにも表示）。
+        // 取得できなくても予約は成立（Stripeのホスト画面には口座が表示される）。
+        try {
+          const bank = await createJpBankTransferFundingInstructions(c.env.STRIPE_SECRET_KEY!, customerId);
+          if (bank) {
+            await setBookingPaymentBankInfo(c.env.DB, payId, JSON.stringify(bank));
+            if (email) {
+              const mail = bankTransferInfoEmail({
+                customerName: contactName || 'お客様',
+                bookingNumber,
+                spaceName: space.name,
+                amount: totals.total,
+                bank,
+                mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+              });
+              c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
+            }
+          }
+        } catch {
+          /* 口座案内の失敗は予約に影響させない */
+        }
       } catch (err) {
         checkoutUrl = null;
         checkoutError = 'bank_transfer_error: ' + (err as Error).message;

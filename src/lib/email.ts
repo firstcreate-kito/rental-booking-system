@@ -603,6 +603,63 @@ ${receiptHtml}
   return withSignature({ subject, html, text });
 }
 
+/** 銀行振込の振込先口座のご案内（顧客向け・予約直後） */
+export function bankTransferInfoEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  amount: number;
+  bank: { bankName: string; branchName: string; accountType: string; accountNumber: string; accountHolderName: string };
+  mypageUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】お振込先のご案内（${d.bookingNumber}）`;
+  const b = d.bank;
+  const mypageText = d.mypageUrl ? `\nマイページでもご確認いただけます:\n${d.mypageUrl}\n` : '';
+  const text = `${d.customerName} 様
+
+ご予約ありがとうございます。下記の内容でご予約を承りました。
+お手数ですが、下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定し、領収書を発行いたします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+お振込金額（税込）: ${yen(d.amount)}
+
+【お振込先】
+銀行名: ${b.bankName}
+支店名: ${b.branchName}
+口座種別: ${b.accountType}
+口座番号: ${b.accountNumber}
+口座名義: ${b.accountHolderName}
+${mypageText}
+※この口座はお客様専用の振込先です。ご予約番号ごとに金額でお申込みを照合します。
+※お振込手数料はお客様のご負担となります。`;
+  const mypageHtml = d.mypageUrl
+    ? `<p style="margin:12px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページで振込先を確認する ▶</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約ありがとうございます。下記のお振込先へお振込みをお願いいたします。<br>ご入金の確認後にご予約が確定し、領収書を発行いたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お振込金額（税込）</td><td style="font-size:18px"><strong>${yen(d.amount)}</strong></td></tr>
+</table>
+<div style="margin:12px 0;padding:14px;background:#f0f6ff;border:1px solid #c7ddff;border-radius:8px">
+<div style="font-weight:700;margin-bottom:6px">お振込先</div>
+<table style="border-collapse:collapse">
+<tr><td style="padding:3px 12px 3px 0;color:#6b7280">銀行名</td><td>${escapeHtml(b.bankName)}</td></tr>
+<tr><td style="padding:3px 12px 3px 0;color:#6b7280">支店名</td><td>${escapeHtml(b.branchName)}</td></tr>
+<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座種別</td><td>${escapeHtml(b.accountType)}</td></tr>
+<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座番号</td><td><strong>${escapeHtml(b.accountNumber)}</strong></td></tr>
+<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座名義</td><td>${escapeHtml(b.accountHolderName)}</td></tr>
+</table>
+</div>
+${mypageHtml}
+<p style="color:#6b7280;font-size:13px">※この口座はお客様専用の振込先です。<br>※お振込手数料はお客様のご負担となります。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 追加料金のお支払いのお願い（予約内容変更で差額が発生したとき・顧客向け） */
 export function additionalChargeEmail(d: {
   customerName: string;

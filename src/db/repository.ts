@@ -2334,6 +2334,52 @@ export async function addRefundedAmount(db: D1Database, paymentId: string, addAm
     .run();
 }
 
+/** 返金の監査ログを1件記録する（お金が動く操作のため必ず残す）。 */
+export async function recordRefundLog(
+  db: D1Database,
+  p: {
+    groupId: string;
+    amount: number;
+    mode: 'stripe' | 'paypal' | 'manual';
+    status: 'done' | 'manual_pending' | 'manual_done';
+    providerRefundId?: string | null;
+    reason?: string | null;
+    createdBy?: string | null;
+  },
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO refund_log (id, group_id, amount, mode, status, provider_refund_id, reason, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, p.groupId, Math.round(p.amount), p.mode, p.status, p.providerRefundId ?? null, p.reason ?? null, p.createdBy ?? null, now)
+    .run();
+  return id;
+}
+
+/** 予約グループの返金ログ一覧（新しい順）。管理画面の履歴表示・領収書の経緯に使用。 */
+export async function getRefundLogForGroup(db: D1Database, groupId: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT id, amount, mode, status, provider_refund_id, reason, created_by, created_at
+         FROM refund_log WHERE group_id = ? ORDER BY created_at DESC`,
+    )
+    .bind(groupId)
+    .all<{
+      id: string;
+      amount: number;
+      mode: string;
+      status: string;
+      provider_refund_id: string | null;
+      reason: string | null;
+      created_by: string | null;
+      created_at: string;
+    }>();
+  return results ?? [];
+}
+
 // ---------------------------------------------------------------------------
 // 書類（請求書・領収書）#41
 // ---------------------------------------------------------------------------

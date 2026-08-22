@@ -92,7 +92,14 @@ import {
   updateViewingRequest,
   type SpaceQuestionInput,
   type SpaceRow,
+  getRefundablePaymentForGroup,
+  addRefundedAmount,
+  recordRefundLog,
+  getRefundLogForGroup,
 } from '../db/repository';
+import { refundPaymentAmount, retrievePaymentIntentMethodType } from '../lib/stripe';
+import { refundPaypalCapture } from '../lib/paypal';
+import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail, ADMIN_SESSION_IDLE_MINUTES } from '../lib/auth';
 import { buildXlsx, type Sheet } from '../lib/xlsx';
@@ -673,6 +680,112 @@ app.post('/bookings/:number/cancel', async (c) => {
   }
 
   return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, note: 'キャンセル料は管理者が手動で徴収します' });
+});
+
+/**
+ * GET /api/admin/bookings/:number/refund-info
+ * 返金モーダル用の情報。支払い方法・入金額・返金済み・返金可能額・返金方法
+ * （カード/PayPal=自動、銀行振込/コンビニ=手動）・返金履歴を返す。
+ */
+app.get('/bookings/:number/refund-info', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  const pay = await getRefundablePaymentForGroup(db, g.id);
+  const paidAmount = g.payment_status === 'paid' ? (pay?.amount ?? g.total_amount) : 0;
+  const refunded = pay?.refunded_amount ?? 0;
+  const max = maxRefundable(g.payment_status, paidAmount, refunded);
+  // Stripe の実支払い種類（カード/コンビニ）を確認して自動/手動を切り分ける
+  let stripeType: string | null = null;
+  const _pi = pay?.stripe_payment_intent;
+  const _sk = c.env.STRIPE_SECRET_KEY;
+  if (g.payment_method === 'stripe' && _pi && _sk) {
+    stripeType = await retrievePaymentIntentMethodType(_sk, _pi);
+  }
+  const mode = refundModeFor(g.payment_method, stripeType);
+  const history = await getRefundLogForGroup(db, g.id);
+  return c.json({
+    bookingNumber: g.booking_number,
+    paymentMethod: g.payment_method,
+    paymentStatus: g.payment_status,
+    stripeMethodType: stripeType,
+    paidAmount,
+    refundedAmount: refunded,
+    maxRefundable: max,
+    refundMode: mode, // 'auto_stripe' | 'auto_paypal' | 'manual'
+    canAuto: mode !== 'manual' && max > 0 && !!(pay && (pay.stripe_payment_intent || pay.paypal_capture_id)),
+    history,
+  });
+});
+
+/**
+ * POST /api/admin/bookings/:number/refund 返金を実行（管理者の承認操作）
+ * body: { amount:number, reason?:string, markManualDone?:boolean }
+ *  - カード(Stripe)/PayPal … 金額を指定してシステムが自動返金（一部返金可）
+ *  - 銀行振込/コンビニ/請求書 … 自動返金しない。手動対応の記録のみ（markManualDone で完了記録）
+ * すべて refund_log に監査記録を残す。
+ */
+app.post('/bookings/:number/refund', async (c) => {
+  const db = c.env.DB;
+  const admin = c.get('admin');
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  const body = await c.req
+    .json<{ amount?: number; reason?: string; markManualDone?: boolean }>()
+    .catch(() => ({}) as { amount?: number; reason?: string; markManualDone?: boolean });
+  const pay = await getRefundablePaymentForGroup(db, g.id);
+  const paidAmount = g.payment_status === 'paid' ? (pay?.amount ?? g.total_amount) : 0;
+  const refunded = pay?.refunded_amount ?? 0;
+  const max = maxRefundable(g.payment_status, paidAmount, refunded);
+  const amount = Math.round(Number(body.amount));
+  const v = validateRefundAmount(amount, max);
+  if (!v.ok) return c.json({ error: v.error }, 400);
+
+  let stripeType: string | null = null;
+  const _pi = pay?.stripe_payment_intent;
+  const _sk = c.env.STRIPE_SECRET_KEY;
+  if (g.payment_method === 'stripe' && _pi && _sk) {
+    stripeType = await retrievePaymentIntentMethodType(_sk, _pi);
+  }
+  const mode = refundModeFor(g.payment_method, stripeType);
+  const now = nowJST();
+
+  // 手動返金（銀行振込・コンビニ・請求書）：実送金は管理者。記録のみ。
+  if (mode === 'manual') {
+    const status = body.markManualDone ? 'manual_done' : 'manual_pending';
+    await recordRefundLog(db, { groupId: g.id, amount, mode: 'manual', status, reason: body.reason ?? null, createdBy: admin?.email ?? null }, now);
+    if (body.markManualDone && pay) await addRefundedAmount(db, pay.id, amount);
+    return c.json({
+      ok: true,
+      mode: 'manual',
+      status,
+      message: body.markManualDone
+        ? '手動返金（振込）を記録しました。'
+        : 'この予約は銀行振込／コンビニ払いです。お客様に返金先口座を伺い、銀行振込で返金してください（自動返金は行いません）。完了後に「振込済みとして記録」を押してください。',
+    });
+  }
+
+  // 自動返金（カード/PayPal）
+  if (!pay) return c.json({ error: '返金対象の決済が見つかりません' }, 400);
+  let refundId: string | undefined;
+  if (mode === 'auto_stripe') {
+    if (!pay.stripe_payment_intent || !c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripeの決済情報が不足しています（手動返金してください）' }, 400);
+    const r = await refundPaymentAmount(c.env.STRIPE_SECRET_KEY, pay.stripe_payment_intent, amount);
+    if (!r.ok) return c.json({ error: 'Stripe返金に失敗しました：' + (r.error || '') }, 502);
+    refundId = r.refundId;
+  } else {
+    if (!pay.paypal_capture_id) return c.json({ error: 'PayPalの決済情報が不足しています（手動返金してください）' }, 400);
+    const r = await refundPaypalCapture(c.env, pay.paypal_capture_id, amount);
+    if (!r.ok) return c.json({ error: 'PayPal返金に失敗しました：' + (r.error || '') }, 502);
+    refundId = r.refundId;
+  }
+  await addRefundedAmount(db, pay.id, amount);
+  await recordRefundLog(
+    db,
+    { groupId: g.id, amount, mode: mode === 'auto_stripe' ? 'stripe' : 'paypal', status: 'done', providerRefundId: refundId ?? null, reason: body.reason ?? null, createdBy: admin?.email ?? null },
+    now,
+  );
+  return c.json({ ok: true, mode, status: 'done', refundId, refundedTotal: refunded + amount, message: `¥${amount.toLocaleString()} を返金しました。` });
 });
 
 /**

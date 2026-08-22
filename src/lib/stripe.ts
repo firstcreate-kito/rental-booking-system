@@ -55,6 +55,30 @@ export async function refundPaymentAmount(
   }
 }
 
+/**
+ * payment_intent の実際に使われた支払い方法の種類を取得する（'card' / 'konbini' 等）。
+ * 返金の自動/手動判定に使用（カード=自動返金、コンビニ=手動）。取得失敗時は null。
+ */
+export async function retrievePaymentIntentMethodType(
+  secretKey: string,
+  paymentIntentId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.stripe.com/v1/payment_intents/${paymentIntentId}?expand[]=latest_charge`,
+      { headers: { Authorization: `Bearer ${secretKey}` } },
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      latest_charge?: { payment_method_details?: { type?: string } };
+      payment_method_types?: string[];
+    };
+    return j.latest_charge?.payment_method_details?.type || j.payment_method_types?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface CheckoutParams {
   /** 商品名（Stripe の決済ページに表示） */
   productName: string;

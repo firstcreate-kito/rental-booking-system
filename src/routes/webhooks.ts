@@ -41,8 +41,9 @@ app.post('/stripe', async (c) => {
       if (bookingPay) {
         const origin = c.env.PUBLIC_BASE_URL || '';
         const group = await getBookingGroupById(c.env.DB, bookingPay.group_id);
-        // 課金は成立しているので、まず入金を記録する
-        const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST());
+        // 課金は成立しているので、まず入金を記録する（返金用に payment_intent も保存）
+        const piForRefund = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+        const r = await markBookingPaymentPaid(c.env.DB, session.id, nowJST(), { paymentIntent: piForRefund });
         if (!r.ok) return c.json({ received: true, paid: false }, 500);
         const groupId = r.groupId!;
 

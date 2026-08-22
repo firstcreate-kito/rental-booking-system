@@ -20,9 +20,28 @@ export function stripeConfigured(env: Env): boolean {
  * payment_intent 単位で返金。成功可否を返す（失敗しても例外にせず false）。
  */
 export async function refundPayment(secretKey: string, paymentIntentId: string): Promise<{ ok: boolean; error?: string }> {
+  return refundPaymentAmount(secretKey, paymentIntentId);
+}
+
+/**
+ * 決済を返金する（一部返金対応）。amountJpy を渡すとその金額だけ、省略すると全額返金。
+ * payment_intent 単位。JPY はゼロ小数通貨なので amount にそのまま円を渡す。
+ * 成功可否と、成功時は返金IDを返す（失敗しても例外にせず ok:false）。
+ */
+export async function refundPaymentAmount(
+  secretKey: string,
+  paymentIntentId: string,
+  amountJpy?: number,
+): Promise<{ ok: boolean; refundId?: string; error?: string }> {
   try {
     const body = new URLSearchParams();
     body.set('payment_intent', paymentIntentId);
+    // amountJpy 指定時は一部返金。0 や負数は無効（全額返金と誤解されるため弾く）。
+    if (amountJpy != null) {
+      const amt = Math.round(amountJpy);
+      if (!(amt > 0)) return { ok: false, error: 'invalid refund amount' };
+      body.set('amount', String(amt));
+    }
     const res = await fetch('https://api.stripe.com/v1/refunds', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -30,7 +49,7 @@ export async function refundPayment(secretKey: string, paymentIntentId: string):
     });
     const json = (await res.json()) as { id?: string; error?: { message?: string } };
     if (!res.ok || !json.id) return { ok: false, error: json.error?.message || `refund failed (${res.status})` };
-    return { ok: true };
+    return { ok: true, refundId: json.id };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

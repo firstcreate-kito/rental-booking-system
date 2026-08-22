@@ -82,14 +82,56 @@ export async function createPaypalOrder(env: Env, p: OrderParams): Promise<{ ord
   return { orderId: j.id, approveUrl: approve.href };
 }
 
-/** 注文をキャプチャ（代金確定）。COMPLETED なら completed=true。 */
-export async function capturePaypalOrder(env: Env, orderId: string): Promise<{ completed: boolean; status: string }> {
+/**
+ * 注文をキャプチャ（代金確定）。COMPLETED なら completed=true。
+ * 返金に必要な「キャプチャID」も取り出して返す（後日の承認返金で使用）。
+ */
+export async function capturePaypalOrder(
+  env: Env,
+  orderId: string,
+): Promise<{ completed: boolean; status: string; captureId?: string }> {
   const token = await getAccessToken(env);
   const res = await fetch(`${paypalBaseUrl(env)}/v2/checkout/orders/${orderId}/capture`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
-  const j = (await res.json()) as { status?: string; message?: string };
+  const j = (await res.json()) as {
+    status?: string;
+    message?: string;
+    purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string }> } }>;
+  };
   if (!res.ok) throw new Error(j.message || `PayPal capture error (${res.status})`);
-  return { completed: j.status === 'COMPLETED', status: j.status || 'UNKNOWN' };
+  const captureId = j.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+  return { completed: j.status === 'COMPLETED', status: j.status || 'UNKNOWN', captureId };
+}
+
+/**
+ * キャプチャ済みの決済を返金する（一部返金対応）。amountJpy 省略で全額返金。
+ * PayPal Payments API: POST /v2/payments/captures/{capture_id}/refund
+ * 成功可否と返金IDを返す（失敗しても例外にせず ok:false）。
+ */
+export async function refundPaypalCapture(
+  env: Env,
+  captureId: string,
+  amountJpy?: number,
+): Promise<{ ok: boolean; refundId?: string; error?: string }> {
+  try {
+    const token = await getAccessToken(env);
+    const body: Record<string, unknown> = {};
+    if (amountJpy != null) {
+      const amt = Math.round(amountJpy);
+      if (!(amt > 0)) return { ok: false, error: 'invalid refund amount' };
+      body.amount = { currency_code: 'JPY', value: String(amt) };
+    }
+    const res = await fetch(`${paypalBaseUrl(env)}/v2/payments/captures/${captureId}/refund`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = (await res.json()) as { id?: string; status?: string; message?: string };
+    if (!res.ok || !j.id) return { ok: false, error: j.message || `PayPal refund error (${res.status})` };
+    return { ok: true, refundId: j.id };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }

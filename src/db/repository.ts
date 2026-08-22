@@ -2267,15 +2267,71 @@ export async function getBookingPaymentBySession(db: D1Database, sessionId: stri
 }
 
 /** 決済完了 Webhook を受けて予約を入金済みにする（冪等） */
-export async function markBookingPaymentPaid(db: D1Database, sessionId: string, now: string): Promise<{ ok: boolean; groupId?: string; already?: boolean }> {
+export async function markBookingPaymentPaid(
+  db: D1Database,
+  sessionId: string,
+  now: string,
+  refs?: { paymentIntent?: string | null; captureId?: string | null },
+): Promise<{ ok: boolean; groupId?: string; already?: boolean }> {
   const pay = await getBookingPaymentBySession(db, sessionId);
   if (!pay) return { ok: false };
-  if (pay.status === 'paid') return { ok: true, already: true, groupId: pay.group_id };
+  // 返金用の参照ID（payment_intent / capture_id）は、既に paid でも未保存なら補完する。
+  const refStmts: D1PreparedStatement[] = [];
+  if (refs?.paymentIntent) {
+    refStmts.push(
+      db.prepare('UPDATE booking_payments SET stripe_payment_intent = ? WHERE stripe_session_id = ? AND stripe_payment_intent IS NULL')
+        .bind(refs.paymentIntent, sessionId),
+    );
+  }
+  if (refs?.captureId) {
+    refStmts.push(
+      db.prepare('UPDATE booking_payments SET paypal_capture_id = ? WHERE stripe_session_id = ? AND paypal_capture_id IS NULL')
+        .bind(refs.captureId, sessionId),
+    );
+  }
+  if (pay.status === 'paid') {
+    if (refStmts.length) await db.batch(refStmts);
+    return { ok: true, already: true, groupId: pay.group_id };
+  }
   await db.batch([
     db.prepare("UPDATE booking_payments SET status = 'paid', paid_at = ? WHERE stripe_session_id = ?").bind(now, sessionId),
     db.prepare("UPDATE booking_groups SET payment_status = 'paid' WHERE id = ?").bind(pay.group_id),
+    ...refStmts,
   ]);
   return { ok: true, groupId: pay.group_id };
+}
+
+/**
+ * 予約グループの「支払い済み」決済のうち、返金に使える参照IDを持つものを返す。
+ * 承認返金（カード/PayPal自動返金）で使用。無ければ null。
+ */
+export async function getRefundablePaymentForGroup(db: D1Database, groupId: string) {
+  return db
+    .prepare(
+      `SELECT id, group_id, provider, amount, refunded_amount, stripe_payment_intent, paypal_capture_id, status
+         FROM booking_payments
+        WHERE group_id = ? AND status = 'paid'
+        ORDER BY paid_at DESC LIMIT 1`,
+    )
+    .bind(groupId)
+    .first<{
+      id: string;
+      group_id: string;
+      provider: string;
+      amount: number;
+      refunded_amount: number;
+      stripe_payment_intent: string | null;
+      paypal_capture_id: string | null;
+      status: string;
+    }>();
+}
+
+/** 返金済み累計を加算する（一部返金を複数回行う場合の記録）。 */
+export async function addRefundedAmount(db: D1Database, paymentId: string, addAmount: number): Promise<void> {
+  await db
+    .prepare('UPDATE booking_payments SET refunded_amount = refunded_amount + ? WHERE id = ?')
+    .bind(Math.round(addAmount), paymentId)
+    .run();
 }
 
 // ---------------------------------------------------------------------------

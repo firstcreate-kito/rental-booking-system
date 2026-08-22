@@ -53,7 +53,8 @@ app.post('/capture', async (c) => {
     const cap = await capturePaypalOrder(c.env, orderId);
     if (!cap.completed) return c.json({ status: cap.status.toLowerCase() });
 
-    await markBookingPaymentPaid(c.env.DB, orderId, nowJST());
+    // 返金用にキャプチャIDを保存する
+    await markBookingPaymentPaid(c.env.DB, orderId, nowJST(), { captureId: cap.captureId || null });
 
     if (paymentFirst) {
       // capture 後に確定（再チェック＋昇格＋カレンダー書き込み）

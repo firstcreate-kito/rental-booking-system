@@ -134,6 +134,7 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="icon" href="/assets/icon-192.png" type="image/png">
 <script src="/assets/pwa.js" defer></script>
+<script src="/assets/analytics.js" defer></script>
 <style>
 :root{ --ink:#1a1917; --ink-2:#6f6c66; --ink-3:#a8a49c; --paper:#fff; --wash:#f8f7f5; --line:#eae8e3; --line-2:#d8d5ce; --r:2px; --pad:16px; --maxw:1080px;
   --f-sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif; --f-num:ui-monospace,"SF Mono",Menlo,monospace; }

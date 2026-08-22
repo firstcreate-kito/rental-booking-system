@@ -20,6 +20,7 @@ export const BOOKING_CHANGE_HTML = `<!DOCTYPE html>
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="icon" href="/assets/icon-192.png" type="image/png">
 <script src="/assets/pwa.js" defer></script>
+<script src="/assets/analytics.js" defer></script>
 <style>
 /* サイト共通の見た目（tokens.css）に対応づけ。中間色・角丸・余白は tokens.css を継承 */
 :root{ --brand:var(--key); --bad:var(--full);

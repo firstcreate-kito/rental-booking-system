@@ -49,4 +49,13 @@ describe('renderDocumentHtml', () => {
     expect(html).not.toContain('<script>x</script>');
     expect(html).toContain('&lt;script&gt;');
   });
+  it('備考（remark）を指定すると領収書に表示される', () => {
+    const html = renderDocumentHtml({ ...base, remark: '2026-09-17 追加分 ¥3,630 を反映しました。' });
+    expect(html).toContain('備考');
+    expect(html).toContain('2026-09-17 追加分 ¥3,630 を反映しました。');
+  });
+  it('備考なしのときは備考欄を出さない', () => {
+    const html = renderDocumentHtml(base);
+    expect(html).not.toContain('備考');
+  });
 });

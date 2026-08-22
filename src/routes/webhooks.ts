@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured, refundPayment } from '../lib/stripe';
-import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, getBookingSummaryForGroup, getCustomerProfile, getBookingGroupById, failBookingGroup } from '../db/repository';
+import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, reissueReceiptForGroup, getBookingSummaryForGroup, getCustomerProfile, getBookingGroupById, failBookingGroup } from '../db/repository';
 import { sendEmail, ticketPurchaseEmail } from '../lib/email';
 import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed } from '../lib/notify';
 import { finalizeImmediateBooking } from '../lib/finalize';
@@ -43,10 +43,17 @@ app.post('/stripe', async (c) => {
         const piForRefund = typeof session.payment_intent === 'string' ? session.payment_intent : null;
 
         // 追加請求（差額の後日徴収）の入金：本予約フローとは別扱い。
-        // 入金を記録し、領収書を最終金額で再発行する（Stage4）。
+        // 入金を記録し、領収書を最終金額で再発行する（備考に経緯）。
         if (bookingPay.kind === 'additional') {
           const ar = await markBookingPaymentPaid(c.env.DB, session.id, nowJST(), { paymentIntent: piForRefund });
           if (!ar.ok) return c.json({ received: true, paid: false }, 500);
+          try {
+            const addYen = '¥' + Number(bookingPay.amount).toLocaleString('ja-JP');
+            const remark = `${todayJST()} 予約内容変更に伴う追加分 ${addYen} を反映し、変更後の合計金額で再発行しました。`;
+            await reissueReceiptForGroup(c.env.DB, ar.groupId!, remark);
+          } catch {
+            /* 領収書再発行の失敗は決済処理に影響させない */
+          }
           return c.json({ received: true, paid: true, additional: true, groupId: ar.groupId });
         }
 

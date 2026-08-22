@@ -97,6 +97,7 @@ import {
   recordRefundLog,
   getRefundLogForGroup,
   createBookingPayment,
+  reissueReceiptForGroup,
 } from '../db/repository';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture } from '../lib/paypal';
@@ -755,7 +756,15 @@ app.post('/bookings/:number/refund', async (c) => {
   if (mode === 'manual') {
     const status = body.markManualDone ? 'manual_done' : 'manual_pending';
     await recordRefundLog(db, { groupId: g.id, amount, mode: 'manual', status, reason: body.reason ?? null, createdBy: admin?.email ?? null }, now);
-    if (body.markManualDone && pay) await addRefundedAmount(db, pay.id, amount);
+    if (body.markManualDone && pay) {
+      await addRefundedAmount(db, pay.id, amount);
+      // 予約が継続（確定）している返金は、領収書を最終金額で再発行（備考に経緯）
+      if (g.status === 'confirmed') {
+        try {
+          await reissueReceiptForGroup(db, g.id, `${todayJST()} 予約内容変更に伴う返金 ¥${Math.round(amount).toLocaleString('ja-JP')} を反映し、変更後の合計金額で再発行しました。`);
+        } catch { /* 再発行失敗は返金処理に影響させない */ }
+      }
+    }
     return c.json({
       ok: true,
       mode: 'manual',
@@ -786,6 +795,12 @@ app.post('/bookings/:number/refund', async (c) => {
     { groupId: g.id, amount, mode: mode === 'auto_stripe' ? 'stripe' : 'paypal', status: 'done', providerRefundId: refundId ?? null, reason: body.reason ?? null, createdBy: admin?.email ?? null },
     now,
   );
+  // 予約が継続（確定）している返金は、領収書を最終金額で再発行（備考に経緯）
+  if (g.status === 'confirmed') {
+    try {
+      await reissueReceiptForGroup(db, g.id, `${todayJST()} 予約内容変更に伴う返金 ¥${Math.round(amount).toLocaleString('ja-JP')} を反映し、変更後の合計金額で再発行しました。`);
+    } catch { /* 再発行失敗は返金処理に影響させない */ }
+  }
   return c.json({ ok: true, mode, status: 'done', refundId, refundedTotal: refunded + amount, message: `¥${amount.toLocaleString()} を返金しました。` });
 });
 

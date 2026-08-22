@@ -64,6 +64,7 @@ app.get('/:token', async (c) => {
     eventName: summary?.eventName || '',
     items: summary?.items || [],
     total: doc.total_amount,
+    remark: doc.remark ?? undefined,
     paymentMethodLabel: PAY_LABEL[summary?.paymentMethod || ''] || summary?.paymentMethod || '—',
     issuer: {
       name: issuer.name,

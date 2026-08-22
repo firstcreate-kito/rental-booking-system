@@ -37,6 +37,8 @@ export interface DocumentData {
   total: number; // 税込合計
   paymentMethodLabel: string; // 支払い方法の表示名
   issuer: IssuerInfo;
+  /** 備考（例：予約内容変更で追加/返金が発生し、この金額になった経緯）。 */
+  remark?: string;
   /** サーバー側PDF生成が有効なとき、ダウンロード用リンク（例: '?format=pdf'）。未指定なら印刷ボタンのみ。 */
   pdfHref?: string;
   /** メール送信APIのパス（例: '/api/documents/<token>/email'）。設定時のみ「メールで送信」ボタンを表示。 */
@@ -84,17 +86,23 @@ export function renderDocumentHtml(d: DocumentData): string {
     .filter(Boolean)
     .join('<br>');
 
+  // 備考（金額が変わった経緯など）。指定時のみ表示。
+  const remarkBlock = d.remark
+    ? `<div class="note-box"><div class="but">備考</div><div>${nl2br(d.remark)}</div></div>`
+    : '';
+
   // 領収書は「但し書き＋受領文」、請求書は「振込先＋お支払いのお願い」
-  const bodyBlock = isReceipt
-    ? `<div class="note-box">
+  const bodyBlock =
+    (isReceipt
+      ? `<div class="note-box">
          <div class="but">但し、レンタルスペースご利用料金として</div>
          <div>上記正に領収いたしました。</div>
          <div class="mini">※本領収書は電子的に発行されたものです（収入印紙は不要です）。</div>
        </div>`
-    : `<div class="note-box">
+      : `<div class="note-box">
          <div>下記の内容にてご請求申し上げます。お手数ですが下記お振込先までお願いいたします。</div>
          ${issuer.bankInfo ? `<div class="bank"><div class="bank-h">お振込先</div>${nl2br(issuer.bankInfo)}</div>` : ''}
-       </div>`;
+       </div>`) + remarkBlock;
 
   return `<!doctype html>
 <html lang="ja"><head>

@@ -2422,6 +2422,7 @@ export interface DocumentRow {
   total_amount: number;
   issued_at: string;
   status: string;
+  remark: string | null;
 }
 
 /** 推測不可能な書類トークンを生成（64桁hex） */
@@ -2437,6 +2438,7 @@ export async function createDocumentForGroup(
   db: D1Database,
   groupId: string,
   type: 'invoice' | 'receipt',
+  remark?: string,
 ): Promise<{ token: string; created: boolean } | null> {
   const existing = await db
     .prepare("SELECT public_token FROM documents WHERE group_id = ? AND type = ? AND status = 'issued' LIMIT 1")
@@ -2453,12 +2455,44 @@ export async function createDocumentForGroup(
   const token = newDocumentToken();
   await db
     .prepare(
-      `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount, remark)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(crypto.randomUUID(), groupId, g.customer_id, type, g.booking_number, token, g.total_amount)
+    .bind(crypto.randomUUID(), groupId, g.customer_id, type, g.booking_number, token, g.total_amount, remark ?? null)
     .run();
   return { token, created: true };
+}
+
+/**
+ * 領収書を「最終金額」で再発行する（返金・追加請求の確定後に使用）。
+ * 既存の発行済み領収書を status='superseded'（差替済）にし、現在の予約合計で
+ * 新しい領収書を発行する。備考に金額が変わった経緯を記載する。
+ * まだ領収書が無い場合も、最終金額＋備考で新規発行する（冪等ではなく必ず作る）。
+ */
+export async function reissueReceiptForGroup(
+  db: D1Database,
+  groupId: string,
+  remark: string,
+): Promise<{ token: string } | null> {
+  const g = await db
+    .prepare('SELECT booking_number, customer_id, total_amount FROM booking_groups WHERE id = ?')
+    .bind(groupId)
+    .first<{ booking_number: string; customer_id: string; total_amount: number }>();
+  if (!g) return null;
+
+  const token = newDocumentToken();
+  await db.batch([
+    // 旧領収書を差替済にする（無ければ何も起きない）
+    db.prepare("UPDATE documents SET status = 'superseded' WHERE group_id = ? AND type = 'receipt' AND status = 'issued'").bind(groupId),
+    // 最終金額＋備考で新しい領収書を発行
+    db
+      .prepare(
+        `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount, remark)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), groupId, g.customer_id, 'receipt', g.booking_number, token, g.total_amount, remark),
+  ]);
+  return { token };
 }
 
 export async function getDocumentByToken(db: D1Database, token: string): Promise<DocumentRow | null> {

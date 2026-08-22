@@ -13,6 +13,8 @@ export interface PageContext {
   contactUrl: string;
   lineUrl: string;
   loginUrl: string;
+  /** WEBサイト等へ iframe 埋め込みするモード（#19）。ヘッダー等を省き、予約リンクは親窓で開く。 */
+  embed?: boolean;
 }
 
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
@@ -23,12 +25,13 @@ function labelYmd(ymd: string): string {
 }
 const yen = (n: number) => n.toLocaleString('ja-JP');
 
-function chipHref(base: { date: string; use: string; area: string }, patch: Partial<{ date: string; use: string; area: string }>): string {
+function chipHref(base: { date: string; use: string; area: string }, patch: Partial<{ date: string; use: string; area: string }>, embed?: boolean): string {
   const p = { ...base, ...patch };
   const q = new URLSearchParams();
   q.set('date', p.date);
   if (p.use && p.use !== 'all') q.set('use', p.use);
   if (p.area && p.area !== 'all') q.set('area', p.area);
+  if (embed) q.set('embed', '1'); // 埋め込み内の日付/絞り込み遷移でも埋め込みモードを維持
   return `/availability/?${q.toString()}`;
 }
 
@@ -73,7 +76,9 @@ function rowHtml(r: AvailabilityRow, ctx: PageContext): string {
     `<div class="rprice">${priceHtml}</div>` +
     `<div class="rstat"><span class="mark">${mark}</span><span class="rtime">${escapeHtml(rtime)}</span></div>` +
     next + viewNote;
-  return href ? `<a class="row" href="${escapeHtml(href)}">${inner}</a>` : `<div class="row">${inner}</div>`;
+  // 埋め込み時は予約/相談リンクを親ウィンドウで開く（iframe内だと決済・ログインが壊れるため）
+  const tgt = ctx.embed ? ' target="_top"' : '';
+  return href ? `<a class="row"${tgt} href="${escapeHtml(href)}">${inner}</a>` : `<div class="row">${inner}</div>`;
 }
 
 function groupHtml(title: string, rows: AvailabilityRow[], ctx: PageContext): string {
@@ -82,6 +87,7 @@ function groupHtml(title: string, rows: AvailabilityRow[], ctx: PageContext): st
 }
 
 export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContext): string {
+  const embed = !!ctx.embed;
   const base = { date: data.date, use: data.filters.use, area: data.filters.area };
   const uses = [
     ['all', 'すべて'],
@@ -99,10 +105,10 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
     ['other', 'その他'],
   ];
   const dchip = (label: string, date: string) =>
-    `<a class="dchip${date === data.date ? ' on' : ''}" href="${chipHref(base, { date })}">${label}</a>`;
+    `<a class="dchip${date === data.date ? ' on' : ''}" href="${chipHref(base, { date }, embed)}">${label}</a>`;
   const chipRow = (id: string, items: string[][], current: string) =>
     items
-      .map(([v, l]) => `<a class="chip${v === current ? ' on' : ''}" href="${chipHref(base, { [id]: v })}">${escapeHtml(l)}</a>`)
+      .map(([v, l]) => `<a class="chip${v === current ? ' on' : ''}" href="${chipHref(base, { [id]: v }, embed)}">${escapeHtml(l)}</a>`)
       .join('');
 
   const lastSync = data.lastSyncAt ? data.lastSyncAt.slice(11, 16) : null;
@@ -126,7 +132,7 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
 <meta name="description" content="${escapeHtml(desc)}">
 <link rel="canonical" href="https://space-albe.com/availability/">
 <link rel="stylesheet" href="/assets/albe-header.css">
-<link rel="manifest" href="/manifest.webmanifest">
+${embed ? '' : `<link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0068b7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -134,7 +140,7 @@ export function renderAvailabilityPage(data: AvailabilityResult, ctx: PageContex
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="icon" href="/assets/icon-192.png" type="image/png">
 <script src="/assets/pwa.js" defer></script>
-<script src="/assets/analytics.js" defer></script>
+<script src="/assets/analytics.js" defer></script>`}
 <style>
 :root{ --ink:#1a1917; --ink-2:#6f6c66; --ink-3:#a8a49c; --paper:#fff; --wash:#f8f7f5; --line:#eae8e3; --line-2:#d8d5ce; --r:2px; --pad:16px; --maxw:1080px;
   --f-sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif; --f-num:ui-monospace,"SF Mono",Menlo,monospace; }
@@ -171,10 +177,11 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
 .bar a{ min-height:57px; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; background:var(--paper); } .bar a.primary{ background:var(--ink); color:#fff; }
 @media (min-width:700px){ :root{ --pad:24px; } h1{ font-size:27px; } }
 @media (min-width:900px){ body{ padding-bottom:0; } .bar{ display:none; } .hd-in,.crumb,h1,.lede,.datebar>*,.frow>*,.headline,#list,.legend,.updated,.help,.legalnav,.ft-note{ max-width:var(--maxw); margin-left:auto; margin-right:auto; } }
+${embed ? 'body{ padding-bottom:0 !important; } .datebar{ border-top:0; }' : ''}
 </style>
 </head>
-<body>
-<header class="albe-topbar">
+<body${embed ? ' class="embed"' : ''}>
+${embed ? '' : `<header class="albe-topbar">
   <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
     <img class="albe-logo" src="/assets/albe-logo.png" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
     <span class="albe-brand-text">RENTAL SPACE ALBE</span>
@@ -186,7 +193,7 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
 </header>
 <nav class="crumb"><a href="/">ホーム</a> ／ 空き状況</nav>
 <h1>空き状況</h1>
-<p class="lede">日付を選ぶと、その日に使える施設が一覧で表示されます。当日のご予約も可能です。</p>
+<p class="lede">日付を選ぶと、その日に使える施設が一覧で表示されます。当日のご予約も可能です。</p>`}
 
 <section class="datebar" aria-label="日付の選択">
   <span class="dlabel">日付</span>
@@ -202,25 +209,36 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
   <div id="list">${listHtml || '<div class="ghead">該当する施設がありません</div>'}</div>
   <div class="legend"><span><b>○</b>空きあり</span><span><b>△</b>商談中（ご相談は承ります）</span><span><b>×</b>満室</span></div>
   ${lastSync ? `<div class="updated">最終更新 ${lastSync}（5分ごとに同期しています）</div>` : ''}
-  <div class="help">
+  ${embed ? '' : `<div class="help">
     <h2>お探しの条件が見つからないとき</h2>
     <p>連日のご利用、長期の貸切、商談中の日程のご相談も承ります。お気軽にお問い合わせください。</p>
     <div class="acts"><a class="act primary" href="${escapeHtml(ctx.contactUrl || '/')}">日程を伝えて相談</a><a class="act" href="${escapeHtml(ctx.lineUrl)}">LINEで聞く</a></div>
-  </div>
+  </div>`}
 </main>
 
-<footer>
+${embed ? '' : `<footer>
   <nav class="legalnav"><a href="/kiyaku/">ご利用規約</a><a href="/tokutei/">特定商取引法に基づく表示</a><a href="/privacy/">プライバシーポリシー</a><a href="/company/">運営会社</a></nav>
   <p class="ft-note">© 株式会社ファーストクリエイト／レンタルスペースALBE</p>
 </footer>
 
-<nav class="bar" aria-label="主な操作"><a href="/" class="primary">スペースを探す</a><a href="${escapeHtml(ctx.contactUrl || '/')}">相談</a><a href="${escapeHtml(ctx.lineUrl)}">LINE</a></nav>
+<nav class="bar" aria-label="主な操作"><a href="/" class="primary">スペースを探す</a><a href="${escapeHtml(ctx.contactUrl || '/')}">相談</a><a href="${escapeHtml(ctx.lineUrl)}">LINE</a></nav>`}
 
 <script>
 // 日付入力の変更で同ページへ遷移（初期表示はSSR済み・これは補助）
 var di=document.getElementById('dinput');
 if(di){di.addEventListener('change',function(){if(this.value){var u=new URL(location.href);u.searchParams.set('date',this.value);location.href=u.toString();}});}
 </script>
+${embed ? `<script>
+// 埋め込み用：親ウィンドウへ高さを通知し、iframeを自動リサイズさせる
+(function(){
+  function h(){ return Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0); }
+  function post(){ try{ parent.postMessage({ albeEmbedHeight: h() }, '*'); }catch(e){} }
+  window.addEventListener('load', post);
+  window.addEventListener('resize', post);
+  if (window.ResizeObserver) { try { new ResizeObserver(post).observe(document.documentElement); } catch(e){} }
+  setTimeout(post, 300); setTimeout(post, 1200);
+})();
+</script>` : ''}
 </body>
 </html>`;
 }

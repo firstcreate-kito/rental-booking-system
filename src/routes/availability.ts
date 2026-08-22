@@ -50,6 +50,7 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
     contactUrl,
     lineUrl: LINE_URL,
     loginUrl: '/mypage.html',
+    embed: c.req.query('embed') === '1', // WEBサイト等への iframe 埋め込み（#19）
   });
   c.header('Cache-Control', 'public, max-age=300');
   return c.html(html);

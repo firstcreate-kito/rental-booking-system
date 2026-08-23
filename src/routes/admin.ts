@@ -98,6 +98,8 @@ import {
   getRefundLogForGroup,
   createBookingPayment,
   reissueReceiptForGroup,
+  recordBookingEvent,
+  getBookingEventsForGroup,
 } from '../db/repository';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture } from '../lib/paypal';
@@ -681,7 +683,20 @@ app.post('/bookings/:number/cancel', async (c) => {
     }
   }
 
+  try {
+    const adminC = c.get('admin');
+    await recordBookingEvent(db, { groupId: g.id, type: 'cancel', amount: totalFee, summary: totalFee > 0 ? `キャンセル（キャンセル料 ¥${Math.round(totalFee).toLocaleString('ja-JP')}）` : 'キャンセル（キャンセル料なし）', actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
+  } catch { /* 履歴記録の失敗はキャンセル処理に影響させない */ }
   return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, note: 'キャンセル料は管理者が手動で徴収します' });
+});
+
+/** GET /api/admin/bookings/:number/history 予約の変更履歴（管理用）#93 */
+app.get('/bookings/:number/history', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  const events = await getBookingEventsForGroup(db, g.id);
+  return c.json({ events });
 });
 
 /**
@@ -764,6 +779,9 @@ app.post('/bookings/:number/refund', async (c) => {
           await reissueReceiptForGroup(db, g.id, `${todayJST()} 予約内容変更に伴う返金 ¥${Math.round(amount).toLocaleString('ja-JP')} を反映し、変更後の合計金額で再発行しました。`);
         } catch { /* 再発行失敗は返金処理に影響させない */ }
       }
+      try {
+        await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（銀行振込・手動）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
+      } catch { /* 履歴記録の失敗は返金処理に影響させない */ }
     }
     return c.json({
       ok: true,
@@ -801,6 +819,9 @@ app.post('/bookings/:number/refund', async (c) => {
       await reissueReceiptForGroup(db, g.id, `${todayJST()} 予約内容変更に伴う返金 ¥${Math.round(amount).toLocaleString('ja-JP')} を反映し、変更後の合計金額で再発行しました。`);
     } catch { /* 再発行失敗は返金処理に影響させない */ }
   }
+  try {
+    await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（${mode === 'auto_paypal' ? 'PayPal' : 'カード'}・自動）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
+  } catch { /* 履歴記録の失敗は返金処理に影響させない */ }
   return c.json({ ok: true, mode, status: 'done', refundId, refundedTotal: refunded + amount, message: `¥${amount.toLocaleString()} を返金しました。` });
 });
 
@@ -864,6 +885,10 @@ app.post('/bookings/:number/additional-charge', async (c) => {
       c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
       emailed = true;
     }
+    try {
+      const admin = c.get('admin');
+      await recordBookingEvent(db, { groupId: g.id, type: 'additional_issued', amount, summary: `追加請求 ¥${Math.round(amount).toLocaleString('ja-JP')} を発行${body.reason ? '（' + body.reason + '）' : ''}`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, nowJST());
+    } catch { /* 履歴記録の失敗は発行に影響させない */ }
     return c.json({ ok: true, url: session.url, emailed, amount });
   } catch (err) {
     return c.json({ error: '追加請求リンクの作成に失敗しました：' + (err as Error).message }, 502);
@@ -1215,6 +1240,16 @@ app.post('/bookings/:number/reschedule', async (c) => {
       c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...alert }));
     }
   }
+
+  // 変更履歴に記録（金額が変わった場合はその旨も）#93
+  try {
+    const adminR = c.get('admin');
+    const changed = g.total_amount !== newTotal;
+    const summary = changed
+      ? `日時・内容を変更（合計 ¥${Math.round(g.total_amount).toLocaleString('ja-JP')}→¥${Math.round(newTotal).toLocaleString('ja-JP')}）`
+      : '日時・内容を変更';
+    await recordBookingEvent(db, { groupId: g.id, type: 'reschedule', amount: changed ? newTotal : null, summary, actor: adminR?.email ? 'admin:' + adminR.email : 'admin' }, nowJST());
+  } catch { /* 履歴記録の失敗は変更処理に影響させない */ }
 
   return c.json({ bookingNumber: number, newTotal, adjustment, calendarWarning });
 });

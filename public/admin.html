@@ -219,6 +219,18 @@
       </div>
     </div>
 
+    <!-- 変更履歴モーダル（#93） -->
+    <div id="hxOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
+      <div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow:auto;margin:0">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">変更履歴</h2>
+          <button class="btn ghost sm" onclick="closeHistory()">✕</button>
+        </div>
+        <div class="muted" id="hx_sub" style="margin:6px 0 10px"></div>
+        <div id="hx_body" style="font-size:13px"></div>
+      </div>
+    </div>
+
     <!-- 追加請求モーダル（差額をStripe決済リンクで集金・案A） -->
     <div id="acOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
       <div class="card" style="max-width:460px;width:100%;max-height:90vh;overflow:auto;margin:0">
@@ -1135,6 +1147,8 @@ async function loadBookings() {
     if (b.payment_status === 'paid' && (b.status === 'confirmed' || b.status === 'cancelled')) {
       actions += ' <button class="btn ghost sm" onclick="openRefund(\'' + b.booking_number + '\')">返金</button>';
     }
+    // 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
+    actions += ' <button class="btn ghost sm" onclick="showHistory(\'' + b.booking_number + '\')">履歴</button>';
     if (!actions) actions = '<span class="muted" style="font-size:12px">終了</span>';
     const payBadge = (b.status === 'confirmed' && b.payment_status === 'unpaid')
       ? ' <span class="pill cancelled" title="カード/PayPal/銀行振込 未入金">未入金</span>'
@@ -1998,6 +2012,27 @@ async function submitRefund() {
   msg.textContent = res.body.message || '完了しました'; msg.className = 'msg ok';
   setTimeout(() => { closeRefund(); loadBookings(); }, 1600);
 }
+
+// --- 変更履歴（#93）---
+function hxIcon(t) { return ({ reschedule:'🕔', cancel:'✖', refund:'↩', additional_issued:'＋', additional_paid:'✅', payment_confirmed:'✅' })[t] || '・'; }
+async function showHistory(number) {
+  document.getElementById('hx_sub').textContent = '予約番号 ' + number;
+  const body = document.getElementById('hx_body');
+  body.innerHTML = '読み込み中…';
+  document.getElementById('hxOverlay').style.display = 'flex';
+  const res = await api('/api/admin/bookings/' + number + '/history');
+  if (!res.ok) { body.innerHTML = '<span class="muted">履歴を取得できませんでした</span>'; return; }
+  const evs = (res.body && res.body.events) || [];
+  if (!evs.length) { body.innerHTML = '<span class="muted">変更履歴はありません</span>'; return; }
+  body.innerHTML = evs.map(e => {
+    const dt = String(e.created_at || '').slice(0, 16).replace('T', ' ');
+    const who = e.actor ? '<span style="color:#6b7280;font-size:11px"> ' + rfEsc(e.actor) + '</span>' : '';
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--line,#eee)">'
+      + '<div style="font-size:12px;color:#6b7280">' + dt + who + '</div>'
+      + '<div>' + hxIcon(e.type) + ' ' + rfEsc(e.summary) + '</div></div>';
+  }).join('');
+}
+function closeHistory() { document.getElementById('hxOverlay').style.display = 'none'; }
 
 // --- 追加請求（差額をStripe決済リンクで集金・案A）---
 let _acNum = null;

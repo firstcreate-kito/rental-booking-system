@@ -340,6 +340,18 @@
   </div>
 </div>
 
+<!-- 変更履歴モーダル（#93） -->
+<div id="hxOverlay" class="cr-overlay hidden" onclick="if(event.target===this)closeHistory()">
+  <div class="cr-modal">
+    <h3 style="margin:0 0 4px">変更履歴</h3>
+    <p class="muted" id="hx_sub" style="margin:0 0 12px"></p>
+    <div id="hx_body" style="font-size:14px"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn" onclick="closeHistory()">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const M = { token:null, member:null };
 
@@ -552,6 +564,8 @@ function bookingRow(b) {
       action += ' <button class="btn sm" style="background:#0068b7" onclick="showBankInfo(\'' + b.booking_number + '\')">🏦 振込先</button>';
     } catch (e) {}
   }
+  // 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
+  action += ' <button class="btn ghost sm" onclick="showHistory(\'' + b.booking_number + '\')">履歴</button>';
   return '<tr>' +
     '<td data-label="予約番号">' + b.booking_number + '</td>' +
     '<td data-label="スペース">' + (b.space_name||'') + '</td>' +
@@ -578,6 +592,25 @@ function showBankInfo(num) {
   document.getElementById('biOverlay').classList.remove('hidden');
 }
 function closeBankInfo() { document.getElementById('biOverlay').classList.add('hidden'); }
+// 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
+function hxIcon(t) { return ({ reschedule:'🕔', cancel:'✖', refund:'↩', additional_issued:'＋', additional_paid:'✅', payment_confirmed:'✅' })[t] || '・'; }
+async function showHistory(number) {
+  document.getElementById('hx_sub').textContent = '予約番号 ' + number;
+  const body = document.getElementById('hx_body');
+  body.innerHTML = '<span class="muted">読み込み中…</span>';
+  document.getElementById('hxOverlay').classList.remove('hidden');
+  const { ok, body: r } = await api('/api/mypage/bookings/' + encodeURIComponent(number) + '/history');
+  if (!ok) { body.innerHTML = '<span class="muted">履歴を取得できませんでした。</span>'; return; }
+  const evs = (r && r.events) || [];
+  if (!evs.length) { body.innerHTML = '<span class="muted">変更履歴はありません。</span>'; return; }
+  body.innerHTML = evs.map(e => {
+    const dt = String(e.created_at || '').slice(0, 16).replace('T', ' ');
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--line,#eee)">'
+      + '<div style="font-size:12px;color:#6b7280">' + dt + '</div>'
+      + '<div>' + hxIcon(e.type) + ' ' + biEsc(e.summary) + '</div></div>';
+  }).join('');
+}
+function closeHistory() { document.getElementById('hxOverlay').classList.add('hidden'); }
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;

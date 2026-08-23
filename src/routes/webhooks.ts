@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured, refundPayment } from '../lib/stripe';
-import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, reissueReceiptForGroup, getBookingSummaryForGroup, getCustomerProfile, getBookingGroupById, failBookingGroup } from '../db/repository';
+import { fulfillTicketPurchase, getBookingPaymentBySession, markBookingPaymentPaid, createDocumentForGroup, reissueReceiptForGroup, recordBookingEvent, getBookingSummaryForGroup, getCustomerProfile, getBookingGroupById, failBookingGroup } from '../db/repository';
 import { sendEmail, ticketPurchaseEmail } from '../lib/email';
 import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed } from '../lib/notify';
 import { finalizeImmediateBooking } from '../lib/finalize';
@@ -51,8 +51,9 @@ app.post('/stripe', async (c) => {
             const addYen = '¥' + Number(bookingPay.amount).toLocaleString('ja-JP');
             const remark = `${todayJST()} 予約内容変更に伴う追加分 ${addYen} を反映し、変更後の合計金額で再発行しました。`;
             await reissueReceiptForGroup(c.env.DB, ar.groupId!, remark);
+            await recordBookingEvent(c.env.DB, { groupId: ar.groupId!, type: 'additional_paid', amount: bookingPay.amount, summary: `追加分 ${addYen} のお支払いを確認`, actor: 'system' }, nowJST());
           } catch {
-            /* 領収書再発行の失敗は決済処理に影響させない */
+            /* 領収書再発行・履歴記録の失敗は決済処理に影響させない */
           }
           return c.json({ received: true, paid: true, additional: true, groupId: ar.groupId });
         }

@@ -7,6 +7,7 @@ import {
   updateCustomerPassword,
   getCustomerAuthByEmail,
   getCustomerBookingGroups,
+  getBookingEventsForGroup,
   getPointBalanceAndLog,
   getMemberCoupons,
   getFavorites,
@@ -73,6 +74,18 @@ app.put('/password', async (c) => {
 app.get('/bookings', async (c) => {
   const bookings = await getCustomerBookingGroups(c.env.DB, c.get('customer').id);
   return c.json({ bookings });
+});
+
+/** GET /api/mypage/bookings/:number/history 予約の変更履歴（本人のみ）#93 */
+app.get('/bookings/:number/history', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (!g.customer_id || g.customer_id !== c.get('customer').id) {
+    return c.json({ error: 'この予約は対象外です' }, 403);
+  }
+  const events = await getBookingEventsForGroup(db, g.id);
+  return c.json({ events });
 });
 
 /**

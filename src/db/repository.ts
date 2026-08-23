@@ -2456,6 +2456,27 @@ export async function recordRefundLog(
   return id;
 }
 
+/** 予約の変更履歴を1件記録する（日時変更・追加請求・返金・キャンセル等）。#93 */
+export async function recordBookingEvent(
+  db: D1Database,
+  p: { groupId: string; type: string; summary: string; amount?: number | null; actor?: string | null },
+  now: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO booking_events (id, group_id, type, summary, amount, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), p.groupId, p.type, p.summary, p.amount ?? null, p.actor ?? null, now)
+    .run();
+}
+
+/** 予約グループの変更履歴（古い順）。マイページ・管理画面の予約情報に表示。 */
+export async function getBookingEventsForGroup(db: D1Database, groupId: string) {
+  const { results } = await db
+    .prepare('SELECT type, summary, amount, actor, created_at FROM booking_events WHERE group_id = ? ORDER BY created_at ASC, rowid ASC')
+    .bind(groupId)
+    .all<{ type: string; summary: string; amount: number | null; actor: string | null; created_at: string }>();
+  return results ?? [];
+}
+
 /** 予約グループの返金ログ一覧（新しい順）。管理画面の履歴表示・領収書の経緯に使用。 */
 export async function getRefundLogForGroup(db: D1Database, groupId: string) {
   const { results } = await db

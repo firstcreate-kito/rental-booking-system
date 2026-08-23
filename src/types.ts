@@ -17,6 +17,8 @@ export interface Env {
   MAIL_FROM?: string;
   /** 新規予約の通知先（管理者メール）。未設定なら管理者通知は送らない */
   MAIL_ADMIN?: string;
+  /** 返信先（任意）。送信元を noreply@… にする場合に、返信先を実在の受信箱へ向ける */
+  MAIL_REPLY_TO?: string;
   /** Google カレンダー連携（サービスアカウント）。両方セット時のみ有効 */
   GOOGLE_SA_EMAIL?: string;
   GOOGLE_SA_PRIVATE_KEY?: string;

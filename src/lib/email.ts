@@ -11,6 +11,8 @@ export interface EmailEnv {
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
   MAIL_ADMIN?: string;
+  /** 返信先。送信元を noreply@… にしてもお客様の返信がこの受信箱に届く（任意）。 */
+  MAIL_REPLY_TO?: string;
 }
 
 export interface EmailMessage {
@@ -35,6 +37,8 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
   // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）
   const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
   if (recipients.length === 0) return { ok: false, error: 'no recipient' };
+  // 返信先（任意）：送信元を noreply@… にしてもお客様の返信が実際の受信箱に届くようにする。
+  const replyTo = (env.MAIL_REPLY_TO ?? '').trim();
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -48,6 +52,7 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
         subject: msg.subject,
         html: msg.html,
         text: msg.text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
     if (!res.ok) {

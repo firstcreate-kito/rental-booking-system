@@ -12,6 +12,7 @@ import {
   bookingFailedEmail,
   adminBookingFailedEmail,
   konbiniPaymentEmail,
+  adminLatePaymentOnReleasedEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -320,5 +321,21 @@ describe('email - コンビニお支払い受付（#39）', () => {
     expect(m.html).toContain('A&amp;B');
     expect(m.html).toContain('&lt;script&gt;');
     expect(m.html).not.toContain('<script>x</script>');
+  });
+});
+
+describe('email - 解放後の着金 管理者アラート（#39）', () => {
+  it('要対応・予約番号・お客様連絡先を含む', () => {
+    const m = adminLatePaymentOnReleasedEmail({
+      bookingNumber: '20260826-002',
+      spaceName: '名駅フリースペース',
+      customerName: '山田太郎',
+      customerEmail: 'y@z.jp',
+    });
+    expect(m.subject).toContain('要対応');
+    expect(m.subject).toContain('20260826-002');
+    expect(m.text).toContain('自動での予約確定は行っていません');
+    expect(m.text).toContain('y@z.jp');
+    expect(m.html).toContain('返金または');
   });
 });

@@ -1671,16 +1671,18 @@ export async function holdBookingGroupAsTentative(
 }
 
 /**
- * コンビニ払込票が期限切れ／支払い失敗のとき、仮押さえ（tentative・未入金）を解放する（#39）。
- * 管理者の商談中（tentative）を誤って解放しないよう、payment_method='stripe' かつ未入金のグループに限定。
+ * コンビニ払い・銀行振込（Stripe）の未入金の仮押さえ（tentative）を解放する（#39）。
+ * 払込票の期限切れ／支払い失敗、または振込が一定期間ないときに枠を空ける。
+ * 管理者の商談中（tentative）を誤って解放しないよう、Stripe経由の後払い
+ * （payment_method IN ('stripe','bank_transfer)）かつ未入金のグループに限定。
  */
-export async function releaseUnpaidKonbiniHold(db: D1Database, groupId: string): Promise<boolean> {
+export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): Promise<boolean> {
   const g = await db
     .prepare("SELECT status, payment_method, payment_status FROM booking_groups WHERE id = ?")
     .bind(groupId)
     .first<{ status: string; payment_method: string; payment_status: string }>();
   if (!g) return false;
-  if (g.status !== 'tentative' || g.payment_method !== 'stripe' || g.payment_status === 'paid') return false;
+  if (g.status !== 'tentative' || !['stripe', 'bank_transfer'].includes(g.payment_method) || g.payment_status === 'paid') return false;
   await db.batch([
     db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ? AND status = 'tentative'").bind(groupId),
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ? AND status = 'tentative'").bind(groupId),
@@ -1689,21 +1691,29 @@ export async function releaseUnpaidKonbiniHold(db: D1Database, groupId: string):
 }
 
 /**
- * 期限切れのコンビニ仮押さえ（tentative・stripe・未入金）を一括抽出（Cronの掃除用・#39）。
- * 払込票発行から一定日数を過ぎても未入金のものを対象とする。
+ * 期限切れの後払い仮押さえ（tentative・未入金）を一括抽出（Cronの掃除用・#39）。
+ * コンビニ（払込票の有効期限は短い）と銀行振込（着金に時間がかかる）で猶予が異なるため、
+ * それぞれに別のカットオフ（この日時より古い created_at）を渡す。
+ * 銀行振込は checkout.session.expired が発火しないため、この掃除が主な解放手段になる。
  */
-export async function getExpiredKonbiniHolds(db: D1Database, cutoffCreatedAt: string): Promise<Array<{ id: string }>> {
+export async function getExpiredStripeHolds(
+  db: D1Database,
+  konbiniCutoffCreatedAt: string,
+  bankCutoffCreatedAt: string,
+): Promise<Array<{ id: string }>> {
   const { results } = await db
     .prepare(
       `SELECT bg.id FROM booking_groups bg
-       WHERE bg.status = 'tentative' AND bg.payment_method = 'stripe' AND bg.payment_status = 'unpaid'
+       WHERE bg.status = 'tentative' AND bg.payment_status = 'unpaid'
          AND EXISTS (
            SELECT 1 FROM booking_payments bp
            WHERE bp.group_id = bg.id AND bp.provider = 'stripe' AND bp.status <> 'paid'
-             AND COALESCE(bp.kind,'booking') = 'booking' AND bp.created_at < ?
-         )`,
+             AND COALESCE(bp.kind,'booking') = 'booking'
+             AND bp.created_at < (CASE WHEN bg.payment_method = 'bank_transfer' THEN ? ELSE ? END)
+         )
+         AND bg.payment_method IN ('stripe','bank_transfer')`,
     )
-    .bind(cutoffCreatedAt)
+    .bind(bankCutoffCreatedAt, konbiniCutoffCreatedAt)
     .all<{ id: string }>();
   return results ?? [];
 }

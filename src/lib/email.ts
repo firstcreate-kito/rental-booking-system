@@ -659,8 +659,8 @@ export function bankTransferInfoEmail(d: {
   const mypageText = d.mypageUrl ? `\nマイページでもご確認いただけます:\n${d.mypageUrl}\n` : '';
   const text = `${d.customerName} 様
 
-ご予約ありがとうございます。下記の内容でご予約を承りました。
-お手数ですが、下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定し、領収書を発行いたします。
+ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
+お手数ですが、下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定し、確認メールと領収書をお送りします。
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
@@ -674,13 +674,15 @@ export function bankTransferInfoEmail(d: {
 口座名義: ${b.accountHolderName}
 ${mypageText}
 ※この口座はお客様専用の振込先です。ご予約番号ごとに金額でお申込みを照合します。
-※お振込手数料はお客様のご負担となります。`;
+※お振込手数料はお客様のご負担となります。
+※お振込が確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。
+※期限までにお振込がない場合、ご予約は自動的にキャンセルとなることがあります。`;
   const mypageHtml = d.mypageUrl
     ? `<p style="margin:12px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページで振込先を確認する ▶</a></p>`
     : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
-<p>ご予約ありがとうございます。下記のお振込先へお振込みをお願いいたします。<br>ご入金の確認後にご予約が確定し、領収書を発行いたします。</p>
+<p>ご予約のお申し込みありがとうございます。下記の内容で「<strong>お支払い待ち</strong>」で承りました。<br>下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定します。</p>
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
@@ -697,7 +699,7 @@ ${mypageText}
 </table>
 </div>
 ${mypageHtml}
-<p style="color:#6b7280;font-size:13px">※この口座はお客様専用の振込先です。<br>※お振込手数料はお客様のご負担となります。</p>
+<p style="color:#6b7280;font-size:13px">※この口座はお客様専用の振込先です。<br>※お振込手数料はお客様のご負担となります。<br>※お振込が確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。<br>※期限までにお振込がない場合、ご予約は自動的にキャンセルとなることがあります。</p>
 </div>`;
   return withSignature({ subject, html, text });
 }
@@ -1379,6 +1381,38 @@ ${refundLine}`;
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="background:${d.refundOk || d.paymentMethod === 'paypal' ? '#f0fdf4' : '#fff8e6'};border:1px solid ${d.refundOk || d.paymentMethod === 'paypal' ? '#bbf7d0' : '#f0c36d'};border-radius:8px;padding:10px 14px">${escapeHtml(refundLine)}</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/**
+ * 解放（自動キャンセル）済みの予約に着金があったときの管理者アラート（#39）。
+ * 主に銀行振込で、仮押さえの期限切れ後に振込が届いたレアケース。
+ * 枠は既に手放しているため自動確定できない。返金 or 再調整の対応を促す。
+ */
+export function adminLatePaymentOnReleasedEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  customerName: string;
+  customerEmail?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【要対応】期限切れ予約への着金（${d.bookingNumber}）`;
+  const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}）` : d.customerName;
+  const text = `自動キャンセル（枠の解放）済みのご予約に、後から入金が確認されました。
+枠は既に手放しているため、自動での予約確定は行っていません。
+お客様へご連絡のうえ、返金または日程の再調整をご対応ください。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+お客様: ${contact}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>自動キャンセル（枠の解放）済みのご予約に、後から入金が確認されました。</strong><br>枠は既に手放しているため、自動での予約確定は行っていません。お客様へご連絡のうえ、返金または日程の再調整をご対応ください。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td>${escapeHtml(d.bookingNumber)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
+</table>
+<p style="background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:10px 14px">※Stripe管理画面で入金を確認し、返金または再調整の手続きをお願いします。</p>
 </div>`;
   return withSignature({ subject, html, text });
 }

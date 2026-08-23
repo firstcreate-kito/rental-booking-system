@@ -8,12 +8,12 @@ import {
   getBookingGroupById,
   failBookingGroup,
   holdBookingGroupAsTentative,
-  releaseUnpaidKonbiniHold,
+  releaseUnpaidStripeHold,
   getCustomerProfile,
   getBookingCalendarData,
 } from '../db/repository';
 import { refundPayment, retrievePaymentIntentKonbini } from './stripe';
-import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed } from './notify';
+import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed, notifyLatePaymentOnReleased } from './notify';
 import { finalizeImmediateBooking } from './finalize';
 import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
 import { sendEmail, konbiniPaymentEmail } from './email';
@@ -70,7 +70,14 @@ export async function settlePaidBookingSession(
   if (!r.ok) return { ok: false };
   const groupId = r.groupId!;
 
-  // 決済先行（#68）：pending（カード）／tentative（コンビニ払込票で仮押さえ済み）は
+  // 仮押さえを解放（自動キャンセル）した後に着金したレアケース（主に銀行振込）。
+  // 枠は既に手放しているため自動確定はせず、入金だけ記録して管理者へ要対応通知する（#39）。
+  if (group && (group.status === 'cancelled' || group.status === 'failed')) {
+    bg(notifyLatePaymentOnReleased(env, groupId));
+    return { ok: true, established: false, groupId };
+  }
+
+  // 決済先行（#68）：pending（カード）／tentative（コンビニ払込票・銀行振込で仮押さえ済み）は
   // 入金時に空きを再確認して成立 or 不成立＋返金
   if (group && (group.status === 'pending' || group.status === 'tentative')) {
     const outcome = await finalizeImmediateBooking(env, groupId, origin);
@@ -188,7 +195,7 @@ export async function releaseKonbiniHoldForSession(
 ): Promise<void> {
   // 解放前にカレンダー情報（イベントID）を控える
   const cal = await getBookingCalendarData(env.DB, bookingPay.group_id).catch(() => null);
-  const released = await releaseUnpaidKonbiniHold(env.DB, bookingPay.group_id);
+  const released = await releaseUnpaidStripeHold(env.DB, bookingPay.group_id);
   if (released && cal?.calendarId) {
     const eventIds = (cal.rows ?? []).map((r) => r.google_event_id);
     const bg = (p: Promise<unknown>) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : void p.catch(() => {}));

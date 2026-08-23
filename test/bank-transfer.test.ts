@@ -57,4 +57,17 @@ describe('bankTransferInfoEmail', () => {
     expect(m.html).toContain('口座番号');
     expect(m.html).toContain('マイページで振込先を確認する');
   });
+  it('入金までは未確定・仮押さえ・自動キャンセルの旨を明記（#39）', () => {
+    const m = bankTransferInfoEmail({
+      customerName: '山田 太郎',
+      bookingNumber: 'B1',
+      spaceName: 'S',
+      amount: 10890,
+      bank: { bankName: 'テスト銀行', branchName: '名駅支店', accountType: '普通', accountNumber: '1234567', accountHolderName: 'カ）ファーストクリエイト' },
+    });
+    expect(m.text).toContain('お支払い待ち');
+    expect(m.text).toContain('確定していません');
+    expect(m.text).toContain('自動的にキャンセル');
+    expect(m.html).toContain('お支払い待ち');
+  });
 });

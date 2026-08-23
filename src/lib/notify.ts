@@ -12,6 +12,7 @@ import {
   adminNewBookingEmail,
   bookingFailedEmail,
   adminBookingFailedEmail,
+  adminLatePaymentOnReleasedEmail,
 } from './email';
 
 /**
@@ -179,4 +180,25 @@ export async function notifyBookingFailed(env: Env, groupId: string, refundOk: b
       }),
     });
   }
+}
+
+/**
+ * 解放（自動キャンセル）済みの予約に着金があったときの管理者アラート（#39）。
+ * 主に銀行振込で、仮押さえの期限切れ後に振込が届いたレアケース。管理者のみへ通知する。
+ */
+export async function notifyLatePaymentOnReleased(env: Env, groupId: string): Promise<void> {
+  const summary = await getBookingSummaryForGroup(env.DB, groupId);
+  if (!summary) return;
+  const { email, name } = await customerContact(env, groupId);
+  const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
+  if (!admins.length) return;
+  await sendEmail(env, {
+    to: admins,
+    ...adminLatePaymentOnReleasedEmail({
+      bookingNumber: summary.bookingNumber,
+      spaceName: summary.spaceName,
+      customerName: name,
+      customerEmail: email || undefined,
+    }),
+  });
 }

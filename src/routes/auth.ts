@@ -31,6 +31,19 @@ function sixDigitCode(): string {
 }
 const CODE_MAX_ATTEMPTS = 5;
 
+/**
+ * 外部ログイン後の戻り先（案A・#91）。オープンリダイレクト防止のため、
+ * キーで指定された既知のパスにのみ戻す。未知・未指定はマイページ。
+ */
+const OAUTH_RETURN_PATHS: Record<string, string> = {
+  booking: '/',
+  viewing: '/viewing.html',
+  mypage: '/mypage.html',
+};
+export function resolveOauthReturn(key: string | undefined | null): string {
+  return OAUTH_RETURN_PATHS[(key ?? '').trim()] ?? '/mypage.html';
+}
+
 const app = new Hono<AppBindings>();
 
 const BLACKLIST_MESSAGE = '申し訳ございませんが、ご登録をお受けすることができません。';
@@ -299,6 +312,8 @@ app.get('/google/start', (c) => {
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
   const state = generateToken();
   setCookie(c, 'g_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
+  // 戻り先（予約フロー/見学フォーム等）を記憶（案A・#91）
+  setCookie(c, 'oauth_return', c.req.query('return') ?? '', { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
   const url = buildGoogleAuthUrl({
     clientId: c.env.GOOGLE_CLIENT_ID!,
     redirectUri: `${origin}/api/auth/google/callback`,
@@ -315,7 +330,9 @@ app.get('/google/start', (c) => {
 app.get('/google/callback', async (c) => {
   const db = c.env.DB;
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
-  const fail = (reason: string) => c.redirect(`/mypage.html?login_error=${encodeURIComponent(reason)}`);
+  const dest = resolveOauthReturn(getCookie(c, 'oauth_return'));
+  deleteCookie(c, 'oauth_return', { path: '/' });
+  const fail = (reason: string) => c.redirect(`${dest}?login_error=${encodeURIComponent(reason)}`);
   if (!googleConfigured(c.env)) return fail('google_unconfigured');
   const code = c.req.query('code');
   const state = c.req.query('state');
@@ -331,11 +348,11 @@ app.get('/google/callback', async (c) => {
   const email = ex.identity.email;
   if (await isBlacklisted(db, email, '')) return fail('blocked');
 
-  // マジックリンクと同じ「1回限りトークン」を発行して /mypage.html?magic= に渡す。
+  // マジックリンクと同じ「1回限りトークン」を発行し、戻り先ページ ?magic= に渡す。
   const now = nowJST();
   const secret = generateToken();
   await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt: nowJST(Date.now() + 5 * 60 * 1000) }, now);
-  return c.redirect(`/mypage.html?magic=${secret}`);
+  return c.redirect(`${dest}?magic=${secret}`);
 });
 
 /**
@@ -347,6 +364,8 @@ app.get('/line/start', (c) => {
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
   const state = generateToken();
   setCookie(c, 'l_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
+  // 戻り先（予約フロー/見学フォーム等）を記憶（案A・#91）
+  setCookie(c, 'oauth_return', c.req.query('return') ?? '', { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
   const url = buildLineAuthUrl({
     clientId: c.env.LINE_CHANNEL_ID!,
     redirectUri: `${origin}/api/auth/line/callback`,
@@ -363,7 +382,9 @@ app.get('/line/start', (c) => {
 app.get('/line/callback', async (c) => {
   const db = c.env.DB;
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
-  const fail = (reason: string) => c.redirect(`/mypage.html?login_error=${encodeURIComponent(reason)}`);
+  const dest = resolveOauthReturn(getCookie(c, 'oauth_return'));
+  deleteCookie(c, 'oauth_return', { path: '/' });
+  const fail = (reason: string) => c.redirect(`${dest}?login_error=${encodeURIComponent(reason)}`);
   if (!lineConfigured(c.env)) return fail('line_unconfigured');
   const code = c.req.query('code');
   const state = c.req.query('state');
@@ -378,11 +399,11 @@ app.get('/line/callback', async (c) => {
   const email = ex.identity.email;
   if (await isBlacklisted(db, email, '')) return fail('blocked');
 
-  // マジックリンクと同じ「1回限りトークン」を発行して /mypage.html?magic= に渡す。
+  // マジックリンクと同じ「1回限りトークン」を発行し、戻り先ページ ?magic= に渡す。
   const now = nowJST();
   const secret = generateToken();
   await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt: nowJST(Date.now() + 5 * 60 * 1000) }, now);
-  return c.redirect(`/mypage.html?magic=${secret}`);
+  return c.redirect(`${dest}?magic=${secret}`);
 });
 
 /** POST /api/auth/logout ログアウト */

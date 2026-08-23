@@ -88,6 +88,20 @@
       <div id="memberLogin">
         <h2 style="margin-bottom:4px">会員の方（任意）</h2>
         <p class="note" style="margin:0 0 10px">会員登録がお済みの方は、ログインするとお名前・連絡先が自動で入力されます。会員でない方・ログインせずに申し込む方は、そのまま下記からご入力ください。</p>
+        <!-- 1タップ登録（Google/LINE）：認証後この見学フォームへ戻り、入力途中を自動復元（案A・#91）。設定済みの事業者のみ表示 -->
+        <div id="vwOauth" class="hidden" style="margin:0 0 12px">
+          <button class="btn ghost hidden" id="vwGoogleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="oauthContinue('google')">
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-2.8-.4-4.1H24v7.7h12.4c-.3 2.1-1.6 5.2-4.6 7.3l7.1 5.5c4.2-3.9 6.9-9.6 6.9-16.4z"/><path fill="#FBBC05" d="M10.5 28.3c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.1C1 16.5 0 20.1 0 23.8s1 7.3 2.6 10.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.1-5.5c-2 1.4-4.6 2.3-8.8 2.3-6.3 0-11.6-3.7-13.5-8.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+            Googleで登録して続ける
+          </button>
+          <button class="btn ghost hidden" id="vwLineBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px" onclick="oauthContinue('line')">
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#06C755" d="M24 4C12.4 4 3 11.6 3 21c0 8.4 7.5 15.4 17.6 16.7.7.1 1.6.4 1.9 1 .2.5.1 1.3.1 1.8l-.3 1.9c-.1.6-.4 2.2 1.9 1.2s12.6-7.4 17.2-12.7C45.5 27.4 45 24.3 45 21 45 11.6 35.6 4 24 4z"/><path fill="#fff" d="M18.9 16.9h-1.5c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm10.3 0h-1.5c-.2 0-.4.2-.4.4v5.5l-4.3-5.7s0-.1-.1-.1h-1.7c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-5.5l4.3 5.8.1.1h1.7c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm-13.9 8.2h-4.1v-7.8c0-.2-.2-.4-.4-.4H9.3c-.2 0-.4.2-.4.4v9.3c0 .1 0 .2.1.3.1.1.2.1.3.1h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4zm22.6-8.2h-6c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4z"/></svg>
+            LINEで続ける
+          </button>
+          <div class="note" style="margin-top:8px;text-align:center">かんたん1タップで会員登録・ログイン。このまま入力を続けられます。</div>
+          <div id="vwOauthMsg" class="slotmsg warn hidden" style="margin-top:8px"></div>
+          <div style="margin:12px 0 2px;text-align:center;color:var(--sub);font-size:12px">または</div>
+        </div>
         <!-- 入力欄は縦積み（スマホで押しやすいように・#95） -->
         <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:4px">会員メールアドレス</label>
         <input type="email" id="m_email" placeholder="member@example.com" autocomplete="username" style="width:100%">
@@ -329,6 +343,77 @@ function memberLogout() {
   document.getElementById('m_email').value = ''; document.getElementById('m_pass').value = '';
 }
 
+// ── 外部ログイン（Google/LINE）で1タップ登録して見学入力を続ける（案A・#91）──────
+const VW_DRAFT_KEY = 'albe_viewing_draft';
+const VW_DRAFT_TTL = 60 * 60 * 1000; // 60分
+const _vwLoginErr = {
+  google_denied: 'Googleログインがキャンセルされました。', google_state: 'セキュリティ確認に失敗しました。もう一度お試しください。',
+  google_exchange: 'Googleログインに失敗しました。もう一度お試しください。', google_email_unverified: 'Googleアカウントのメールアドレスが確認されていません。',
+  google_unconfigured: 'Googleログインは現在ご利用いただけません。',
+  line_denied: 'LINEログインがキャンセルされました。', line_state: 'セキュリティ確認に失敗しました。もう一度お試しください。',
+  line_exchange: 'LINEログインに失敗しました。もう一度お試しください。',
+  line_no_email: 'LINEアカウントにメールアドレスが登録されていないため、ログインできませんでした。別の方法でお試しください。',
+  line_unconfigured: 'LINEログインは現在ご利用いただけません。', blocked: '申し訳ございませんが、ログインをお受けできませんでした。',
+};
+function showVwOauthMsg(t) { const el = document.getElementById('vwOauthMsg'); if (el) { el.textContent = t; el.classList.remove('hidden'); } }
+async function initViewingOauth() {
+  try {
+    const { ok, body } = await api('/api/auth/providers');
+    if (!ok) return;
+    let any = false;
+    if (body.google) { document.getElementById('vwGoogleBtn').classList.remove('hidden'); any = true; }
+    if (body.line) { document.getElementById('vwLineBtn').classList.remove('hidden'); any = true; }
+    if (any) document.getElementById('vwOauth').classList.remove('hidden');
+  } catch (e) {}
+}
+function collectViewingDraft() {
+  const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const bs = document.querySelector('#formView input[name="bs"]:checked');
+  return {
+    v: 1, ts: Date.now(), spaces: selectedSpaces(), mode: V.mode,
+    d1: g('d1'), t1: g('t1'), d2: g('d2'), t2: g('t2'),
+    desiredPeriod: g('desiredPeriod'), prefDaytype: g('prefDaytype'), prefTimeband: g('prefTimeband'),
+    lastName: g('lastName'), firstName: g('firstName'), phone: g('phone'), email: g('email'),
+    orgName: g('orgName'), purpose: g('purpose'), bs: bs ? bs.value : '', note: g('note'),
+  };
+}
+function saveViewingDraft() { try { localStorage.setItem(VW_DRAFT_KEY, JSON.stringify(collectViewingDraft())); } catch (e) {} }
+function readViewingDraft() { try { const d = JSON.parse(localStorage.getItem(VW_DRAFT_KEY) || 'null'); if (!d) return null; if (Date.now() - (d.ts || 0) > VW_DRAFT_TTL) { clearViewingDraft(); return null; } return d; } catch (e) { return null; } }
+function clearViewingDraft() { try { localStorage.removeItem(VW_DRAFT_KEY); } catch (e) {} }
+async function restoreViewingDraft(d) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  if (Array.isArray(d.spaces)) d.spaces.forEach(id => { const lab = document.getElementById('chk-' + id); if (lab) { const chk = lab.querySelector('input'); if (chk) chk.checked = true; } });
+  onSpaceToggle();
+  setMode(d.mode || 'slot');
+  set('d1', d.d1); set('d2', d.d2);
+  set('desiredPeriod', d.desiredPeriod); set('prefDaytype', d.prefDaytype); set('prefTimeband', d.prefTimeband);
+  if ((d.mode || 'slot') === 'slot') { await loadSlots(1); await loadSlots(2); set('t1', d.t1); set('t2', d.t2); }
+  set('lastName', d.lastName); set('firstName', d.firstName); set('phone', d.phone); set('email', d.email);
+  set('orgName', d.orgName); set('purpose', d.purpose); set('note', d.note);
+  if (d.bs) { const r = document.querySelector('#formView input[name="bs"][value="' + d.bs + '"]'); if (r) r.checked = true; }
+  clearViewingDraft();
+}
+function oauthContinue(provider) {
+  saveViewingDraft();
+  const url = '/api/auth/' + provider + '/start?return=viewing';
+  (window.top && window.top !== window ? window.top : window).location.href = url; // 埋め込み時は最上位で開く
+}
+async function consumeViewingMagic(token) {
+  let ok = false, body = null;
+  try { const r = await postJson('/api/auth/magic-link/consume', { token }); ok = r.ok; body = r.body; } catch (e) {}
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  const d = readViewingDraft();
+  if (ok && body && body.token) { V.token = body.token; await loadMemberProfile(); saveMemberSession(); }
+  else { showVwOauthMsg('ログインに失敗しました。もう一度お試しください。'); }
+  if (d) await restoreViewingDraft(d); // ログイン成否に関わらず入力途中は復元
+}
+async function handleViewingLoginError(code) {
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  const d = readViewingDraft();
+  if (d) await restoreViewingDraft(d);
+  showVwOauthMsg(_vwLoginErr[code] || 'ログインに失敗しました。もう一度お試しください。');
+}
+
 // 施設一覧の読み込み（カレンダー施設＋見学のみ施設）
 async function loadSpaces() {
   const { ok, body } = await api('/api/viewing/spaces');
@@ -498,8 +583,17 @@ async function submit() {
   document.getElementById('d1').min = min;
   document.getElementById('d2').min = min;
 })();
-loadSpaces();
-restoreMember();
+// 起動：施設一覧→外部ログインボタン→（?magic=／?login_error= があれば処理）→会員セッション復元
+(async function boot() {
+  await loadSpaces();
+  await initViewingOauth();
+  const params = new URLSearchParams(location.search);
+  const magic = params.get('magic');
+  if (magic) { await consumeViewingMagic(magic); return; }
+  const le = params.get('login_error');
+  if (le) { await handleViewingLoginError(le); return; }
+  await restoreMember();
+})();
 </script>
 </body>
 </html>

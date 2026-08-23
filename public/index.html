@@ -238,6 +238,23 @@
     <!-- 予約方法の選択ゲート（未ログイン時のみ表示）#55 -->
     <div id="custGate">
       <p class="muted" style="margin:0 0 12px">ご予約方法をお選びください。</p>
+      <!-- 1タップ登録（Google/LINE）：認証後この予約フローへ戻り、入力途中を自動復元（案A・#91）。設定済みの事業者のみ表示 -->
+      <div id="custOauth" class="hidden" style="margin:0 0 14px">
+        <button class="btn ghost hidden" id="bkGoogleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="oauthContinue('google')">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-2.8-.4-4.1H24v7.7h12.4c-.3 2.1-1.6 5.2-4.6 7.3l7.1 5.5c4.2-3.9 6.9-9.6 6.9-16.4z"/><path fill="#FBBC05" d="M10.5 28.3c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.1C1 16.5 0 20.1 0 23.8s1 7.3 2.6 10.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.1-5.5c-2 1.4-4.6 2.3-8.8 2.3-6.3 0-11.6-3.7-13.5-8.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+          Googleで登録して続ける
+        </button>
+        <button class="btn ghost hidden" id="bkLineBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px" onclick="oauthContinue('line')">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#06C755" d="M24 4C12.4 4 3 11.6 3 21c0 8.4 7.5 15.4 17.6 16.7.7.1 1.6.4 1.9 1 .2.5.1 1.3.1 1.8l-.3 1.9c-.1.6-.4 2.2 1.9 1.2s12.6-7.4 17.2-12.7C45.5 27.4 45 24.3 45 21 45 11.6 35.6 4 24 4z"/><path fill="#fff" d="M18.9 16.9h-1.5c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm10.3 0h-1.5c-.2 0-.4.2-.4.4v5.5l-4.3-5.7s0-.1-.1-.1h-1.7c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-5.5l4.3 5.8.1.1h1.7c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm-13.9 8.2h-4.1v-7.8c0-.2-.2-.4-.4-.4H9.3c-.2 0-.4.2-.4.4v9.3c0 .1 0 .2.1.3.1.1.2.1.3.1h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4zm22.6-8.2h-6c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4z"/></svg>
+          LINEで続ける
+        </button>
+        <div class="muted" style="font-size:12px;margin-top:8px;text-align:center">かんたん1タップで会員登録・ログイン。このまま予約を続けられます。</div>
+        <div id="custOauthMsg" class="msg bad hidden" style="font-size:13px"></div>
+        <div style="margin-top:14px;text-align:center;color:var(--muted);font-size:12px;position:relative">
+          <span style="background:var(--card);padding:0 10px;position:relative;z-index:1">または</span>
+          <span style="position:absolute;left:0;right:0;top:50%;border-top:1px solid var(--line);z-index:0"></span>
+        </div>
+      </div>
       <!-- おすすめ：会員登録して予約（目立つ） -->
       <button class="btn" style="width:100%;padding:16px;text-align:left" onclick="chooseRegister()">
         会員登録して予約する（おすすめ）
@@ -538,6 +555,13 @@ async function loadSpaces() {
       '<div class="rate">' + rate + '　営業 ' + s.openTime + '–' + s.closeTime + '</div>' +
       '<div class="rate">最低利用 ' + s.minHours + '時間' + (s.dayRateHours ? '／1日料金あり' : '') + '</div></div>';
   }).join('');
+  await initBookingOauth(); // Google/LINEの1タップ登録ボタンの表示可否（案A・#91）
+  // 外部ログイン（Google/LINE）からの復帰：?magic= を消費してログイン＋下書き復元（案A・#91）
+  const magicTok = new URLSearchParams(location.search).get('magic');
+  if (magicTok) { if (await consumeBookingMagic(magicTok)) return; }
+  // 外部ログイン失敗（?login_error=）：下書きがあれば復元してメッセージ表示（案A・#91）
+  const loginErr = new URLSearchParams(location.search).get('login_error');
+  if (loginErr) { await handleBookingLoginError(loginErr); return; }
   // 会員登録から復帰（?resume=1）：保存した予約途中の状態を復元して続きから（#55）
   if (new URLSearchParams(location.search).get('resume') === '1') {
     if (await resumeBookingFromRegister()) return;
@@ -696,6 +720,72 @@ async function resumeBookingFromRegister() {
   await loadUsableTickets();
   goCustomer(); // 会員モードでお客様情報画面へ（続きから）
   return true;
+}
+
+// ── 外部ログイン（Google/LINE）で1タップ登録して予約を続ける（案A・#91）──────────
+const _bkLoginErr = {
+  google_denied: 'Googleログインがキャンセルされました。', google_state: 'セキュリティ確認に失敗しました。もう一度お試しください。',
+  google_exchange: 'Googleログインに失敗しました。もう一度お試しください。', google_email_unverified: 'Googleアカウントのメールアドレスが確認されていません。',
+  google_unconfigured: 'Googleログインは現在ご利用いただけません。',
+  line_denied: 'LINEログインがキャンセルされました。', line_state: 'セキュリティ確認に失敗しました。もう一度お試しください。',
+  line_exchange: 'LINEログインに失敗しました。もう一度お試しください。',
+  line_no_email: 'LINEアカウントにメールアドレスが登録されていないため、ログインできませんでした。別の方法でお試しください。',
+  line_unconfigured: 'LINEログインは現在ご利用いただけません。', blocked: '申し訳ございませんが、ログインをお受けできませんでした。',
+};
+function showCustOauthMsg(t) {
+  const el = document.getElementById('custOauthMsg');
+  if (el) { el.textContent = t; el.classList.remove('hidden'); }
+}
+// 設定済みの事業者だけボタンを表示
+async function initBookingOauth() {
+  try {
+    const { ok, body } = await api('/api/auth/providers');
+    if (!ok) return;
+    let any = false;
+    if (body.google) { document.getElementById('bkGoogleBtn').classList.remove('hidden'); any = true; }
+    if (body.line) { document.getElementById('bkLineBtn').classList.remove('hidden'); any = true; }
+    if (any) document.getElementById('custOauth').classList.remove('hidden');
+  } catch (e) {}
+}
+// ボタン押下：入力途中を下書き保存してから認証へ（戻り先=予約フロー）
+function oauthContinue(provider) {
+  try { saveDraft(); } catch (e) {}
+  const url = '/api/auth/' + provider + '/start?return=booking';
+  (S.embed && window.top ? window.top : window).location.href = url; // 埋め込み時は最上位で開く（外部認証はiframe不可）
+}
+// 認証からの復帰：?magic= を消費してログイン → 下書きを復元してお客様情報画面へ
+async function consumeBookingMagic(token) {
+  let ok = false, body = null;
+  try {
+    const r = await api('/api/auth/magic-link/consume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+    ok = r.ok; body = r.body;
+  } catch (e) {}
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  const d = readDraft();
+  const haveDraft = !!(d && S.spaces.find(s => s.id === d.spaceId));
+  if (!ok || !body || !body.token) {
+    if (haveDraft) { await restoreDraft(d); showCustOauthMsg('ログインに失敗しました。もう一度お試しください。'); return true; }
+    return false; // 通常の初期化へフォールバック
+  }
+  S.token = body.token; S.member = body.customer;
+  saveMemberSession(); resetMemberIdle();
+  if (haveDraft) {
+    await restoreDraft(d);        // スペース・日時・カート・入力を復元し、お客様情報画面へ
+    await onMemberLoggedIn(body); // 会員UI（ポイント等）とプリフィル
+  } else {
+    await restoreMemberSession(); // プロフィール取得＋会員UI適用
+    show('view-spaces');
+  }
+  return true;
+}
+// 認証失敗（?login_error=）：下書きがあれば復元し、メッセージ表示
+async function handleBookingLoginError(code) {
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  await restoreMemberSession();
+  const d = readDraft();
+  if (d && S.spaces.find(s => s.id === d.spaceId)) { await restoreDraft(d); }
+  else { show('view-spaces'); maybeShowDraftBanner(); }
+  showCustOauthMsg(_bkLoginErr[code] || 'ログインに失敗しました。もう一度お試しください。');
 }
 
 function backToSpaces() { S.space = null; S.cart = []; show('view-spaces'); setStep(0); }

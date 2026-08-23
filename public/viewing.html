@@ -88,12 +88,23 @@
       <div id="memberLogin">
         <h2 style="margin-bottom:4px">会員の方（任意）</h2>
         <p class="note" style="margin:0 0 10px">会員登録がお済みの方は、ログインするとお名前・連絡先が自動で入力されます。会員でない方・ログインせずに申し込む方は、そのまま下記からご入力ください。</p>
-        <div class="row2">
-          <input type="email" id="m_email" placeholder="会員メールアドレス" autocomplete="username">
-          <input type="password" id="m_pass" placeholder="パスワード" autocomplete="current-password">
-        </div>
+        <!-- 入力欄は縦積み（スマホで押しやすいように・#95） -->
+        <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:4px">会員メールアドレス</label>
+        <input type="email" id="m_email" placeholder="member@example.com" autocomplete="username" style="width:100%">
+        <label style="display:block;font-size:13px;color:#6b7280;margin:10px 0 4px">パスワード</label>
+        <input type="password" id="m_pass" placeholder="パスワード" autocomplete="current-password" style="width:100%">
         <div id="memberMsg" class="slotmsg warn hidden" style="margin-top:8px"></div>
-        <button class="btn ghost" style="margin-top:10px" onclick="memberLogin()">ログインして自動入力</button>
+        <button class="btn ghost" style="margin-top:10px;width:100%" onclick="memberLogin()">ログインして自動入力</button>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e3de">
+          <p class="note" style="margin:0 0 8px">パスワードなしでログイン：上のメールアドレスに届く<strong>6桁コード</strong>でログインできます（この画面のまま。未登録の方もそのままご利用いただけます）。</p>
+          <button class="btn ghost" id="codeReqBtn" style="width:100%" onclick="requestLoginCode()">コードをメールで受け取る</button>
+          <div id="codeEntry" class="hidden" style="margin-top:10px">
+            <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:4px">確認コード（6桁）</label>
+            <input type="text" id="m_code" inputmode="numeric" maxlength="6" placeholder="例）123456" style="width:100%">
+            <div id="codeMsg" class="note hidden" style="margin:8px 0"></div>
+            <button class="btn" style="margin-top:8px;width:100%" onclick="verifyLoginCode()">コードでログイン</button>
+          </div>
+        </div>
       </div>
       <!-- ログイン済み -->
       <div id="memberInfo" class="hidden">
@@ -271,18 +282,42 @@ async function restoreMember() {
   const ok = await loadMemberProfile();
   if (ok) saveMemberSession(); else { V.token = null; try { sessionStorage.removeItem(SS_KEY); } catch (e) {} }
 }
+async function postJson(path, payload) {
+  return fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+    .then(async r => ({ ok:r.ok, body: await r.json().catch(()=>({})) }));
+}
 async function memberLogin() {
   const msg = document.getElementById('memberMsg');
   msg.classList.add('hidden');
   const email = document.getElementById('m_email').value.trim();
   const password = document.getElementById('m_pass').value;
   if (!email || !password) { msg.textContent = 'メールアドレスとパスワードを入力してください。'; msg.classList.remove('hidden'); return; }
-  const { ok, body } = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) })
-    .then(async r => ({ ok:r.ok, body: await r.json().catch(()=>({})) }));
+  const { ok, body } = await postJson('/api/auth/login', { email, password });
   if (!ok) { msg.textContent = body.error || 'ログインに失敗しました。'; msg.classList.remove('hidden'); return; }
-  V.token = body.token;
-  await loadMemberProfile();
-  saveMemberSession();
+  V.token = body.token; await loadMemberProfile(); saveMemberSession();
+}
+// メールで6桁コードを受け取ってログイン（未登録はその場で会員登録も兼ねる）
+async function requestLoginCode() {
+  const msg = document.getElementById('memberMsg'); msg.classList.add('hidden');
+  const email = document.getElementById('m_email').value.trim();
+  if (!email) { msg.textContent = 'メールアドレスを入力してください。'; msg.classList.remove('hidden'); return; }
+  const btn = document.getElementById('codeReqBtn'); btn.disabled = true;
+  const { ok, body } = await postJson('/api/auth/login-code/request', { email });
+  btn.disabled = false;
+  if (!ok) { msg.textContent = body.error || '送信に失敗しました。'; msg.classList.remove('hidden'); return; }
+  document.getElementById('codeEntry').classList.remove('hidden');
+  const cm = document.getElementById('codeMsg'); cm.classList.remove('hidden');
+  cm.textContent = email + ' にコードを送りました（有効期限10分）。届いた6桁を入力してください。';
+  document.getElementById('m_code').focus();
+}
+async function verifyLoginCode() {
+  const cm = document.getElementById('codeMsg'); cm.classList.remove('hidden');
+  const email = document.getElementById('m_email').value.trim();
+  const code = document.getElementById('m_code').value.trim();
+  if (!code) { cm.textContent = 'コードを入力してください。'; return; }
+  const { ok, body } = await postJson('/api/auth/login-code/verify', { email, code });
+  if (!ok) { cm.textContent = body.error || 'ログインに失敗しました。'; return; }
+  V.token = body.token; await loadMemberProfile(); saveMemberSession();
 }
 function memberLogout() {
   V.token = null; V.member = null;

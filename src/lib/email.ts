@@ -463,6 +463,48 @@ ${d.resetUrl}
   return withSignature({ subject, html, text });
 }
 
+/** メールでログイン（マジックリンク・マイページ用） */
+export function magicLinkEmail(d: { loginUrl: string; expiresLabel: string }): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】ログイン用リンクのご案内';
+  const text = `レンタルスペースALBE です。
+
+下記のリンクを開くと、そのままログインできます（パスワード不要）。
+
+${d.loginUrl}
+
+※このリンクの有効期限は${d.expiresLabel}です。1回のみ有効です。
+※お心当たりがない場合は、このメールは破棄してください。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>レンタルスペースALBE です。</p>
+<p>下記のボタンからそのままログインできます（パスワード不要）。</p>
+<p style="margin:20px 0"><a href="${escapeHtml(d.loginUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">ログインする</a></p>
+<p style="font-size:12px;color:#6b7280">ボタンが開けない場合は、次のURLをブラウザに貼り付けてください：<br>${escapeHtml(d.loginUrl)}</p>
+<p style="font-size:13px;color:#6b7280">※このリンクの有効期限は${escapeHtml(d.expiresLabel)}です（1回のみ有効）。<br>※お心当たりがない場合は、このメールは破棄してください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** ログイン用ワンタイムコード（予約フロー・見学フォーム内でのログイン用） */
+export function loginCodeEmail(d: { code: string; expiresLabel: string }): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】ログイン用の確認コード ${d.code}`;
+  const text = `レンタルスペースALBE です。
+
+ログイン用の確認コードは次のとおりです。
+入力画面に、このコードを入力してください（パスワード不要）。
+
+確認コード: ${d.code}
+
+※このコードの有効期限は${d.expiresLabel}です。
+※お心当たりがない場合は、このメールは破棄してください。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>レンタルスペースALBE です。</p>
+<p>ログイン用の確認コードは次のとおりです。入力画面にこのコードを入力してください（パスワード不要）。</p>
+<p style="margin:18px 0;font-size:30px;font-weight:700;letter-spacing:.3em;color:#0068b7">${escapeHtml(d.code)}</p>
+<p style="font-size:13px;color:#6b7280">※このコードの有効期限は${escapeHtml(d.expiresLabel)}です。<br>※お心当たりがない場合は、このメールは破棄してください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 新規予約の管理者通知メール */
 export function adminNewBookingEmail(d: BookingEmailData & { customerEmail: string; customerPhone?: string }): {
   subject: string;

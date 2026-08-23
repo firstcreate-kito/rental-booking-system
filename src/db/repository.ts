@@ -672,6 +672,79 @@ export async function applyPasswordReset(
   ]);
 }
 
+// --- パスワードレスログイン（マジックリンク／6桁コード）#91 ---
+export async function createLoginChallenge(
+  db: D1Database,
+  p: { id: string; email: string; secret: string; kind: 'link' | 'code'; expiresAt: string },
+  now: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO login_challenges (id, email, secret, kind, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(p.id, p.email, p.secret, p.kind, p.expiresAt, now)
+    .run();
+}
+
+/** リンク用：トークン（secret）で1件取得（kind='link'）。 */
+export async function getLoginChallengeByToken(db: D1Database, secret: string) {
+  return db
+    .prepare("SELECT id, email, secret, kind, expires_at, used, attempts FROM login_challenges WHERE secret = ? AND kind = 'link'")
+    .bind(secret)
+    .first<{ id: string; email: string; secret: string; kind: string; expires_at: string; used: number; attempts: number }>();
+}
+
+/** コード用：メール＋6桁コードで、未使用・最新の1件を取得（kind='code'）。 */
+export async function getLoginChallengeByEmailCode(db: D1Database, email: string, code: string) {
+  return db
+    .prepare(
+      "SELECT id, email, secret, kind, expires_at, used, attempts FROM login_challenges WHERE email = ? AND secret = ? AND kind = 'code' AND used = 0 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(email, code)
+    .first<{ id: string; email: string; secret: string; kind: string; expires_at: string; used: number; attempts: number }>();
+}
+
+/** コードの誤入力回数を数える（総当たり防止）：同一メールの未使用codeチャレンジの最大attempts。 */
+export async function getRecentCodeAttempts(db: D1Database, email: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COALESCE(MAX(attempts),0) AS n FROM login_challenges WHERE email = ? AND kind = 'code' AND used = 0")
+    .bind(email)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function incrementCodeAttempts(db: D1Database, email: string): Promise<void> {
+  await db.prepare("UPDATE login_challenges SET attempts = attempts + 1 WHERE email = ? AND kind = 'code' AND used = 0").bind(email).run();
+}
+
+export async function markLoginChallengeUsed(db: D1Database, id: string): Promise<void> {
+  await db.prepare('UPDATE login_challenges SET used = 1 WHERE id = ?').bind(id).run();
+}
+
+/**
+ * メールから会員を取得。無ければ「その場で会員登録」（メールのみ・パスワードなし）。
+ * パスワードレスログイン成立時に使用。返すのは認証に必要な最小情報。
+ */
+export async function ensureCustomerByEmail(
+  db: D1Database,
+  email: string,
+  now: string,
+): Promise<{ id: string; email: string; contact_name: string | null; is_blocked: number }> {
+  const existing = await db
+    .prepare('SELECT id, email, contact_name, is_blocked FROM customers WHERE email = ?')
+    .bind(email)
+    .first<{ id: string; email: string; contact_name: string | null; is_blocked: number }>();
+  if (existing) return existing;
+  const id = crypto.randomUUID();
+  // contact_name / phone は NOT NULL のため空文字で作成（お名前・電話は後から入力/補完）。
+  await db
+    .prepare(
+      `INSERT INTO customers (id, email, is_registered, contact_name, phone, status_id, created_at)
+       VALUES (?, ?, 1, '', '', 'general', ?)`,
+    )
+    .bind(id, email, now)
+    .run();
+  return { id, email, contact_name: null, is_blocked: 0 };
+}
+
 // --- マイページ ---
 export async function getCustomerProfile(db: D1Database, customerId: string) {
   return db

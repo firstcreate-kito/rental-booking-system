@@ -27,6 +27,9 @@
   th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
   th { color:var(--muted); font-weight:600; font-size:12px; }
   .tablewrap { overflow-x:auto; }
+  /* 操作ボタン列（予約一覧など）は1行に詰め込まず折り返して、右側が見切れないようにする（2段OK） */
+  td.act { white-space:normal; }
+  td.act .btn { display:inline-flex; margin:2px 4px 2px 0; }
   /* スマホでは横に長い表を「1件＝1カード」の縦組みに切り替える（table.resp のみ対象） */
   @media (max-width: 640px) {
     .tabs { flex-wrap:wrap; }
@@ -1157,7 +1160,7 @@ async function loadBookings() {
       : '';
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
       '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + '</td><td>' + b.booking_number +
-      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td>' + actions + '</td></tr>';
+      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td class="act">' + actions + '</td></tr>';
   }).join('');
   // カレンダーの「管理画面リンク」から ?booking=番号 で開いた場合、その予約の詳細を自動で開く（#54関連・初回のみ）
   if (deepLinkBooking) { const n = deepLinkBooking; deepLinkBooking = null; openReschedule(n); }

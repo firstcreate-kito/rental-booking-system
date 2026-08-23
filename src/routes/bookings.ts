@@ -568,6 +568,22 @@ app.post('/', async (c) => {
   // 第2段階：確保できた枠に対して、オプション・追加質問・特典消費を反映
   // ------------------------------------------------------------------
   const stmts: D1PreparedStatement[] = [];
+  // 会員の連絡先プロフィールを補完（#91）。Google/LINE/マジックリンク/コードで会員登録すると
+  // 氏名・電話が空のことがあるため、予約フォームで入力された値で「空の項目だけ」を埋める。
+  // 既に登録済みの値（通常のメール会員登録など）は上書きしない。
+  if (member) {
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE customers SET
+             contact_name = CASE WHEN contact_name IS NULL OR contact_name = '' THEN ? ELSE contact_name END,
+             phone = CASE WHEN phone IS NULL OR phone = '' THEN ? ELSE phone END,
+             company_name = CASE WHEN (company_name IS NULL OR company_name = '') AND ? <> '' THEN ? ELSE company_name END
+           WHERE id = ?`,
+        )
+        .bind(contactName, phone, companyName ?? '', companyName ?? '', customerId),
+    );
+  }
   for (const sel of optionSelections) {
     stmts.push(
       db

@@ -120,8 +120,12 @@
   .total { font-size: 20px; font-weight: 700; }
   label { display: block; font-size: 13px; margin: 10px 0 4px; }
   /* 入力欄の共通スタイルは tokens.css に集約（R13-7〜R13-11） */
-  .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .opt .qty { width: 64px; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); min-height: 56px; }
+  .opt > div:first-child { min-width: 0; }  /* 長い名称は折り返す（右の操作欄を押し出さない） */
+  /* 数量入力：共通入力スタイル（width:100%）に負けないよう幅を固定。数値は中央寄せ。 */
+  .opt .qty { width: 72px !important; flex: 0 0 auto; text-align: center; }
+  /* チェックボックスはタップしやすい大きさに */
+  .opt input[type=checkbox] { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; }
   /* スマホ: 時間選択モーダルを画面内に収める。時間ボタンをコンパクトにして上部(見出し・凡例)まで表示 */
   @media (max-width: 640px) {
     .modal { padding: 16px; }

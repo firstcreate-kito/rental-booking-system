@@ -8,9 +8,14 @@ const PBKDF2_ITERATIONS = 100_000;
  * セッションのアイドルタイムアウト（無操作で自動ログアウトするまでの分数）。
  * ログイン中はリクエストのたびに expires_at が現在時刻＋この分数へ延長される（スライディング）。
  * この分数だけ一切の操作が無いとセッションが失効する。
- * フロント（public/mypage.html・public/admin.html）のアイドルタイマーもこの値に合わせること。
+ * フロント（public/mypage.html・public/index.html・public/viewing.html・public/admin.html）の
+ * アイドルタイマーもこの値に合わせること。
+ *
+ * 会員（顧客）は「予約→決済→マイページ」の外部決済往復や再訪でログインを保持したいので
+ * 30日のスライディングとする（保存も localStorage）。共有PCでは手動ログアウトを案内する。
+ * 管理者は従来どおり短め（30分）に保つ。
  */
-export const CUSTOMER_SESSION_IDLE_MINUTES = 15;
+export const CUSTOMER_SESSION_IDLE_MINUTES = 30 * 24 * 60; // 30日
 export const ADMIN_SESSION_IDLE_MINUTES = 30;
 
 function toBase64(bytes: Uint8Array): string {

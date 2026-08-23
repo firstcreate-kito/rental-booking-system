@@ -379,19 +379,20 @@
 const M = { token:null, member:null };
 
 // ── セッション保持＋アイドル自動ログアウト（無操作15分でログアウト） ──────────────
-// リロードしてもタブ内はログイン継続。ただし一切の操作が15分無いと自動ログアウト。
-// ※この分数はサーバ側 CUSTOMER_SESSION_IDLE_MINUTES と一致させること。
-const IDLE_MINUTES = 15;
+// 予約→決済（外部）→マイページ の往復や再訪でもログインを保持する。保存は localStorage
+// （タブを閉じても継続）。一切の操作が30日無いと自動ログアウト（サーバ側と一致）。
+// ※この分数はサーバ側 CUSTOMER_SESSION_IDLE_MINUTES と一致させること。共有PCでは手動ログアウト推奨。
+const IDLE_MINUTES = 30 * 24 * 60; // 30日
 const IDLE_MS = IDLE_MINUTES * 60 * 1000;
-const SS_KEY = 'albe_my_session'; // sessionStorage: タブを閉じると消える（会員データ保護）
+const SS_KEY = 'albe_my_session'; // localStorage: 予約フロー・見学フォームと共通
 let _idleTimer = null;
 function saveSession() {
-  try { sessionStorage.setItem(SS_KEY, JSON.stringify({ token: M.token, member: M.member, at: Date.now() })); } catch (e) {}
+  try { localStorage.setItem(SS_KEY, JSON.stringify({ token: M.token, member: M.member, at: Date.now() })); } catch (e) {}
 }
-function clearSession() { try { sessionStorage.removeItem(SS_KEY); } catch (e) {} }
+function clearSession() { try { localStorage.removeItem(SS_KEY); } catch (e) {} }
 function restoreSession() {
   let s = null;
-  try { s = JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
+  try { s = JSON.parse(localStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
   if (!s || !s.token) return false;
   if (Date.now() - (s.at || 0) > IDLE_MS) { clearSession(); return false; } // 既にタイムアウト
   M.token = s.token; M.member = s.member;

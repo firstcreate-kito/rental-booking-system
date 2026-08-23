@@ -490,20 +490,21 @@ const api = async (path, opts) => {
 };
 function authHeaders(base) { const h = Object.assign({}, base || {}); if (S.token) h['Authorization'] = 'Bearer ' + S.token; return h; }
 
-// ── ログインセッションの保持（mypage.html と共通の sessionStorage キー） ─────────────
-// 一度ログインすれば、予約カレンダー↔お客様情報↔マイページ 等ページを移動しても
-// タブ内はログイン状態を維持する。無操作15分で自動ログアウト（サーバ側と一致）。
+// ── ログインセッションの保持（mypage.html / viewing.html と共通の localStorage キー） ──
+// 一度ログインすれば、予約カレンダー↔お客様情報↔マイページ、さらに予約→決済（外部）→戻り
+// までページ・タブを移動してもログイン状態を維持する。保存は localStorage（タブを閉じても継続）。
+// 無操作30日で自動ログアウト（サーバ側 CUSTOMER_SESSION_IDLE_MINUTES と一致）。
 const MEMBER_SS_KEY = 'albe_my_session';
-const MEMBER_IDLE_MS = 15 * 60 * 1000;
+const MEMBER_IDLE_MS = 30 * 24 * 60 * 60 * 1000; // 30日
 let _memberIdleTimer = null;
 function saveMemberSession() {
   if (!S.token) return;
-  try { sessionStorage.setItem(MEMBER_SS_KEY, JSON.stringify({ token: S.token, member: S.member, at: Date.now() })); } catch (e) {}
+  try { localStorage.setItem(MEMBER_SS_KEY, JSON.stringify({ token: S.token, member: S.member, at: Date.now() })); } catch (e) {}
 }
-function clearMemberSession() { try { sessionStorage.removeItem(MEMBER_SS_KEY); } catch (e) {} }
+function clearMemberSession() { try { localStorage.removeItem(MEMBER_SS_KEY); } catch (e) {} }
 function readMemberSession() {
   let s = null;
-  try { s = JSON.parse(sessionStorage.getItem(MEMBER_SS_KEY) || 'null'); } catch (e) {}
+  try { s = JSON.parse(localStorage.getItem(MEMBER_SS_KEY) || 'null'); } catch (e) {}
   if (!s || !s.token) return null;
   if (Date.now() - (s.at || 0) > MEMBER_IDLE_MS) { clearMemberSession(); return null; } // 既に無操作タイムアウト
   return s;

@@ -250,7 +250,8 @@
 
 <script>
 const V = { spaces: [], mode: 'slot', token: null, member: null };
-const SS_KEY = 'albe_my_session'; // マイページと共有（同一タブ内でログイン継続）
+const SS_KEY = 'albe_my_session'; // マイページ・予約フローと共有（localStorage・ログイン継続）
+const MEMBER_IDLE_MS = 30 * 24 * 60 * 60 * 1000; // 無操作30日（サーバ側と一致）
 
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
@@ -285,16 +286,16 @@ async function loadMemberProfile() {
   return false; // トークン無効
 }
 function saveMemberSession() {
-  try { sessionStorage.setItem(SS_KEY, JSON.stringify({ token: V.token, member: V.member, at: Date.now() })); } catch (e) {}
+  try { localStorage.setItem(SS_KEY, JSON.stringify({ token: V.token, member: V.member, at: Date.now() })); } catch (e) {}
 }
 async function restoreMember() {
   let s = null;
-  try { s = JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
+  try { s = JSON.parse(localStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
   if (!s || !s.token) return;
-  if (Date.now() - (s.at || 0) > 15 * 60 * 1000) { try { sessionStorage.removeItem(SS_KEY); } catch (e) {} return; }
+  if (Date.now() - (s.at || 0) > MEMBER_IDLE_MS) { try { localStorage.removeItem(SS_KEY); } catch (e) {} return; }
   V.token = s.token;
   const ok = await loadMemberProfile();
-  if (ok) saveMemberSession(); else { V.token = null; try { sessionStorage.removeItem(SS_KEY); } catch (e) {} }
+  if (ok) saveMemberSession(); else { V.token = null; try { localStorage.removeItem(SS_KEY); } catch (e) {} }
 }
 async function postJson(path, payload) {
   return fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
@@ -335,7 +336,7 @@ async function verifyLoginCode() {
 }
 function memberLogout() {
   V.token = null; V.member = null;
-  try { sessionStorage.removeItem(SS_KEY); } catch (e) {}
+  try { localStorage.removeItem(SS_KEY); } catch (e) {}
   document.getElementById('memberInfo').classList.add('hidden');
   document.getElementById('memberLogin').classList.remove('hidden');
   // 自動入力された本人情報はクリア（別のお客様として入力できるように）

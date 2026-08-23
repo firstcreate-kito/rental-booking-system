@@ -20,6 +20,8 @@ import {
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
 import { nowJST } from '../lib/clock';
 import { sendEmail, passwordResetEmail, welcomeEmail, magicLinkEmail, loginCodeEmail } from '../lib/email';
+import { googleConfigured, buildGoogleAuthUrl, exchangeGoogleCode } from '../lib/google-oauth';
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 
 /** 6桁のワンタイムコードを生成（暗号的乱数）。 */
 function sixDigitCode(): string {
@@ -280,6 +282,59 @@ app.post('/login-code/verify', async (c) => {
   await markLoginChallengeUsed(db, ch.id);
   await updateLastLogin(db, cust.id, now);
   return c.json({ token: sessionToken, customer: { id: cust.id, email: cust.email, contactName: cust.contact_name } });
+});
+
+/** GET /api/auth/providers 利用可能な外部ログイン（フロントがボタン表示を出し分け） */
+app.get('/providers', (c) => {
+  return c.json({ google: googleConfigured(c.env) });
+});
+
+/**
+ * GET /api/auth/google/start Googleログイン開始（同意画面へリダイレクト）
+ * CSRF対策のstateをCookieに保存して照合する。
+ */
+app.get('/google/start', (c) => {
+  if (!googleConfigured(c.env)) return c.redirect('/mypage.html?login_error=google_unconfigured');
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const state = generateToken();
+  setCookie(c, 'g_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
+  const url = buildGoogleAuthUrl({
+    clientId: c.env.GOOGLE_CLIENT_ID!,
+    redirectUri: `${origin}/api/auth/google/callback`,
+    state,
+  });
+  return c.redirect(url);
+});
+
+/**
+ * GET /api/auth/google/callback Googleからの戻り。コードをトークンに交換して本人確認し、
+ * マジックリンクと同じ仕組み（1回限りトークン）でマイページにログインさせる。
+ * 未登録メールはその場で会員登録も兼ねる。
+ */
+app.get('/google/callback', async (c) => {
+  const db = c.env.DB;
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const fail = (reason: string) => c.redirect(`/mypage.html?login_error=${encodeURIComponent(reason)}`);
+  if (!googleConfigured(c.env)) return fail('google_unconfigured');
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  const savedState = getCookie(c, 'g_oauth_state');
+  deleteCookie(c, 'g_oauth_state', { path: '/' });
+  if (c.req.query('error')) return fail('google_denied');
+  if (!code || !state || !savedState || state !== savedState) return fail('google_state');
+
+  const ex = await exchangeGoogleCode(c.env, code, `${origin}/api/auth/google/callback`);
+  if (!ex.ok) return fail('google_exchange');
+  if (!ex.identity.emailVerified) return fail('google_email_unverified');
+
+  const email = ex.identity.email;
+  if (await isBlacklisted(db, email, '')) return fail('blocked');
+
+  // マジックリンクと同じ「1回限りトークン」を発行して /mypage.html?magic= に渡す。
+  const now = nowJST();
+  const secret = generateToken();
+  await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt: nowJST(Date.now() + 5 * 60 * 1000) }, now);
+  return c.redirect(`/mypage.html?magic=${secret}`);
 });
 
 /** POST /api/auth/logout ログアウト */

@@ -108,6 +108,12 @@
       <button class="btn" onclick="login()">ログイン</button>
     </div>
     <div class="msg bad" id="loginMsg"></div>
+    <div id="oauthBox" class="hidden" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      <button class="btn ghost" id="googleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="location.href='/api/auth/google/start'">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-2.8-.4-4.1H24v7.7h12.4c-.3 2.1-1.6 5.2-4.6 7.3l7.1 5.5c4.2-3.9 6.9-9.6 6.9-16.4z"/><path fill="#FBBC05" d="M10.5 28.3c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.1C1 16.5 0 20.1 0 23.8s1 7.3 2.6 10.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.1-5.5c-2 1.4-4.6 2.3-8.8 2.3-6.3 0-11.6-3.7-13.5-8.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+        Googleでログイン
+      </button>
+    </div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
       <div style="font-weight:600;font-size:14px;margin-bottom:4px">パスワードなしでログイン</div>
       <div class="muted" style="font-size:12px;margin-bottom:8px">上の「メールアドレス」を入れて下のボタンを押すと、ログイン用リンクをメールでお送りします。届いたメールのリンクを開くとログインできます（パスワード不要）。はじめての方もそのままご利用いただけます。</div>
@@ -611,6 +617,29 @@ async function showHistory(number) {
   }).join('');
 }
 function closeHistory() { document.getElementById('hxOverlay').classList.add('hidden'); }
+// 外部ログイン（Google等）のボタン出し分け＋エラー表示
+const _loginErrMsg = {
+  google_unconfigured: 'Googleログインは現在ご利用いただけません。',
+  google_denied: 'Googleログインがキャンセルされました。',
+  google_state: 'セキュリティ確認に失敗しました。お手数ですが、もう一度お試しください。',
+  google_exchange: 'Googleログインに失敗しました。もう一度お試しください。',
+  google_email_unverified: 'Googleアカウントのメールアドレスが確認されていません。',
+  blocked: '申し訳ございませんが、ログインをお受けできませんでした。',
+};
+async function initLoginExtras() {
+  // ?login_error= があれば表示
+  const err = new URLSearchParams(location.search).get('login_error');
+  if (err) {
+    const m = document.getElementById('loginMsg');
+    if (m) m.textContent = _loginErrMsg[err] || 'ログインに失敗しました。';
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  }
+  // 利用可能な外部ログインのボタンを表示
+  try {
+    const { ok, body } = await api('/api/auth/providers');
+    if (ok && body.google) document.getElementById('oauthBox').classList.remove('hidden');
+  } catch (e) {}
+}
 
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
@@ -918,6 +947,7 @@ async function changePassword() {
     await consumeMagicIfPresent();
     return;
   }
+  initLoginExtras(); // 外部ログインのボタン表示・login_error表示（ログイン画面のとき）
   if (!CR_FROM_BOOKING && location.hash !== '#forgot' && restoreSession()) {
     document.getElementById('who').textContent = (M.member && (M.member.contactName || M.member.email) || '') + ' さん';
     document.getElementById('loginView').classList.add('hidden');

@@ -466,15 +466,11 @@ app.post('/', async (c) => {
 
   // 決済先行フロー（#68）: カード/PayPal（有料）は「pending」で作成し、カレンダーには書かない。
   //   入金確定時に空きを再確認して confirmed へ昇格（埋まっていたら不成立＋返金）。
-  // 銀行振込（Stripe・有料）はコンビニ払いと揃えて「tentative（仮押さえ）」で作成し、
-  //   枠とカレンダーは即ブロックしつつ、入金確定時にはじめて confirmed（本予約）へ昇格する（#39）。
-  //   請求書・0円は従来どおり confirmed（送信時に確定）。
+  // 銀行振込・コンビニ払いは「入金を待つだけ＝ほぼ予約成立」なので confirmed（赤枠）で
+  //   枠を確保する（tentative＝商談中は営業担当の人手用に予約する）。未入金のまま期限を
+  //   過ぎたら自動キャンセルして枠を解放する（#39）。請求書・0円も従来どおり confirmed。
   const paymentFirst = (paymentMethod === 'stripe' || paymentMethod === 'paypal') && totals.total > 0;
-  const initialStatus = paymentFirst
-    ? 'pending'
-    : paymentMethod === 'bank_transfer' && totals.total > 0
-      ? 'tentative'
-      : 'confirmed';
+  const initialStatus = paymentFirst ? 'pending' : 'confirmed';
 
   // 予約番号採番 + 挿入（UNIQUE衝突時はリトライ）
   const ymd = todayYmdJST();
@@ -706,12 +702,12 @@ app.post('/', async (c) => {
     changeUrl: `${origin}/booking-change/?num=${encodeURIComponent(bookingNumber)}`,
     isInvoice: paymentMethod === 'invoice',
   };
-  // 予約確認（本予約確定）メールは「確定済み」のときだけ送る。
-  //  - pending（カード/PayPal）… 入金確定時に送る
-  //  - tentative（銀行振込・仮押さえ）… 下の銀行振込ブロックで「お振込のお願い」メールを送り、
-  //    確定メールは入金確定時に送る（ここでは送らない）
+  // 予約確認（本予約確定）メールの送信可否。
+  //  - pending（カード/PayPal）… 入金確定時に送る（ここでは送らない）
+  //  - 銀行振込（confirmed・未入金）… 下のブロックで「お振込のお願い（未入金は自動キャンセル）」
+  //    メールを送るため、ここでは通常の確定メールを送らない
   //  - confirmed（請求書・0円）… ここで確定メールを送る
-  if (initialStatus === 'confirmed') {
+  if (initialStatus === 'confirmed' && paymentMethod !== 'bank_transfer') {
     const confirm = bookingConfirmationEmail(emailData);
     c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
     const admins = await adminRecipients(c.env, space.id);

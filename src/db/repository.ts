@@ -1630,51 +1630,11 @@ export async function promoteBookingGroupToConfirmed(
 }
 
 /**
- * コンビニ払込票の発行時に、pending の予約を tentative（仮押さえ）へ上げて枠を確保する（#39）。
- * 他グループの confirmed/tentative と重複しない場合のみ成功。重複時は held=false, conflict=true。
- */
-export async function holdBookingGroupAsTentative(
-  db: D1Database,
-  groupId: string,
-): Promise<{ held: boolean; conflict: boolean }> {
-  const cnt = await db
-    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE group_id = ? AND status = 'pending'")
-    .bind(groupId)
-    .first<{ n: number }>();
-  const total = cnt?.n ?? 0;
-  if (total === 0) {
-    const g = await db.prepare('SELECT status FROM booking_groups WHERE id = ?').bind(groupId).first<{ status: string }>();
-    // 既に tentative/confirmed 済みなら冪等成功扱い
-    return { held: g?.status === 'tentative' || g?.status === 'confirmed', conflict: false };
-  }
-  const res = await db
-    .prepare(
-      `UPDATE bookings SET status = 'tentative'
-       WHERE group_id = ? AND status = 'pending'
-         AND NOT EXISTS (
-           SELECT 1 FROM bookings b2
-           WHERE b2.space_id = bookings.space_id AND b2.date = bookings.date
-             AND b2.group_id <> bookings.group_id
-             AND b2.status IN ('confirmed','tentative')
-             AND bookings.start_time < b2.end_time AND b2.start_time < bookings.end_time
-         )`,
-    )
-    .bind(groupId)
-    .run();
-  const changed = res.meta.changes ?? 0;
-  if (changed < total) {
-    await db.prepare("UPDATE bookings SET status = 'pending' WHERE group_id = ? AND status = 'tentative'").bind(groupId).run();
-    return { held: false, conflict: true };
-  }
-  await db.prepare("UPDATE booking_groups SET status = 'tentative' WHERE id = ?").bind(groupId).run();
-  return { held: true, conflict: false };
-}
-
-/**
- * コンビニ払い・銀行振込（Stripe）の未入金の仮押さえ（tentative）を解放する（#39）。
+ * コンビニ払い・銀行振込（Stripe）の未入金の確保枠（confirmed・未入金）を解放する（#39）。
  * 払込票の期限切れ／支払い失敗、または振込が一定期間ないときに枠を空ける。
- * 管理者の商談中（tentative）を誤って解放しないよう、Stripe経由の後払い
- * （payment_method IN ('stripe','bank_transfer)）かつ未入金のグループに限定。
+ * コンビニ・銀行振込は confirmed（赤枠）で確保するため、Stripe経由の後払い
+ * （payment_method IN ('stripe','bank_transfer')）かつ未入金のグループに限定して解放する。
+ * ※ tentative（商談中＝営業担当の人手予約）や入金済みの予約は対象外。
  */
 export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): Promise<boolean> {
   const g = await db
@@ -1682,19 +1642,21 @@ export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): 
     .bind(groupId)
     .first<{ status: string; payment_method: string; payment_status: string }>();
   if (!g) return false;
-  if (g.status !== 'tentative' || !['stripe', 'bank_transfer'].includes(g.payment_method) || g.payment_status === 'paid') return false;
+  if (g.status !== 'confirmed' || !['stripe', 'bank_transfer'].includes(g.payment_method) || g.payment_status === 'paid') return false;
   await db.batch([
-    db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ? AND status = 'tentative'").bind(groupId),
-    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ? AND status = 'tentative'").bind(groupId),
+    db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ? AND status = 'confirmed' AND payment_status <> 'paid'").bind(groupId),
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ? AND status = 'confirmed'").bind(groupId),
   ]);
   return true;
 }
 
 /**
- * 期限切れの後払い仮押さえ（tentative・未入金）を一括抽出（Cronの掃除用・#39）。
+ * 期限切れの後払い確保枠（confirmed・未入金）を一括抽出（Cronの掃除用・#39）。
  * コンビニ（払込票の有効期限は短い）と銀行振込（着金に時間がかかる）で猶予が異なるため、
  * それぞれに別のカットオフ（この日時より古い created_at）を渡す。
  * 銀行振込は checkout.session.expired が発火しないため、この掃除が主な解放手段になる。
+ * booking_payment（Stripe・未入金）を持つものだけを対象にするので、管理者の代理予約
+ * （Stripe決済なし）は対象外。
  */
 export async function getExpiredStripeHolds(
   db: D1Database,
@@ -1704,7 +1666,7 @@ export async function getExpiredStripeHolds(
   const { results } = await db
     .prepare(
       `SELECT bg.id FROM booking_groups bg
-       WHERE bg.status = 'tentative' AND bg.payment_status = 'unpaid'
+       WHERE bg.status = 'confirmed' AND bg.payment_status = 'unpaid'
          AND EXISTS (
            SELECT 1 FROM booking_payments bp
            WHERE bp.group_id = bg.id AND bp.provider = 'stripe' AND bp.status <> 'paid'

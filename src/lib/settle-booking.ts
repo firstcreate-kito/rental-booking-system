@@ -7,7 +7,6 @@ import {
   getBookingSummaryForGroup,
   getBookingGroupById,
   failBookingGroup,
-  holdBookingGroupAsTentative,
   releaseUnpaidStripeHold,
   getCustomerProfile,
   getBookingCalendarData,
@@ -77,8 +76,8 @@ export async function settlePaidBookingSession(
     return { ok: true, established: false, groupId };
   }
 
-  // 決済先行（#68）：pending（カード）／tentative（コンビニ払込票・銀行振込で仮押さえ済み）は
-  // 入金時に空きを再確認して成立 or 不成立＋返金
+  // 決済先行（#68・カード/PayPal）：pending は入金確定時に空きを再確認して成立 or 不成立＋返金。
+  // （コンビニ・銀行振込は confirmed で確保済みのため下の確定済みブロックで処理する）
   if (group && (group.status === 'pending' || group.status === 'tentative')) {
     const outcome = await finalizeImmediateBooking(env, groupId, origin);
     if (outcome === 'confirmed' || outcome === 'already') {
@@ -96,7 +95,10 @@ export async function settlePaidBookingSession(
     return { ok: true, established: false, refunded: refundOk, groupId };
   }
 
-  // 従来フロー（銀行振込の後払い確定など：既に confirmed）
+  // 確定済みの枠（銀行振込・コンビニの入金待ち＝confirmed、または既存の確定予約）への入金確定。
+  // 領収書を発行し、入金確認メール（お客様・管理者）を送る。Webhook 再配信（already）時は
+  // 二重発行・二重送信しない。
+  if (r.already) return { ok: true, alreadyConfirmed: true, groupId };
   let receiptPath: string | null = null;
   try {
     const doc = await createDocumentForGroup(env.DB, groupId, 'receipt');
@@ -106,11 +108,9 @@ export async function settlePaidBookingSession(
   }
   bg(
     (async () => {
+      // 支払いステータス（未入金→入金済み）をGoogleカレンダーの説明欄へ反映
       await syncBookingCalendarEvents(env, groupId, origin);
-      const summary = await getBookingSummaryForGroup(env.DB, groupId);
-      if (summary?.paymentMethod === 'bank_transfer') {
-        await notifyPaymentConfirmed(env, groupId, receiptPath);
-      }
+      await notifyPaymentConfirmed(env, groupId, receiptPath);
     })(),
   );
   return { ok: true, alreadyConfirmed: true, groupId };
@@ -119,8 +119,9 @@ export async function settlePaidBookingSession(
 /**
  * コンビニ払込票の発行時（checkout.session.completed・未入金）に呼ぶ（#39）。
  *  1) 払込票情報を取得（コンビニでなければ何もしない）
- *  2) 枠を tentative（仮押さえ）に上げ、Googleカレンダーへ仮予約として反映（＝枠をブロック）
- *  3) 「コンビニでお支払いください」メールを送信（払込票URL・期限つき）
+ *  2) 枠を confirmed（予約成立・赤枠）にして確保し、Googleカレンダーへ反映（＝枠をブロック）
+ *     ※ tentative（商談中）は営業担当の人手用に予約するため、コンビニ入金待ちには使わない。
+ *  3) 「コンビニでお支払いください（未入金は自動キャンセル）」メールを送信（払込票URL・期限つき）
  * 枠が既に埋まっていた場合は不成立にして通知（レアケース）。
  * すべて try/catch 済みで、失敗しても Webhook 応答は成功のまま（Stripe 再送の暴発を防ぐ）。
  */
@@ -145,19 +146,16 @@ export async function handleKonbiniSlipIssued(
     expiresAt = k.expiresAt;
   }
 
-  // 枠を仮押さえ（tentative）にして確保
-  const hold = await holdBookingGroupAsTentative(env.DB, groupId);
   const bg = (p: Promise<unknown>) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : void p.catch(() => {}));
 
-  if (!hold.held) {
+  // 空きを再確認して「予約成立（confirmed・赤枠）」に昇格＋Googleカレンダーへ反映（finalize が両方実施）。
+  const outcome = await finalizeImmediateBooking(env, groupId, origin);
+  if (outcome !== 'confirmed' && outcome !== 'already') {
     // 払込票発行時点で他予約に取られていた（レア）→ 不成立にして通知（支払わないよう促す）
     await failBookingGroup(env.DB, groupId);
     bg(notifyBookingFailed(env, groupId, false));
     return { ok: true, held: false, reason: 'conflict' };
   }
-
-  // Googleカレンダーへ仮予約として反映（枠ブロック）
-  bg(syncBookingCalendarEvents(env, groupId, origin).then(() => undefined));
 
   // コンビニお支払い受付メール（払込票URL・期限）
   bg(
@@ -185,7 +183,7 @@ export async function handleKonbiniSlipIssued(
 
 /**
  * コンビニ払込票の期限切れ・支払い失敗時（async_payment_failed / checkout.session.expired）に、
- * 仮押さえ（tentative・未入金）を解放して枠を空ける（#39）。カレンダーの仮予約も削除。
+ * 未入金の確保枠（confirmed・未入金）を解放して枠を空ける（#39）。カレンダーの予定も削除。
  */
 export async function releaseKonbiniHoldForSession(
   env: Env,

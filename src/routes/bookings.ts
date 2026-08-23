@@ -63,7 +63,8 @@ import {
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, bankTransferInfoEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
-import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions } from '../lib/stripe';
+import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions, retrieveCheckoutSession } from '../lib/stripe';
+import { settlePaidBookingSession } from '../lib/settle-booking';
 import { paypalConfigured, createPaypalOrder } from '../lib/paypal';
 
 const app = new Hono<AppBindings>();
@@ -856,11 +857,26 @@ app.post('/', async (c) => {
 app.get('/payment-status', async (c) => {
   const sessionId = c.req.query('session');
   if (!sessionId) return c.json({ status: 'unknown' });
-  const pay = await getBookingPaymentBySession(c.env.DB, sessionId);
+  let pay = await getBookingPaymentBySession(c.env.DB, sessionId);
   if (!pay) return c.json({ status: 'unknown' });
+  let g = await getBookingGroupById(c.env.DB, pay.group_id);
+  // Webhook が遅延・不達でも確定できるよう、未入金・pending のときは Stripe に直接照会して
+  // 入金済みなら Webhook と同じ確定処理をここで実行する（#68 補強・カード決済先行の取りこぼし防止）。
+  if (pay.status !== 'paid' && g?.status === 'pending' && stripeConfigured(c.env)) {
+    try {
+      const sess = await retrieveCheckoutSession(c.env.STRIPE_SECRET_KEY!, sessionId);
+      if (sess && sess.paymentStatus === 'paid') {
+        const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+        await settlePaidBookingSession(c.env, pay, sessionId, sess.paymentIntent, origin, c.executionCtx);
+        pay = (await getBookingPaymentBySession(c.env.DB, sessionId)) || pay;
+        g = await getBookingGroupById(c.env.DB, pay.group_id);
+      }
+    } catch {
+      /* 照会失敗時は従来どおり現在のステータスを返す */
+    }
+  }
   const booking = await getBookingSummaryForGroup(c.env.DB, pay.group_id);
   // 決済先行（#68）：グループ状態で成立/不成立を判定。failed=満室で不成立・返金。
-  const g = await getBookingGroupById(c.env.DB, pay.group_id);
   let status = pay.status;
   if (g?.status === 'failed') status = 'failed';
   else if (g?.status === 'pending') status = 'processing'; // 入金確定・確定待ち

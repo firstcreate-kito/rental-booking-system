@@ -1,5 +1,33 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { buildCheckoutBody, buildBankTransferBody, verifyStripeWebhook, refundPayment } from '../src/lib/stripe';
+import { buildCheckoutBody, buildBankTransferBody, verifyStripeWebhook, refundPayment, retrieveCheckoutSession } from '../src/lib/stripe';
+
+describe('retrieveCheckoutSession（#68 Webhook不達時の復帰照合）', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('GET でセッションを取得し payment_status / payment_intent(文字列) を返す', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'cs_1', payment_status: 'paid', payment_intent: 'pi_9' }), { status: 200 }),
+    );
+    const r = await retrieveCheckoutSession('sk_test_x', 'cs_1');
+    expect(r).toEqual({ id: 'cs_1', paymentStatus: 'paid', paymentIntent: 'pi_9' });
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toBe('https://api.stripe.com/v1/checkout/sessions/cs_1');
+    expect((init as RequestInit | undefined)?.method ?? 'GET').toBe('GET');
+  });
+
+  it('payment_intent がオブジェクト展開でも id を取り出す', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'cs_2', payment_status: 'unpaid', payment_intent: { id: 'pi_x' } }), { status: 200 }),
+    );
+    const r = await retrieveCheckoutSession('sk_test_x', 'cs_2');
+    expect(r).toEqual({ id: 'cs_2', paymentStatus: 'unpaid', paymentIntent: 'pi_x' });
+  });
+
+  it('エラー応答では null を返す', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { message: 'no' } }), { status: 404 }));
+    expect(await retrieveCheckoutSession('sk_test_x', 'cs_none')).toBeNull();
+  });
+});
 
 describe('refundPayment（#68 決済先行の自動返金）', () => {
   afterEach(() => vi.restoreAllMocks());

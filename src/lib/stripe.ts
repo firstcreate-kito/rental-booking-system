@@ -151,6 +151,23 @@ export async function createCheckoutSession(secretKey: string, params: CheckoutP
   return { id: json.id, url: json.url };
 }
 
+/**
+ * Checkout Session を取得して支払い状況を返す（Webサイト復帰時の照合用・#68 補強）。
+ * Webhook が遅延・不達でも、決済完了ページのポーリングから入金を確認して確定できるようにする。
+ */
+export async function retrieveCheckoutSession(
+  secretKey: string,
+  sessionId: string,
+): Promise<{ id: string; paymentStatus: string; paymentIntent: string | null } | null> {
+  const res = await fetch('https://api.stripe.com/v1/checkout/sessions/' + encodeURIComponent(sessionId), {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const json = (await res.json().catch(() => null)) as { id?: string; payment_status?: string; payment_intent?: string | { id?: string } } | null;
+  if (!res.ok || !json || !json.id) return null;
+  const pi = typeof json.payment_intent === 'string' ? json.payment_intent : json.payment_intent?.id ?? null;
+  return { id: json.id, paymentStatus: String(json.payment_status || ''), paymentIntent: pi };
+}
+
 // ---------------------------------------------------------------------------
 // 銀行振込（customer_balance / jp_bank_transfer）#42
 // ---------------------------------------------------------------------------

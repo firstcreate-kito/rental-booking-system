@@ -702,6 +702,58 @@ ${mypageHtml}
   return withSignature({ subject, html, text });
 }
 
+/**
+ * コンビニ払い受付メール（#39）。払込票発行時に送信。実際にコンビニで支払うまで予約は確定しない旨、
+ * 払込票URL・支払期限を案内する。画面を閉じても番号を確認できるよう控えとして送る。
+ */
+export function konbiniPaymentEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  amount: number;
+  expiresLabel: string; // 例: "2026-08-26 23:59"
+  voucherUrl: string | null;
+  mypageUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】コンビニでのお支払いのお願い（${d.bookingNumber}）`;
+  const voucherText = d.voucherUrl ? `\n【お支払い用の払込票（支払い番号）はこちら】\n${d.voucherUrl}\n` : '';
+  const mypageText = d.mypageUrl ? `\nご予約状況はマイページでご確認いただけます:\n${d.mypageUrl}\n` : '';
+  const text = `${d.customerName} 様
+
+ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
+お近くのコンビニエンスストアで、期限までにお支払いをお願いいたします。
+ご入金の確認後にご予約が確定し、確認メールと領収書をお送りします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+お支払い金額（税込）: ${yen(d.amount)}
+お支払い期限: ${d.expiresLabel}
+${voucherText}${mypageText}
+※お支払いが確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。
+※期限までにお支払いがない場合、ご予約は自動的にキャンセルとなります。`;
+  const voucherHtml = d.voucherUrl
+    ? `<p style="margin:14px 0"><a href="${escapeHtml(d.voucherUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">お支払い用の払込票を開く ▶</a></p>
+<p style="color:#6b7280;font-size:13px;word-break:break-all">開けない場合はこちらのURL：<br>${escapeHtml(d.voucherUrl)}</p>`
+    : '';
+  const mypageHtml = d.mypageUrl
+    ? `<p style="margin:8px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページでご予約状況を確認する ▶</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約のお申し込みありがとうございます。下記の内容で「<strong>お支払い待ち</strong>」で承りました。<br>お近くのコンビニで、期限までにお支払いをお願いいたします。ご入金の確認後にご予約が確定します。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い金額（税込）</td><td style="font-size:18px"><strong>${yen(d.amount)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い期限</td><td><strong>${escapeHtml(d.expiresLabel)}</strong></td></tr>
+</table>
+${voucherHtml}
+${mypageHtml}
+<p style="color:#6b7280;font-size:13px">※お支払いが確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。<br>※期限までにお支払いがない場合、ご予約は自動的にキャンセルとなります。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 追加料金のお支払いのお願い（予約内容変更で差額が発生したとき・顧客向け） */
 export function additionalChargeEmail(d: {
   customerName: string;

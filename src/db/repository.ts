@@ -1594,8 +1594,9 @@ export async function promoteBookingGroupToConfirmed(
   db: D1Database,
   groupId: string,
 ): Promise<{ promoted: boolean; conflict: boolean }> {
+  // pending（カード即時）または tentative（コンビニ払込票発行で仮押さえ済み）を confirmed に上げる。
   const cnt = await db
-    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE group_id = ? AND status = 'pending'")
+    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE group_id = ? AND status IN ('pending','tentative')")
     .bind(groupId)
     .first<{ n: number }>();
   const total = cnt?.n ?? 0;
@@ -1603,11 +1604,11 @@ export async function promoteBookingGroupToConfirmed(
     const g = await db.prepare('SELECT status FROM booking_groups WHERE id = ?').bind(groupId).first<{ status: string }>();
     return { promoted: g?.status === 'confirmed', conflict: false };
   }
-  // 重複の無い pending 行だけを confirmed に上げる（他グループの confirmed/tentative と非重複）
+  // 重複の無い行だけを confirmed に上げる（他グループの confirmed/tentative と非重複。自グループは除外）
   const res = await db
     .prepare(
       `UPDATE bookings SET status = 'confirmed'
-       WHERE group_id = ? AND status = 'pending'
+       WHERE group_id = ? AND status IN ('pending','tentative')
          AND NOT EXISTS (
            SELECT 1 FROM bookings b2
            WHERE b2.space_id = bookings.space_id AND b2.date = bookings.date
@@ -1626,6 +1627,85 @@ export async function promoteBookingGroupToConfirmed(
   }
   await db.prepare("UPDATE booking_groups SET status = 'confirmed' WHERE id = ?").bind(groupId).run();
   return { promoted: true, conflict: false };
+}
+
+/**
+ * コンビニ払込票の発行時に、pending の予約を tentative（仮押さえ）へ上げて枠を確保する（#39）。
+ * 他グループの confirmed/tentative と重複しない場合のみ成功。重複時は held=false, conflict=true。
+ */
+export async function holdBookingGroupAsTentative(
+  db: D1Database,
+  groupId: string,
+): Promise<{ held: boolean; conflict: boolean }> {
+  const cnt = await db
+    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE group_id = ? AND status = 'pending'")
+    .bind(groupId)
+    .first<{ n: number }>();
+  const total = cnt?.n ?? 0;
+  if (total === 0) {
+    const g = await db.prepare('SELECT status FROM booking_groups WHERE id = ?').bind(groupId).first<{ status: string }>();
+    // 既に tentative/confirmed 済みなら冪等成功扱い
+    return { held: g?.status === 'tentative' || g?.status === 'confirmed', conflict: false };
+  }
+  const res = await db
+    .prepare(
+      `UPDATE bookings SET status = 'tentative'
+       WHERE group_id = ? AND status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM bookings b2
+           WHERE b2.space_id = bookings.space_id AND b2.date = bookings.date
+             AND b2.group_id <> bookings.group_id
+             AND b2.status IN ('confirmed','tentative')
+             AND bookings.start_time < b2.end_time AND b2.start_time < bookings.end_time
+         )`,
+    )
+    .bind(groupId)
+    .run();
+  const changed = res.meta.changes ?? 0;
+  if (changed < total) {
+    await db.prepare("UPDATE bookings SET status = 'pending' WHERE group_id = ? AND status = 'tentative'").bind(groupId).run();
+    return { held: false, conflict: true };
+  }
+  await db.prepare("UPDATE booking_groups SET status = 'tentative' WHERE id = ?").bind(groupId).run();
+  return { held: true, conflict: false };
+}
+
+/**
+ * コンビニ払込票が期限切れ／支払い失敗のとき、仮押さえ（tentative・未入金）を解放する（#39）。
+ * 管理者の商談中（tentative）を誤って解放しないよう、payment_method='stripe' かつ未入金のグループに限定。
+ */
+export async function releaseUnpaidKonbiniHold(db: D1Database, groupId: string): Promise<boolean> {
+  const g = await db
+    .prepare("SELECT status, payment_method, payment_status FROM booking_groups WHERE id = ?")
+    .bind(groupId)
+    .first<{ status: string; payment_method: string; payment_status: string }>();
+  if (!g) return false;
+  if (g.status !== 'tentative' || g.payment_method !== 'stripe' || g.payment_status === 'paid') return false;
+  await db.batch([
+    db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ? AND status = 'tentative'").bind(groupId),
+    db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ? AND status = 'tentative'").bind(groupId),
+  ]);
+  return true;
+}
+
+/**
+ * 期限切れのコンビニ仮押さえ（tentative・stripe・未入金）を一括抽出（Cronの掃除用・#39）。
+ * 払込票発行から一定日数を過ぎても未入金のものを対象とする。
+ */
+export async function getExpiredKonbiniHolds(db: D1Database, cutoffCreatedAt: string): Promise<Array<{ id: string }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.id FROM booking_groups bg
+       WHERE bg.status = 'tentative' AND bg.payment_method = 'stripe' AND bg.payment_status = 'unpaid'
+         AND EXISTS (
+           SELECT 1 FROM booking_payments bp
+           WHERE bp.group_id = bg.id AND bp.provider = 'stripe' AND bp.status <> 'paid'
+             AND COALESCE(bp.kind,'booking') = 'booking' AND bp.created_at < ?
+         )`,
+    )
+    .bind(cutoffCreatedAt)
+    .all<{ id: string }>();
+  return results ?? [];
 }
 
 /** pending の予約を「不成立（failed）」にして返金済みを記録（#68） */

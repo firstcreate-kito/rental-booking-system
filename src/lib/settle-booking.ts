@@ -7,11 +7,16 @@ import {
   getBookingSummaryForGroup,
   getBookingGroupById,
   failBookingGroup,
+  holdBookingGroupAsTentative,
+  releaseUnpaidKonbiniHold,
+  getCustomerProfile,
+  getBookingCalendarData,
 } from '../db/repository';
-import { refundPayment } from './stripe';
+import { refundPayment, retrievePaymentIntentKonbini } from './stripe';
 import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed } from './notify';
 import { finalizeImmediateBooking } from './finalize';
-import { syncBookingCalendarEvents } from './gcal-sync';
+import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
+import { sendEmail, konbiniPaymentEmail } from './email';
 import { nowJST, todayJST } from './clock';
 
 type Env = AppBindings['Bindings'];
@@ -65,8 +70,9 @@ export async function settlePaidBookingSession(
   if (!r.ok) return { ok: false };
   const groupId = r.groupId!;
 
-  // 決済先行（#68）：pending は入金時に空きを再確認して成立 or 不成立＋返金
-  if (group && group.status === 'pending') {
+  // 決済先行（#68）：pending（カード）／tentative（コンビニ払込票で仮押さえ済み）は
+  // 入金時に空きを再確認して成立 or 不成立＋返金
+  if (group && (group.status === 'pending' || group.status === 'tentative')) {
     const outcome = await finalizeImmediateBooking(env, groupId, origin);
     if (outcome === 'confirmed' || outcome === 'already') {
       try { await createDocumentForGroup(env.DB, groupId, 'receipt'); } catch { /* 書類発行失敗は決済に影響させない */ }
@@ -101,4 +107,91 @@ export async function settlePaidBookingSession(
     })(),
   );
   return { ok: true, alreadyConfirmed: true, groupId };
+}
+
+/**
+ * コンビニ払込票の発行時（checkout.session.completed・未入金）に呼ぶ（#39）。
+ *  1) 払込票情報を取得（コンビニでなければ何もしない）
+ *  2) 枠を tentative（仮押さえ）に上げ、Googleカレンダーへ仮予約として反映（＝枠をブロック）
+ *  3) 「コンビニでお支払いください」メールを送信（払込票URL・期限つき）
+ * 枠が既に埋まっていた場合は不成立にして通知（レアケース）。
+ * すべて try/catch 済みで、失敗しても Webhook 応答は成功のまま（Stripe 再送の暴発を防ぐ）。
+ */
+export async function handleKonbiniSlipIssued(
+  env: Env,
+  bookingPay: BookingPaymentRow,
+  paymentIntentId: string | null,
+  origin: string,
+  ctx?: { waitUntil?: (p: Promise<unknown>) => void },
+): Promise<{ ok: boolean; held?: boolean; reason?: string }> {
+  const groupId = bookingPay.group_id;
+  const group = await getBookingGroupById(env.DB, groupId);
+  if (!group || group.status !== 'pending' || group.payment_method !== 'stripe') return { ok: true, reason: 'not-applicable' };
+
+  // 払込票情報を取得。コンビニでなければ対象外（カード即時決済等はここに来ない想定だが安全弁）。
+  let voucherUrl: string | null = null;
+  let expiresAt: number | null = null;
+  if (paymentIntentId && env.STRIPE_SECRET_KEY) {
+    const k = await retrievePaymentIntentKonbini(env.STRIPE_SECRET_KEY, paymentIntentId);
+    if (!k.isKonbini) return { ok: true, reason: 'not-konbini' };
+    voucherUrl = k.hostedVoucherUrl;
+    expiresAt = k.expiresAt;
+  }
+
+  // 枠を仮押さえ（tentative）にして確保
+  const hold = await holdBookingGroupAsTentative(env.DB, groupId);
+  const bg = (p: Promise<unknown>) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : void p.catch(() => {}));
+
+  if (!hold.held) {
+    // 払込票発行時点で他予約に取られていた（レア）→ 不成立にして通知（支払わないよう促す）
+    await failBookingGroup(env.DB, groupId);
+    bg(notifyBookingFailed(env, groupId, false));
+    return { ok: true, held: false, reason: 'conflict' };
+  }
+
+  // Googleカレンダーへ仮予約として反映（枠ブロック）
+  bg(syncBookingCalendarEvents(env, groupId, origin).then(() => undefined));
+
+  // コンビニお支払い受付メール（払込票URL・期限）
+  bg(
+    (async () => {
+      if (!group.customer_id) return;
+      const prof = (await getCustomerProfile(env.DB, group.customer_id)) as { email?: string; contact_name?: string } | null;
+      const to = prof?.email ? String(prof.email) : '';
+      if (!to) return;
+      const expiresLabel = expiresAt ? nowJST(expiresAt * 1000).slice(0, 16) : '払込票に記載の期限まで';
+      const mail = konbiniPaymentEmail({
+        customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+        bookingNumber: group.booking_number,
+        spaceName: (await getBookingSummaryForGroup(env.DB, groupId))?.spaceName ?? '',
+        amount: group.total_amount,
+        expiresLabel,
+        voucherUrl,
+        mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+      });
+      await sendEmail(env, { to, ...mail });
+    })(),
+  );
+
+  return { ok: true, held: true };
+}
+
+/**
+ * コンビニ払込票の期限切れ・支払い失敗時（async_payment_failed / checkout.session.expired）に、
+ * 仮押さえ（tentative・未入金）を解放して枠を空ける（#39）。カレンダーの仮予約も削除。
+ */
+export async function releaseKonbiniHoldForSession(
+  env: Env,
+  bookingPay: BookingPaymentRow,
+  _origin: string,
+  ctx?: { waitUntil?: (p: Promise<unknown>) => void },
+): Promise<void> {
+  // 解放前にカレンダー情報（イベントID）を控える
+  const cal = await getBookingCalendarData(env.DB, bookingPay.group_id).catch(() => null);
+  const released = await releaseUnpaidKonbiniHold(env.DB, bookingPay.group_id);
+  if (released && cal?.calendarId) {
+    const eventIds = (cal.rows ?? []).map((r) => r.google_event_id);
+    const bg = (p: Promise<unknown>) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : void p.catch(() => {}));
+    bg(deleteBookingFromCalendar(env, cal.calendarId, eventIds));
+  }
 }

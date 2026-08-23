@@ -3,7 +3,7 @@ import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
 import { fulfillTicketPurchase, getBookingPaymentBySession, getCustomerProfile } from '../db/repository';
 import { sendEmail, ticketPurchaseEmail } from '../lib/email';
-import { settlePaidBookingSession } from '../lib/settle-booking';
+import { settlePaidBookingSession, handleKonbiniSlipIssued, releaseKonbiniHoldForSession } from '../lib/settle-booking';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -25,6 +25,42 @@ app.post('/stripe', async (c) => {
   } catch (err) {
     // 署名不正は 400（Stripe は再送しない）
     return c.json({ error: 'signature verification failed: ' + (err as Error).message }, 400);
+  }
+
+  // コンビニ払込票の発行（未入金の completed）→ 枠を仮押さえ（tentative）＋受付メール（#39）。
+  // カード即時決済は payment_status='paid' で来るので下の PAID_EVENTS 側で処理する。
+  if (event.type === 'checkout.session.completed') {
+    const s = event.data.object as { id?: string; payment_status?: string; payment_intent?: string };
+    if (s.id && s.payment_status !== 'paid') {
+      const bookingPay = await getBookingPaymentBySession(c.env.DB, s.id);
+      if (bookingPay && (bookingPay.kind ?? 'booking') === 'booking') {
+        const origin = c.env.PUBLIC_BASE_URL || '';
+        const pi = typeof s.payment_intent === 'string' ? s.payment_intent : null;
+        try {
+          await handleKonbiniSlipIssued(c.env, bookingPay, pi, origin, c.executionCtx);
+        } catch {
+          /* 仮押さえ・メール送信の失敗は Webhook 応答に影響させない（再送暴発防止） */
+        }
+      }
+      return c.json({ received: true, pending: true });
+    }
+  }
+
+  // コンビニ払込票の支払い失敗・期限切れ → 仮押さえを解放して枠を空ける（#39）
+  if (event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired') {
+    const s = event.data.object as { id?: string };
+    if (s.id) {
+      const bookingPay = await getBookingPaymentBySession(c.env.DB, s.id);
+      if (bookingPay && (bookingPay.kind ?? 'booking') === 'booking') {
+        const origin = c.env.PUBLIC_BASE_URL || '';
+        try {
+          await releaseKonbiniHoldForSession(c.env, bookingPay, origin, c.executionCtx);
+        } catch {
+          /* 解放失敗は Cron の掃除で拾う */
+        }
+      }
+    }
+    return c.json({ received: true, released: true });
   }
 
   // 即時決済（カード/Apple Pay）は completed、コンビニ払い等の後払いは

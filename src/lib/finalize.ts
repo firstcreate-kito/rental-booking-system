@@ -39,7 +39,8 @@ export async function finalizeImmediateBooking(env: Env, groupId: string, origin
   const g = await getBookingGroupById(env.DB, groupId);
   if (!g) return 'notfound';
   if (g.status === 'confirmed') return 'already';
-  if (g.status !== 'pending') return 'notfound'; // failed / cancelled 等は対象外
+  // pending（カード即時）と tentative（コンビニ払込票で仮押さえ済み）を確定対象とする。
+  if (g.status !== 'pending' && g.status !== 'tentative') return 'notfound'; // failed / cancelled 等は対象外
 
   // ①② 自システム（D1）＋Googleカレンダーで空きを再確認
   if (!(await isGroupSlotFree(env, groupId))) return 'conflict';

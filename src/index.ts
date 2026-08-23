@@ -46,6 +46,7 @@ import {
 } from './lib/email';
 import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
 import { runDataRetention } from './lib/retention';
+import { runReleaseExpiredKonbiniHolds } from './lib/konbini-cleanup';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -377,6 +378,8 @@ export default {
     ctx.waitUntil(runCalendarReconcile(env));
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(runUnpaidAlert(env));
+      // コンビニ仮押さえの期限切れ解放（#39・Webhook不達時の安全網）
+      ctx.waitUntil(runReleaseExpiredKonbiniHolds(env).then(() => {}).catch(() => {}));
       ctx.waitUntil(runUseDateReminders(env).catch(() => {}));
       ctx.waitUntil(runUnpaidCustomerReminder(env).catch(() => {}));
       // 利用完了ポイントの付与（#70）→ その後にお礼メール（今回付与ぶんを残高に反映して案内）

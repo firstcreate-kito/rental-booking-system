@@ -11,6 +11,7 @@ import {
   paymentMethodStatusLabel,
   bookingFailedEmail,
   adminBookingFailedEmail,
+  konbiniPaymentEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -283,5 +284,41 @@ describe('email - 決済先行 不成立・返金（#68）', () => {
       refundOk: false,
     });
     expect(m.text).toContain('対応不要');
+  });
+});
+
+describe('email - コンビニお支払い受付（#39）', () => {
+  it('払込票URL・期限・金額・「お支払い待ち」を含む', () => {
+    const m = konbiniPaymentEmail({
+      customerName: '山田太郎',
+      bookingNumber: '20260826-001',
+      spaceName: '名駅フリースペース',
+      amount: 4840,
+      expiresLabel: '2026-08-26 23:59',
+      voucherUrl: 'https://payments.stripe.com/konbini/voucher/abc123',
+      mypageUrl: 'https://booking.space-albe.com/mypage.html',
+    });
+    expect(m.subject).toContain('20260826-001');
+    expect(m.subject).toContain('お支払いのお願い');
+    expect(m.text).toContain('お支払い待ち');
+    expect(m.text).toContain('¥4,840');
+    expect(m.text).toContain('2026-08-26 23:59');
+    expect(m.text).toContain('https://payments.stripe.com/konbini/voucher/abc123');
+    expect(m.text).toContain('自動的にキャンセル');
+    expect(m.html).toContain('払込票を開く');
+  });
+  it('払込票URLが無い場合はボタンを出さない・可変値をエスケープする', () => {
+    const m = konbiniPaymentEmail({
+      customerName: 'A&B',
+      bookingNumber: 'B1',
+      spaceName: '<script>x</script>',
+      amount: 1000,
+      expiresLabel: '払込票に記載の期限まで',
+      voucherUrl: null,
+    });
+    expect(m.html).not.toContain('払込票を開く');
+    expect(m.html).toContain('A&amp;B');
+    expect(m.html).toContain('&lt;script&gt;');
+    expect(m.html).not.toContain('<script>x</script>');
   });
 });

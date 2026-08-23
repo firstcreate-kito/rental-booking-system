@@ -79,6 +79,35 @@ export async function retrievePaymentIntentMethodType(
   }
 }
 
+/**
+ * PaymentIntent からコンビニ払込票の情報を取得する（#39・コンビニ受付メール／枠仮押さえ用）。
+ * konbini を選んで未入金のとき、next_action.konbini_display_details に払込票URL・期限が入る。
+ */
+export async function retrievePaymentIntentKonbini(
+  secretKey: string,
+  paymentIntentId: string,
+): Promise<{ isKonbini: boolean; hostedVoucherUrl: string | null; expiresAt: number | null }> {
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}`, {
+      headers: { Authorization: `Bearer ${secretKey}` },
+    });
+    if (!res.ok) return { isKonbini: false, hostedVoucherUrl: null, expiresAt: null };
+    const j = (await res.json()) as {
+      payment_method_types?: string[];
+      next_action?: { type?: string; konbini_display_details?: { hosted_voucher_url?: string; expires_at?: number } };
+    };
+    const kdd = j.next_action?.konbini_display_details;
+    const isKonbini = j.next_action?.type === 'konbini_display_details' || (j.payment_method_types || []).includes('konbini');
+    return {
+      isKonbini: !!isKonbini,
+      hostedVoucherUrl: kdd?.hosted_voucher_url ?? null,
+      expiresAt: typeof kdd?.expires_at === 'number' ? kdd.expires_at : null,
+    };
+  } catch {
+    return { isKonbini: false, hostedVoucherUrl: null, expiresAt: null };
+  }
+}
+
 export interface CheckoutParams {
   /** 商品名（Stripe の決済ページに表示） */
   productName: string;

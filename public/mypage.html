@@ -185,20 +185,27 @@
         <tbody id="bkBody"></tbody>
       </table></div>
       <div class="muted" id="bkEmpty"></div>
+      <div id="bkMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('upcoming')"></button></div>
       <!-- 過去のご利用（利用日が経過した予約）#56 -->
       <div id="bkPastWrap" class="hidden" style="margin-top:16px">
         <button id="bkPastToggle" class="btn ghost sm" onclick="togglePast()" style="margin-bottom:8px"></button>
-        <div id="bkPastList" class="hidden tablewrap"><table class="resp">
-          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
-          <tbody id="bkPastBody"></tbody>
-        </table></div>
+        <div id="bkPastList" class="hidden">
+          <div class="tablewrap"><table class="resp">
+            <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
+            <tbody id="bkPastBody"></tbody>
+          </table></div>
+          <div id="bkPastMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('past')"></button></div>
+        </div>
       </div>
       <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
         <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
-        <div id="bkArchiveList" class="hidden tablewrap"><table class="resp">
-          <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
-          <tbody id="bkArchiveBody"></tbody>
-        </table></div>
+        <div id="bkArchiveList" class="hidden">
+          <div class="tablewrap"><table class="resp">
+            <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
+            <tbody id="bkArchiveBody"></tbody>
+          </table></div>
+          <div id="bkArchiveMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('cancelled')"></button></div>
+        </div>
       </div>
     </section>
 
@@ -708,6 +715,25 @@ async function ensureSpaces() {
   (body.spaces || []).forEach(s => { M.spaceMap[s.id] = s; });
   return M.spaceMap;
 }
+// 予約履歴のページ送り（直近10件表示→「もっと見る」で+10件）#94
+const BK_PAGE = 10;
+const _bkData = { upcoming: [], past: [], cancelled: [] };
+const _bkShown = { upcoming: BK_PAGE, past: BK_PAGE, cancelled: BK_PAGE };
+const _bkBodyId = { upcoming: 'bkBody', past: 'bkPastBody', cancelled: 'bkArchiveBody' };
+const _bkMoreId = { upcoming: 'bkMore', past: 'bkPastMore', cancelled: 'bkArchiveMore' };
+function renderBkList(key) {
+  const rows = _bkData[key];
+  const shown = Math.min(_bkShown[key], rows.length);
+  document.getElementById(_bkBodyId[key]).innerHTML = rows.slice(0, shown).map(bookingRow).join('');
+  const moreWrap = document.getElementById(_bkMoreId[key]);
+  if (rows.length > shown) {
+    moreWrap.classList.remove('hidden');
+    moreWrap.querySelector('button').textContent = 'もっと見る（残り ' + (rows.length - shown) + ' 件）';
+  } else {
+    moreWrap.classList.add('hidden');
+  }
+}
+function bkShowMore(key) { _bkShown[key] += BK_PAGE; renderBkList(key); }
 async function loadBookings() {
   ensureSpaces(); // 時刻候補用に先読み（await不要・バックグラウンド）
   const { body } = await api('/api/mypage/bookings');
@@ -718,14 +744,17 @@ async function loadBookings() {
   const notCancelled = rows.filter(b => b.status !== 'cancelled');
   const upcoming = notCancelled.filter(b => (b.last_date || '') >= today);
   const past = notCancelled.filter(b => (b.last_date || '') < today);
+  // 各リストは直近10件表示、続きは「もっと見る」で追加表示（#94）
+  _bkData.upcoming = upcoming; _bkData.past = past; _bkData.cancelled = cancelled;
+  _bkShown.upcoming = BK_PAGE; _bkShown.past = BK_PAGE; _bkShown.cancelled = BK_PAGE;
   document.getElementById('bkEmpty').textContent = upcoming.length ? '' : 'これからのご予約はありません';
-  document.getElementById('bkBody').innerHTML = upcoming.map(bookingRow).join('');
+  renderBkList('upcoming');
   // 過去のご利用（アーカイブ）
   window._bkPastCount = past.length;
   const pastWrap = document.getElementById('bkPastWrap');
   if (past.length) {
     pastWrap.classList.remove('hidden');
-    document.getElementById('bkPastBody').innerHTML = past.map(bookingRow).join('');
+    renderBkList('past');
     document.getElementById('bkPastList').classList.add('hidden');
     document.getElementById('bkPastToggle').textContent = '▸ 過去のご利用を表示（' + past.length + '件）';
   } else {
@@ -736,7 +765,7 @@ async function loadBookings() {
   const wrap = document.getElementById('bkArchiveWrap');
   if (cancelled.length) {
     wrap.classList.remove('hidden');
-    document.getElementById('bkArchiveBody').innerHTML = cancelled.map(bookingRow).join('');
+    renderBkList('cancelled');
     document.getElementById('bkArchiveList').classList.add('hidden');
     document.getElementById('bkArchiveToggle').textContent = '▸ キャンセル済みを表示（' + cancelled.length + '件）';
   } else {

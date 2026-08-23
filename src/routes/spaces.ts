@@ -53,6 +53,7 @@ function toPublicSpace(s: SpaceRow) {
     allowCard: !!s.allow_card,
     allowPaypal: !!s.allow_paypal,
     allowInvoice: !!s.allow_invoice,
+    allowManualInvoice: !!s.allow_manual_invoice, // 請求書払い（手動・自社口座）#88関連
     paymentMode: s.payment_mode, // 支払いモード（#67）
   };
 }

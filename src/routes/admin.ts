@@ -1474,6 +1474,8 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       body.paymentMode === 'card_only' || body.paymentMode === 'card_konbini_bank'
         ? body.paymentMode
         : 'card_bank',
+    // 請求書払い（手動・自社口座／Stripe非経由）の受付可否（#88関連）
+    allowManualInvoice: !!body.allowManualInvoice,
     // スペース別の通知先メール（#72）。空欄なら本部のみに通知。
     notifyEmail: body.notifyEmail ? String(body.notifyEmail).trim() : null,
     // 空き状況ページ用メタ（#74）

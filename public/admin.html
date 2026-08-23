@@ -425,6 +425,7 @@
           <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="width:auto;margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニ・銀行振込とも利用5日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
         </div>
         <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行し、ご利用日の5日前までの受付です。</div>
+        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="width:auto;margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用5日前まで。</span></span></label>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -1293,6 +1294,7 @@ function fillSpaceForm(s) {
   const mode = s ? (s.payment_mode || (s.allow_invoice ? 'card_bank' : 'card_only')) : 'card_bank';
   const modeEl = document.querySelector('input[name="sp_paymode"][value="' + mode + '"]');
   if (modeEl) modeEl.checked = true;
+  document.getElementById('sp_manual_invoice').checked = s ? !!s.allow_manual_invoice : false;
   document.getElementById('spMsg').textContent = '';
   document.getElementById('spForm').classList.remove('hidden');
 }
@@ -1329,6 +1331,7 @@ async function saveSpace() {
     weekendAvailable: document.getElementById('sp_wea').checked,
     isActive: document.getElementById('sp_active').checked,
     paymentMode: (document.querySelector('input[name="sp_paymode"]:checked') || {}).value || 'card_bank',
+    allowManualInvoice: document.getElementById('sp_manual_invoice').checked,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing

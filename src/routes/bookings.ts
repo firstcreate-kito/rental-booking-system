@@ -259,7 +259,8 @@ app.post('/', async (c) => {
     stripe: !!space.allow_card,
     paypal: !!space.allow_paypal,
     bank_transfer: !!space.allow_invoice,
-    invoice: !!space.allow_invoice,
+    // 請求書払い（手動・自社口座／Stripe非経由）は専用フラグで独立管理（#88関連）
+    invoice: !!space.allow_manual_invoice,
   };
   const paymentMethod =
     String(body.paymentMethod ?? '').trim() ||
@@ -276,10 +277,11 @@ app.post('/', async (c) => {
   if (paymentMethod === 'invoice' || paymentMethod === 'bank_transfer') {
     // 請求書名（宛名）は任意。未入力の場合は申込者の個人名を宛名に用いる（領収書生成時にフォールバック）。#41
     invoiceName = String(body.invoiceName ?? '').trim() || null;
-    // 銀行振込は入金までに日数がかかるため、ご利用日まで一定の猶予を必須とする。
+    // 銀行振込・請求書払いは入金までに日数がかかるため、ご利用日まで一定の猶予を必須とする。
+    const methodLabel = paymentMethod === 'invoice' ? '請求書払い' : '銀行振込';
     const earliestDate = [...body.items].map((i) => i.date).sort()[0];
     if (earliestDate < addDaysJST(today, INVOICE_DEADLINE_DAYS)) {
-      return c.json({ error: `銀行振込はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
+      return c.json({ error: `${methodLabel}はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
     }
   }
   // 利用目的・利用人数（必須）#59/#61、過去利用・きっかけ（任意）#60、規約同意（必須）#60

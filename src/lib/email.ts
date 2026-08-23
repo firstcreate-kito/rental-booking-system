@@ -645,129 +645,69 @@ ${receiptHtml}
   return withSignature({ subject, html, text });
 }
 
-/** 銀行振込の振込先口座のご案内（顧客向け・予約直後） */
-export function bankTransferInfoEmail(d: {
-  customerName: string;
-  bookingNumber: string;
-  spaceName: string;
-  amount: number;
-  /** 仮想口座情報。取得できなかった場合は null（案内リンクのみ送る） */
-  bank: { bankName: string; branchName: string; accountType: string; accountNumber: string; accountHolderName: string } | null;
-  /** 口座情報が取得できなかった場合に案内する Stripe のお支払い画面URL */
-  paymentUrl?: string;
-  mypageUrl?: string;
-}): { subject: string; html: string; text: string } {
-  const subject = `【レンタルスペースALBE】お振込先のご案内（${d.bookingNumber}）`;
-  const b = d.bank;
-  const mypageText = d.mypageUrl ? `\nマイページでもご確認いただけます:\n${d.mypageUrl}\n` : '';
-  // 口座情報（本文用）。取得できていれば口座を記載、なければ案内文＋お支払い画面URL。
-  const bankBlockText = b
-    ? `【お振込先】
-銀行名: ${b.bankName}
-支店名: ${b.branchName}
-口座種別: ${b.accountType}
-口座番号: ${b.accountNumber}
-口座名義: ${b.accountHolderName}
-`
-    : `【お振込先】
-お振込先の口座情報は、下記のお支払い案内ページでご確認ください。${d.paymentUrl ? '\n' + d.paymentUrl : ''}
-`;
-  const text = `${d.customerName} 様
-
-ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
-お手数ですが、下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定し、確認メールと領収書をお送りします。
-
-予約番号: ${d.bookingNumber}
-スペース: ${d.spaceName}
-お振込金額（税込）: ${yen(d.amount)}
-
-${bankBlockText}${mypageText}
-※この口座はお客様専用の振込先です。ご予約番号ごとに金額でお申込みを照合します。
-※お振込手数料はお客様のご負担となります。
-※お振込が確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。
-※期限までにお振込がない場合、ご予約は自動的にキャンセルとなることがあります。`;
-  const mypageHtml = d.mypageUrl
-    ? `<p style="margin:12px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページで振込先を確認する ▶</a></p>`
-    : '';
-  const bankBlockHtml = b
-    ? `<div style="margin:12px 0;padding:14px;background:#f0f6ff;border:1px solid #c7ddff;border-radius:8px">
-<div style="font-weight:700;margin-bottom:6px">お振込先</div>
-<table style="border-collapse:collapse">
-<tr><td style="padding:3px 12px 3px 0;color:#6b7280">銀行名</td><td>${escapeHtml(b.bankName)}</td></tr>
-<tr><td style="padding:3px 12px 3px 0;color:#6b7280">支店名</td><td>${escapeHtml(b.branchName)}</td></tr>
-<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座種別</td><td>${escapeHtml(b.accountType)}</td></tr>
-<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座番号</td><td><strong>${escapeHtml(b.accountNumber)}</strong></td></tr>
-<tr><td style="padding:3px 12px 3px 0;color:#6b7280">口座名義</td><td>${escapeHtml(b.accountHolderName)}</td></tr>
-</table>
-</div>`
-    : `<div style="margin:12px 0;padding:14px;background:#f0f6ff;border:1px solid #c7ddff;border-radius:8px">
-<div style="font-weight:700;margin-bottom:6px">お振込先</div>
-<p style="margin:4px 0">お振込先の口座情報は、下記のお支払い案内ページでご確認ください。</p>
-${d.paymentUrl ? `<p style="margin:10px 0"><a href="${escapeHtml(d.paymentUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">お支払い案内ページを開く ▶</a></p>` : ''}
-</div>`;
-  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
-<p>${escapeHtml(d.customerName)} 様</p>
-<p>ご予約のお申し込みありがとうございます。下記の内容で「<strong>お支払い待ち</strong>」で承りました。<br>下記のお振込先へお振込みをお願いいたします。ご入金の確認後にご予約が確定します。</p>
-<table style="border-collapse:collapse;margin:12px 0">
-<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お振込金額（税込）</td><td style="font-size:18px"><strong>${yen(d.amount)}</strong></td></tr>
-</table>
-${bankBlockHtml}
-${mypageHtml}
-<p style="color:#6b7280;font-size:13px">※この口座はお客様専用の振込先です。<br>※お振込手数料はお客様のご負担となります。<br>※お振込が確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。<br>※期限までにお振込がない場合、ご予約は自動的にキャンセルとなることがあります。</p>
-</div>`;
-  return withSignature({ subject, html, text });
-}
-
 /**
- * コンビニ払い受付メール（#39）。払込票発行時に送信。実際にコンビニで支払うまで予約は確定しない旨、
- * 払込票URL・支払期限を案内する。画面を閉じても番号を確認できるよう控えとして送る。
+ * お支払い待ちの予約受付メール（顧客向け・#39）。銀行振込／コンビニ払いで共通。
+ * お支払い方法・お振込先／払込番号は Stripe（決済代行）からのメールに記載されるため、
+ * このメールでは「予約を承ったこと・お支払い期限内に入金がなければ自動キャンセル・
+ * 詳細は Stripe のメールを確認」を明記する（口座情報は載せない）。予約明細はカード確認と同形式。
  */
-export function konbiniPaymentEmail(d: {
+export function paymentPendingBookingEmail(d: {
   customerName: string;
   bookingNumber: string;
   spaceName: string;
-  amount: number;
-  expiresLabel: string; // 例: "2026-08-26 23:59"
-  voucherUrl: string | null;
+  eventName?: string;
+  days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  total: number;
+  /** 例: 銀行振込 / コンビニ払い */
+  paymentMethodLabel: string;
   mypageUrl?: string;
 }): { subject: string; html: string; text: string } {
-  const subject = `【レンタルスペースALBE】コンビニでのお支払いのお願い（${d.bookingNumber}）`;
-  const voucherText = d.voucherUrl ? `\n【お支払い用の払込票（支払い番号）はこちら】\n${d.voucherUrl}\n` : '';
+  const subject = `【レンタルスペースALBE】ご予約を承りました（お支払い待ち）（${d.bookingNumber}）`;
+  const eventText = d.eventName ? `イベント名: ${d.eventName}\n` : '';
   const mypageText = d.mypageUrl ? `\nご予約状況はマイページでご確認いただけます:\n${d.mypageUrl}\n` : '';
   const text = `${d.customerName} 様
 
 ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
-お近くのコンビニエンスストアで、期限までにお支払いをお願いいたします。
-ご入金の確認後にご予約が確定し、確認メールと領収書をお送りします。
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
-お支払い金額（税込）: ${yen(d.amount)}
-お支払い期限: ${d.expiresLabel}
-${voucherText}${mypageText}
-※お支払いが確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。
-※期限までにお支払いがない場合、ご予約は自動的にキャンセルとなります。`;
-  const voucherHtml = d.voucherUrl
-    ? `<p style="margin:14px 0"><a href="${escapeHtml(d.voucherUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">お支払い用の払込票を開く ▶</a></p>
-<p style="color:#6b7280;font-size:13px;word-break:break-all">開けない場合はこちらのURL：<br>${escapeHtml(d.voucherUrl)}</p>`
+${eventText}ご利用日時:
+${daysBlockText(d.days)}
+お支払い金額（税込）: ${yen(d.total)}
+お支払い方法: ${d.paymentMethodLabel}
+
+◆お支払いについて
+・お支払い方法・お振込先（または払込番号）は、Stripe（決済代行）からお送りするメールに記載されています。そちらをご確認のうえ、お支払いをお願いいたします。
+・お支払いには期限があります。期限までにご入金が確認できない場合、ご予約は自動的にキャンセルとなります。
+・ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。
+${mypageText}`;
+  const eventHtml = d.eventName
+    ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>`
     : '';
   const mypageHtml = d.mypageUrl
-    ? `<p style="margin:8px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページでご予約状況を確認する ▶</a></p>`
+    ? `<p style="margin:12px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページでご予約状況を確認する ▶</a></p>`
     : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
-<p>ご予約のお申し込みありがとうございます。下記の内容で「<strong>お支払い待ち</strong>」で承りました。<br>お近くのコンビニで、期限までにお支払いをお願いいたします。ご入金の確認後にご予約が確定します。</p>
+<p>ご予約のお申し込みありがとうございます。下記の内容で「<strong>お支払い待ち</strong>」で承りました。</p>
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い金額（税込）</td><td style="font-size:18px"><strong>${yen(d.amount)}</strong></td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い期限</td><td><strong>${escapeHtml(d.expiresLabel)}</strong></td></tr>
+${eventHtml}
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い金額（税込）</td><td style="font-size:18px"><strong>${yen(d.total)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(d.paymentMethodLabel)}</td></tr>
 </table>
-${voucherHtml}
+<p style="margin:6px 0;color:#6b7280">ご利用日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<div style="margin:14px 0;padding:14px;background:#fff8e6;border:1px solid #f0c36d;border-radius:8px">
+<div style="font-weight:700;margin-bottom:6px">お支払いについて</div>
+<ul style="margin:6px 0 0;padding-left:18px">
+<li>お支払い方法・お振込先（または払込番号）は、<strong>Stripe（決済代行）から届くメール</strong>に記載されています。そちらをご確認のうえお支払いください。</li>
+<li>お支払いには<strong>期限</strong>があります。期限までにご入金が確認できない場合、ご予約は<strong>自動的にキャンセル</strong>となります。</li>
+<li>ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。</li>
+</ul>
+</div>
 ${mypageHtml}
-<p style="color:#6b7280;font-size:13px">※お支払いが確認できるまでは、ご予約は確定していません（枠は一時的にお取り置きしています）。<br>※期限までにお支払いがない場合、ご予約は自動的にキャンセルとなります。</p>
 </div>`;
   return withSignature({ subject, html, text });
 }

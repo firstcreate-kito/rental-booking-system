@@ -11,7 +11,7 @@ import {
   paymentMethodStatusLabel,
   bookingFailedEmail,
   adminBookingFailedEmail,
-  konbiniPaymentEmail,
+  paymentPendingBookingEmail,
   adminLatePaymentOnReleasedEmail,
 } from '../src/lib/email';
 
@@ -288,36 +288,38 @@ describe('email - 決済先行 不成立・返金（#68）', () => {
   });
 });
 
-describe('email - コンビニお支払い受付（#39）', () => {
-  it('払込票URL・期限・金額・「お支払い待ち」を含む', () => {
-    const m = konbiniPaymentEmail({
+describe('email - お支払い待ち予約受付（銀行振込・コンビニ共通・#39）', () => {
+  it('予約明細・支払い方法・「Stripeのメール確認」「期限内未入金は自動キャンセル」を含む', () => {
+    const m = paymentPendingBookingEmail({
       customerName: '山田太郎',
       bookingNumber: '20260826-001',
       spaceName: '名駅フリースペース',
-      amount: 4840,
-      expiresLabel: '2026-08-26 23:59',
-      voucherUrl: 'https://payments.stripe.com/konbini/voucher/abc123',
+      eventName: '会議',
+      days: sampleDays,
+      total: 4840,
+      paymentMethodLabel: 'コンビニ払い',
       mypageUrl: 'https://booking.space-albe.com/mypage.html',
     });
     expect(m.subject).toContain('20260826-001');
-    expect(m.subject).toContain('お支払いのお願い');
+    expect(m.subject).toContain('お支払い待ち');
     expect(m.text).toContain('お支払い待ち');
     expect(m.text).toContain('¥4,840');
-    expect(m.text).toContain('2026-08-26 23:59');
-    expect(m.text).toContain('https://payments.stripe.com/konbini/voucher/abc123');
+    expect(m.text).toContain('2026-09-10'); // 予約日時（明細）
+    expect(m.text).toContain('コンビニ払い');
+    expect(m.text).toContain('Stripe'); // 振込先・払込番号はStripeのメールを確認
     expect(m.text).toContain('自動的にキャンセル');
-    expect(m.html).toContain('払込票を開く');
+    expect(m.html).toContain('Stripe（決済代行）から届くメール');
   });
-  it('払込票URLが無い場合はボタンを出さない・可変値をエスケープする', () => {
-    const m = konbiniPaymentEmail({
+  it('銀行振込でも同じ骨子。可変値はエスケープする', () => {
+    const m = paymentPendingBookingEmail({
       customerName: 'A&B',
       bookingNumber: 'B1',
       spaceName: '<script>x</script>',
-      amount: 1000,
-      expiresLabel: '払込票に記載の期限まで',
-      voucherUrl: null,
+      days: sampleDays,
+      total: 1000,
+      paymentMethodLabel: '銀行振込',
     });
-    expect(m.html).not.toContain('払込票を開く');
+    expect(m.text).toContain('銀行振込');
     expect(m.html).toContain('A&amp;B');
     expect(m.html).toContain('&lt;script&gt;');
     expect(m.html).not.toContain('<script>x</script>');

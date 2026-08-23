@@ -61,7 +61,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, bankTransferInfoEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, paymentPendingBookingEmail } from '../lib/email';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions, retrieveCheckoutSession } from '../lib/stripe';
 import { settlePaidBookingSession } from '../lib/settle-booking';
@@ -807,16 +807,18 @@ app.post('/', async (c) => {
         } catch {
           /* 口座情報の取得失敗はメール送信に影響させない（下で必ず案内メールを送る） */
         }
-        // ALBEからの「お振込のお願い」メールは Stripe とは別に必ず送る（#39）。
-        // 口座が取得できていれば同封、取得できなくてもお支払い案内ページ（Stripe）へ誘導する。
+        // ALBEからの「お支払い待ち予約受付」メールは Stripe とは別に必ず送る（#39）。
+        // 振込先はStripeのメールに記載されるため、こちらは予約内容＋期限内未入金は自動キャンセルの旨を案内。
+        void bankInfo; // 口座情報はマイページ表示用に保存済み（メール本文には載せない）
         if (email) {
-          const mail = bankTransferInfoEmail({
+          const mail = paymentPendingBookingEmail({
             customerName: contactName || 'お客様',
             bookingNumber,
             spaceName: space.name,
-            amount: totals.total,
-            bank: bankInfo,
-            paymentUrl: session.url ?? undefined,
+            eventName: body.eventName,
+            days: mailDays,
+            total: totals.total,
+            paymentMethodLabel: '銀行振込',
             mypageUrl: origin ? `${origin}/mypage.html` : undefined,
           });
           c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));

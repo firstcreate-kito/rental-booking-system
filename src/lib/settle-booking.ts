@@ -11,11 +11,11 @@ import {
   getCustomerProfile,
   getBookingCalendarData,
 } from '../db/repository';
-import { refundPayment, retrievePaymentIntentKonbini } from './stripe';
+import { refundPayment } from './stripe';
 import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed, notifyLatePaymentOnReleased } from './notify';
 import { finalizeImmediateBooking } from './finalize';
 import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
-import { sendEmail, konbiniPaymentEmail } from './email';
+import { sendEmail, paymentPendingBookingEmail } from './email';
 import { nowJST, todayJST } from './clock';
 
 type Env = AppBindings['Bindings'];
@@ -128,23 +128,15 @@ export async function settlePaidBookingSession(
 export async function handleKonbiniSlipIssued(
   env: Env,
   bookingPay: BookingPaymentRow,
-  paymentIntentId: string | null,
+  _paymentIntentId: string | null,
   origin: string,
   ctx?: { waitUntil?: (p: Promise<unknown>) => void },
 ): Promise<{ ok: boolean; held?: boolean; reason?: string }> {
   const groupId = bookingPay.group_id;
   const group = await getBookingGroupById(env.DB, groupId);
+  // 未入金の completed で payment_method='stripe' かつ pending ＝ コンビニ選択（カードは paid、
+  // 銀行振込は payment_method='bank_transfer'）。それ以外はここでは扱わない。
   if (!group || group.status !== 'pending' || group.payment_method !== 'stripe') return { ok: true, reason: 'not-applicable' };
-
-  // 払込票情報を取得。コンビニでなければ対象外（カード即時決済等はここに来ない想定だが安全弁）。
-  let voucherUrl: string | null = null;
-  let expiresAt: number | null = null;
-  if (paymentIntentId && env.STRIPE_SECRET_KEY) {
-    const k = await retrievePaymentIntentKonbini(env.STRIPE_SECRET_KEY, paymentIntentId);
-    if (!k.isKonbini) return { ok: true, reason: 'not-konbini' };
-    voucherUrl = k.hostedVoucherUrl;
-    expiresAt = k.expiresAt;
-  }
 
   const bg = (p: Promise<unknown>) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : void p.catch(() => {}));
 
@@ -157,21 +149,22 @@ export async function handleKonbiniSlipIssued(
     return { ok: true, held: false, reason: 'conflict' };
   }
 
-  // コンビニお支払い受付メール（払込票URL・期限）
+  // お支払い待ち予約受付メール（払込番号・支払い方法はStripeのメールを参照。期限内未入金は自動キャンセル）
   bg(
     (async () => {
       if (!group.customer_id) return;
       const prof = (await getCustomerProfile(env.DB, group.customer_id)) as { email?: string; contact_name?: string } | null;
       const to = prof?.email ? String(prof.email) : '';
       if (!to) return;
-      const expiresLabel = expiresAt ? nowJST(expiresAt * 1000).slice(0, 16) : '払込票に記載の期限まで';
-      const mail = konbiniPaymentEmail({
+      const summary = await getBookingSummaryForGroup(env.DB, groupId);
+      const mail = paymentPendingBookingEmail({
         customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
         bookingNumber: group.booking_number,
-        spaceName: (await getBookingSummaryForGroup(env.DB, groupId))?.spaceName ?? '',
-        amount: group.total_amount,
-        expiresLabel,
-        voucherUrl,
+        spaceName: summary?.spaceName ?? '',
+        eventName: summary?.eventName,
+        days: summary?.items ?? [],
+        total: group.total_amount,
+        paymentMethodLabel: 'コンビニ払い',
         mypageUrl: origin ? `${origin}/mypage.html` : undefined,
       });
       await sendEmail(env, { to, ...mail });

@@ -21,6 +21,7 @@ import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmai
 import { nowJST } from '../lib/clock';
 import { sendEmail, passwordResetEmail, welcomeEmail, magicLinkEmail, loginCodeEmail } from '../lib/email';
 import { googleConfigured, buildGoogleAuthUrl, exchangeGoogleCode } from '../lib/google-oauth';
+import { lineConfigured, buildLineAuthUrl, exchangeLineCode } from '../lib/line-oauth';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 
 /** 6桁のワンタイムコードを生成（暗号的乱数）。 */
@@ -286,7 +287,7 @@ app.post('/login-code/verify', async (c) => {
 
 /** GET /api/auth/providers 利用可能な外部ログイン（フロントがボタン表示を出し分け） */
 app.get('/providers', (c) => {
-  return c.json({ google: googleConfigured(c.env) });
+  return c.json({ google: googleConfigured(c.env), line: lineConfigured(c.env) });
 });
 
 /**
@@ -326,6 +327,53 @@ app.get('/google/callback', async (c) => {
   const ex = await exchangeGoogleCode(c.env, code, `${origin}/api/auth/google/callback`);
   if (!ex.ok) return fail('google_exchange');
   if (!ex.identity.emailVerified) return fail('google_email_unverified');
+
+  const email = ex.identity.email;
+  if (await isBlacklisted(db, email, '')) return fail('blocked');
+
+  // マジックリンクと同じ「1回限りトークン」を発行して /mypage.html?magic= に渡す。
+  const now = nowJST();
+  const secret = generateToken();
+  await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt: nowJST(Date.now() + 5 * 60 * 1000) }, now);
+  return c.redirect(`/mypage.html?magic=${secret}`);
+});
+
+/**
+ * GET /api/auth/line/start LINEログイン開始（同意画面へリダイレクト）
+ * CSRF対策のstateをCookieに保存して照合する。
+ */
+app.get('/line/start', (c) => {
+  if (!lineConfigured(c.env)) return c.redirect('/mypage.html?login_error=line_unconfigured');
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const state = generateToken();
+  setCookie(c, 'l_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 600 });
+  const url = buildLineAuthUrl({
+    clientId: c.env.LINE_CHANNEL_ID!,
+    redirectUri: `${origin}/api/auth/line/callback`,
+    state,
+  });
+  return c.redirect(url);
+});
+
+/**
+ * GET /api/auth/line/callback LINEからの戻り。コードをトークンに交換して本人確認し、
+ * マジックリンクと同じ仕組み（1回限りトークン）でマイページにログインさせる。
+ * 未登録メールはその場で会員登録も兼ねる。
+ */
+app.get('/line/callback', async (c) => {
+  const db = c.env.DB;
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const fail = (reason: string) => c.redirect(`/mypage.html?login_error=${encodeURIComponent(reason)}`);
+  if (!lineConfigured(c.env)) return fail('line_unconfigured');
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  const savedState = getCookie(c, 'l_oauth_state');
+  deleteCookie(c, 'l_oauth_state', { path: '/' });
+  if (c.req.query('error')) return fail('line_denied');
+  if (!code || !state || !savedState || state !== savedState) return fail('line_state');
+
+  const ex = await exchangeLineCode(c.env, code, `${origin}/api/auth/line/callback`);
+  if (!ex.ok) return fail(ex.error === 'email not present' ? 'line_no_email' : 'line_exchange');
 
   const email = ex.identity.email;
   if (await isBlacklisted(db, email, '')) return fail('blocked');

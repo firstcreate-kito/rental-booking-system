@@ -797,7 +797,7 @@ export async function updateCustomerPassword(
 export async function getCustomerBookingGroups(db: D1Database, customerId: string) {
   const { results } = await db
     .prepare(
-      `SELECT bg.booking_number, bg.space_id, s.name AS space_name, bg.event_name,
+      `SELECT bg.id AS group_id, bg.booking_number, bg.space_id, s.name AS space_name, bg.event_name,
               bg.total_amount, bg.original_date, bg.status, bg.created_at,
               bg.payment_method, bg.payment_status,
               (SELECT bp.bank_transfer_info FROM booking_payments bp
@@ -815,6 +815,111 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
     .bind(customerId)
     .all();
   return results ?? [];
+}
+
+/**
+ * 「いつもの予約」再現用テンプレート（#98）。会員本人の過去予約から、
+ * 再利用できる項目（スペース・利用目的・人数・イベント名・オプション）を返す。
+ * 日時・料金・特典は含めない（毎回選択／最新再計算）。本人以外は forbidden。
+ * 廃止スペース/オプションは spaceActive / stillAvailable で示す（フロントで除外案内）。
+ */
+export async function getRebookTemplate(
+  db: D1Database,
+  customerId: string,
+  groupId: string,
+): Promise<
+  | null
+  | { forbidden: true }
+  | {
+      spaceId: string;
+      spaceName: string;
+      spaceActive: boolean;
+      eventName: string;
+      purpose: string;
+      headcount: number | null;
+      options: Array<{ id: string; name: string; quantity: number; stillAvailable: boolean }>;
+    }
+> {
+  const g = await db
+    .prepare(
+      `SELECT bg.customer_id, bg.space_id, bg.event_name, bg.purpose, bg.headcount,
+              s.name AS space_name, s.is_active AS space_active
+       FROM booking_groups bg LEFT JOIN spaces s ON s.id = bg.space_id
+       WHERE bg.id = ?`,
+    )
+    .bind(groupId)
+    .first<{
+      customer_id: string | null;
+      space_id: string;
+      event_name: string | null;
+      purpose: string | null;
+      headcount: number | null;
+      space_name: string | null;
+      space_active: number | null;
+    }>();
+  if (!g) return null;
+  if (!g.customer_id || g.customer_id !== customerId) return { forbidden: true };
+  // グループで使ったオプションを option_id ごとにまとめ（数量は最大＝当時の選択数）、
+  // 現在もそのスペースで有効に提供されているか（space_options × options.is_active）を判定
+  const { results: opts } = await db
+    .prepare(
+      `SELECT bos.option_id AS id, o.name AS name, MAX(bos.quantity) AS quantity,
+              CASE WHEN o.is_active = 1 AND EXISTS(
+                SELECT 1 FROM space_options so WHERE so.space_id = ? AND so.option_id = bos.option_id
+              ) THEN 1 ELSE 0 END AS still_available
+       FROM booking_option_selections bos
+       JOIN options o ON o.id = bos.option_id
+       WHERE bos.group_id = ? OR bos.booking_id IN (SELECT id FROM bookings WHERE group_id = ?)
+       GROUP BY bos.option_id`,
+    )
+    .bind(g.space_id, groupId, groupId)
+    .all<{ id: string; name: string; quantity: number; still_available: number }>();
+  return {
+    spaceId: g.space_id,
+    spaceName: g.space_name ?? '',
+    spaceActive: !!g.space_active,
+    eventName: g.event_name ?? '',
+    purpose: g.purpose ?? '',
+    headcount: g.headcount ?? null,
+    options: (opts ?? []).map((o) => ({
+      id: o.id,
+      name: o.name,
+      quantity: Number(o.quantity),
+      stillAvailable: !!o.still_available,
+    })),
+  };
+}
+
+/**
+ * 「いつもの予約」カード用（#98）。会員本人の確定/完了予約から最頻スペース
+ * （同数なら直近）を割り出し、その代表予約（最新）のグループIDを返す。履歴が無ければ null。
+ */
+export async function getUsualBookingForCustomer(
+  db: D1Database,
+  customerId: string,
+): Promise<null | { groupId: string; spaceId: string; spaceName: string; count: number }> {
+  const top = await db
+    .prepare(
+      `SELECT bg.space_id, s.name AS space_name, COUNT(*) AS cnt, MAX(bg.created_at) AS last_at
+       FROM booking_groups bg JOIN spaces s ON s.id = bg.space_id
+       WHERE bg.customer_id = ? AND bg.status IN ('confirmed','completed') AND s.is_active = 1
+       GROUP BY bg.space_id
+       ORDER BY cnt DESC, last_at DESC
+       LIMIT 1`,
+    )
+    .bind(customerId)
+    .first<{ space_id: string; space_name: string | null; cnt: number; last_at: string }>();
+  if (!top) return null;
+  const rep = await db
+    .prepare(
+      `SELECT id FROM booking_groups
+       WHERE customer_id = ? AND space_id = ? AND status IN ('confirmed','completed')
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(customerId, top.space_id)
+    .first<{ id: string }>();
+  if (!rep) return null;
+  return { groupId: rep.id, spaceId: top.space_id, spaceName: top.space_name ?? '', count: Number(top.cnt) };
 }
 
 export async function getPointBalance(db: D1Database, customerId: string): Promise<number> {

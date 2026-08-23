@@ -203,6 +203,8 @@
 
     <section id="view-bookings" class="card">
       <h2>予約履歴</h2>
+      <!-- 「いつもの予約」：最頻スペースをワンクリックで再予約（#98） -->
+      <div id="usualCard" class="hidden" style="margin:0 0 14px;padding:14px 16px;background:#eef7ff;border:1px solid #bfdbfe;border-radius:10px"></div>
       <div class="tablewrap"><table class="resp">
         <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th><th></th></tr></thead>
         <tbody id="bkBody"></tbody>
@@ -602,6 +604,10 @@ function bookingRow(b) {
   }
   // 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
   action += ' <button class="btn ghost sm" onclick="showHistory(\'' + b.booking_number + '\')">履歴</button>';
+  // 「いつもの予約」：同じ条件でまた予約（#98）。条件を引き継いで予約フォームを開く。
+  if (b.group_id) {
+    action = '<a class="btn sm" style="background:var(--brand)" href="/?rebook=' + encodeURIComponent(b.group_id) + '">🔁 同じ条件で予約</a> ' + action;
+  }
   return '<tr>' +
     '<td data-label="予約番号">' + b.booking_number + '</td>' +
     '<td data-label="スペース">' + (b.space_name||'') + '</td>' +
@@ -872,6 +878,23 @@ async function loadBookings() {
   } else {
     wrap.classList.add('hidden');
   }
+  loadUsual(); // 「いつもの予約」カード（#98・バックグラウンド）
+}
+// 「いつもの予約」カード：最頻スペースをワンクリックで再予約（#98）
+async function loadUsual() {
+  const card = document.getElementById('usualCard');
+  if (!card) return;
+  try {
+    const { ok, body } = await api('/api/mypage/usual');
+    const u = ok && body ? body.usual : null;
+    if (!u || !u.groupId) { card.classList.add('hidden'); return; }
+    card.innerHTML = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between">'
+      + '<div><div style="font-weight:700">🔁 いつもの予約</div>'
+      + '<div class="muted" style="font-size:13px">よくご利用の「' + biEsc(u.spaceName || '') + '」を、同じ条件（オプション・利用目的など）で。日時を選ぶだけで予約できます。</div></div>'
+      + '<a class="btn" style="background:var(--brand);white-space:nowrap" href="/?rebook=' + encodeURIComponent(u.groupId) + '">この条件で予約する ▶</a>'
+      + '</div>';
+    card.classList.remove('hidden');
+  } catch (e) { card.classList.add('hidden'); }
 }
 async function loadPoints() {
   const { body } = await api('/api/mypage/points');

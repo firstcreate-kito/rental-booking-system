@@ -13,6 +13,8 @@ import {
   getFavorites,
   addFavorite,
   removeFavorite,
+  getRebookTemplate,
+  getUsualBookingForCustomer,
   getSpaceById,
   getMemberTickets,
   getUsableTicketsForSpace,
@@ -74,6 +76,22 @@ app.put('/password', async (c) => {
 app.get('/bookings', async (c) => {
   const bookings = await getCustomerBookingGroups(c.env.DB, c.get('customer').id);
   return c.json({ bookings });
+});
+
+/** GET /api/mypage/usual 「いつもの予約」（最頻スペースの代表予約）#98 */
+app.get('/usual', async (c) => {
+  const usual = await getUsualBookingForCustomer(c.env.DB, c.get('customer').id);
+  return c.json({ usual });
+});
+
+/** GET /api/mypage/rebook-template?group=<id> 「同じ条件で予約」用テンプレート（本人のみ）#98 */
+app.get('/rebook-template', async (c) => {
+  const groupId = (c.req.query('group') || '').trim();
+  if (!groupId) return c.json({ error: 'group required' }, 400);
+  const t = await getRebookTemplate(c.env.DB, c.get('customer').id, groupId);
+  if (!t) return c.json({ error: 'not found' }, 404);
+  if ('forbidden' in t) return c.json({ error: 'この予約は対象外です' }, 403);
+  return c.json({ template: t });
 });
 
 /** GET /api/mypage/bookings/:number/history 予約の変更履歴（本人のみ）#93 */

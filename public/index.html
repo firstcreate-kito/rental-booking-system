@@ -608,6 +608,9 @@ async function loadSpaces() {
   }
   // 保存済みログインセッションがあれば復元（マイページ等から移動してきてもログイン継続）
   await restoreMemberSession();
+  // 「いつもの予約」：?rebook=<groupId> があれば過去予約の条件を読み込み、日時だけ選べる状態に（会員のみ・#98）
+  const rebookId = new URLSearchParams(location.search).get('rebook');
+  if (rebookId) { if (await enterRebook(rebookId)) return; }
   // 部屋ごとの固有URL: ?space=<id> があればその部屋へ直接入る（公式サイト埋め込み用）
   const wanted = new URLSearchParams(location.search).get('space');
   if (wanted) {
@@ -711,6 +714,50 @@ async function restoreDraft(d) {
   const ans = d.answers || {};
   document.querySelectorAll('#f_questions .q-input').forEach((el) => { const id = el.getAttribute('data-qid'); if (id && ans[id] != null) el.value = ans[id]; });
   try { recomputeSummary(); } catch (e) {}
+}
+
+// ── 「いつもの予約」：過去予約の条件を読み込み、日時だけ選べる状態にする（会員のみ・#98）──
+async function enterRebook(groupId) {
+  if (!S.token) return false; // 未ログイン（通常フローへ）。マイページ経由なら基本ログイン済み。
+  let r;
+  try { r = await api('/api/mypage/rebook-template?group=' + encodeURIComponent(groupId), { headers: authHeaders() }); }
+  catch (e) { return false; }
+  if (!r || !r.ok || !r.body || !r.body.template) return false;
+  const t = r.body.template;
+  const sp = S.spaces.find((s) => s.id === t.spaceId);
+  if (!t.spaceActive || !sp) {
+    alert('前回のスペースは現在ご利用いただけません。お手数ですが一覧からお選びください。');
+    return false;
+  }
+  // オプションのプリフィル（現在も提供中のものだけ採用。廃止分は案内）
+  S.optQty = {};
+  const dropped = [];
+  (t.options || []).forEach((o) => {
+    if (o.stillAvailable && o.quantity > 0) S.optQty[o.id] = o.quantity;
+    else if (!o.stillAvailable) dropped.push(o.name);
+  });
+  // 目的・人数・イベント名を入力欄へ（静的フォーム項目なので事前設定で保持される）
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val != null && val !== '') el.value = val; };
+  set('f_event', t.eventName);
+  set('f_purpose', t.purpose);
+  set('f_headcount', t.headcount != null ? String(t.headcount) : '');
+  // スペースを選択してカレンダー表示（日時はお客様が選ぶ）
+  S.deepLinked = true;
+  selectSpace(t.spaceId);
+  try { history.replaceState(null, '', location.pathname); } catch (e) {} // ?rebook= をURLから除去
+  showRebookBanner(sp.name, dropped);
+  return true;
+}
+function showRebookBanner(spaceName, dropped) {
+  const cal = document.getElementById('view-calendar');
+  if (!cal) return;
+  const old = document.getElementById('rebookBanner'); if (old) old.remove();
+  const bar = document.createElement('div');
+  bar.id = 'rebookBanner';
+  bar.style.cssText = 'margin:0 0 12px;padding:12px 14px;background:#eef7ff;border:1px solid #bfdbfe;border-radius:10px;color:#1f2937;font-size:14px;line-height:1.7';
+  bar.innerHTML = '🔁 <strong>「いつもの条件」を読み込みました</strong>（' + escHtml(spaceName) + '）。<br>ご利用の<strong>日時を選ぶだけ</strong>で予約できます（オプション・利用目的などは入力済みです）。'
+    + (dropped.length ? '<br><span style="color:#92400e">※現在ご利用いただけないオプションは除外しました：' + escHtml(dropped.join('、')) + '</span>' : '');
+  cal.insertBefore(bar, cal.firstChild);
 }
 
 // 会員登録完了→「予約を続ける」で戻ってきたときの復元（#55）
@@ -1220,9 +1267,12 @@ async function goOptions() {
       if (o.remaining != null) caps.push(o.remaining);
       const cap = caps.length ? Math.min(...caps) : null;
       const soldOut = cap === 0;
+      // 「いつもの予約」等で事前選択済みの数量があれば初期表示に反映（#98）
+      let pre = Number(S.optQty[o.id] || 0);
+      if (cap != null && pre > cap) pre = cap; // 在庫上限で丸め
       const ctrl = o.type === 'toggle'
-        ? '<input type="checkbox"' + (soldOut ? ' disabled' : '') + ' onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
-        : '<input class="qty" type="number" min="0" value="0"' + (cap != null ? ' max="' + cap + '"' : '') + (soldOut ? ' disabled' : '') + ' oninput="clampQty(this,' + (cap == null ? 'null' : cap) + ',\'' + o.id + '\')">';
+        ? '<input type="checkbox"' + (pre > 0 ? ' checked' : '') + (soldOut ? ' disabled' : '') + ' onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
+        : '<input class="qty" type="number" min="0" value="' + pre + '"' + (cap != null ? ' max="' + cap + '"' : '') + (soldOut ? ' disabled' : '') + ' oninput="clampQty(this,' + (cap == null ? 'null' : cap) + ',\'' + o.id + '\')">';
       const soldOutTag = soldOut ? ' <span style="color:var(--bad);font-size:11px">在庫なし</span>' : '';
       return '<div class="opt-row"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + soldOutTag + '</div></div><div>' + ctrl + '</div></div>';
     }).join('');

@@ -40,22 +40,45 @@ Cloudflare Workers から Resend の HTTP API を叩いています（`src/lib/e
 - ボディ（JSON）：`{ from, to, subject, html, text, reply_to? }`
 - 認証情報は Cloudflare Secret に保存：`RESEND_API_KEY` / `MAIL_FROM`（＝上記 From）/ 任意 `MAIL_REPLY_TO`
 
-## 4. お問い合わせフォームで再利用する方法（2案）
+## 4. お問い合わせフォームで再利用する方法（サイトはWordPressではない前提）
 
-お問い合わせフォームは **WordPress（さくら）側**にあるため、下記いずれかで同じ送信基盤を使えます。
+WEBサイトは `firstcreate7.sakura.ne.jp`（さくら）上のサイト（非WordPress）。
+同じResend送信基盤を使う方法は主に次の2案。
 
-### 案A：WordPress プラグインから Resend で送る（サイト内で完結・おすすめ）
-- **WP Mail SMTP** 等のプラグインを入れ、送信を **Resend（SMTP もしくは API）** に設定
-- 差出人を **`rental@space-albe.com`**、宛先（問い合わせ通知先）を **`rental@space-albe.com`** に
-- ドメインは認証済みなので、そのまま SPF/DKIM/DMARC が通る
-- Resend の API キーが必要（既存を使うか、Resend で新規発行）
+### 案A：さくら上のPHPからResend APIで送る（サイト内で完結）
+- フォームの送信先を、さくらに置く**PHPスクリプト**にする（さくらはPHP実行可）
+- PHPから `POST https://api.resend.com/emails` を叩く（下記サンプル）。差出人は
+  **`rental@space-albe.com`**、通知先も **`rental@space-albe.com`**
+- ドメイン認証済みのため SPF/DKIM/DMARC が通る。Resend の API キーが必要
+- 注意：**API キーをPHPに直書きせず**、サーバー側の非公開ファイル/環境変数で保持する
 
-### 案B：予約システム（Worker）に問い合わせ送信APIを追加し、WPフォームから送信
+```php
+<?php
+// contact.php（さくら上）※簡略版。実際は入力検証・スパム対策・CSRF等を追加
+$apiKey = getenv('RESEND_API_KEY'); // 公開しない場所で管理
+$name = $_POST['name'] ?? ''; $email = $_POST['email'] ?? ''; $msg = $_POST['message'] ?? '';
+$payload = json_encode([
+  'from' => 'レンタルスペースALBE <rental@space-albe.com>',
+  'to' => ['rental@space-albe.com'],
+  'reply_to' => $email,                 // 返信でお客様へ直接返せる
+  'subject' => '【お問い合わせ】'.$name.' 様',
+  'text' => "お名前: $name\nメール: $email\n\n$msg",
+]);
+$ch = curl_init('https://api.resend.com/emails');
+curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_RETURNTRANSFER=>true,
+  CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$apiKey, 'Content-Type: application/json'],
+  CURLOPT_POSTFIELDS=>$payload]);
+$res = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+// $code === 200 で成功
+```
+
+### 案B：予約システム（Worker）に問い合わせ送信APIを追加し、サイトのフォームから送信
 - 予約システムに `POST /api/contact` を新設し、内部で `sendEmail`（Resend）を再利用
-- WordPress のフォームからその API に送信（CORS 許可が必要）
+- 静的サイトのフォームから `fetch` で送信（**CORS 許可**が必要）
 - 既存の送信コード・認証をそのまま流用できるが、**現在サイトは Basic 認証中**のため
   `/api/contact` を Basic 認証の除外対象にする必要がある（Webhookと同様の除外）
 - スパム対策（ハニーポット・レート制限）を合わせて実装するのが望ましい
+- APIキーは Cloudflare Secret（既存 `RESEND_API_KEY`）のままサーバー側に隠せる＝安全
 
 ## 5. 引き継ぎ時のチェックポイント
 - 差出人は必ず **`@space-albe.com`**（認証済みドメイン）にする。`@gmail.com` 等の他社ドメインを From にすると DMARC で弾かれやすい

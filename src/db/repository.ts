@@ -1739,10 +1739,12 @@ export async function promoteBookingGroupToConfirmed(
 }
 
 /**
- * コンビニ払い・銀行振込（Stripe）の未入金の確保枠（confirmed・未入金）を解放する（#39）。
- * 払込票の期限切れ／支払い失敗、または振込が一定期間ないときに枠を空ける。
- * コンビニ・銀行振込は confirmed（赤枠）で確保するため、Stripe経由の後払い
- * （payment_method IN ('stripe','bank_transfer')）かつ未入金のグループに限定して解放する。
+ * 後払いの未入金の確保枠（confirmed・未入金）を解放する（#39）。
+ * 払込票の期限切れ／支払い失敗、または振込・入金が一定期間ないときに枠を空ける。
+ * コンビニ・銀行振込・請求書払いは confirmed（赤枠）で確保するため、後払い
+ * （payment_method IN ('stripe','bank_transfer','invoice')）かつ未入金のグループに限定して解放する。
+ * ※ 手動の請求書払い（invoice）は payment_status='invoice'（未入金扱い）なので、
+ *    'paid' 以外はすべて解放対象になる。
  * ※ tentative（商談中＝営業担当の人手予約）や入金済みの予約は対象外。
  */
 export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): Promise<boolean> {
@@ -1751,7 +1753,7 @@ export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): 
     .bind(groupId)
     .first<{ status: string; payment_method: string; payment_status: string }>();
   if (!g) return false;
-  if (g.status !== 'confirmed' || !['stripe', 'bank_transfer'].includes(g.payment_method) || g.payment_status === 'paid') return false;
+  if (g.status !== 'confirmed' || !['stripe', 'bank_transfer', 'invoice'].includes(g.payment_method) || g.payment_status === 'paid') return false;
   await db.batch([
     db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ? AND status = 'confirmed' AND payment_status <> 'paid'").bind(groupId),
     db.prepare("UPDATE bookings SET status = 'cancelled' WHERE group_id = ? AND status = 'confirmed'").bind(groupId),
@@ -1760,32 +1762,32 @@ export async function releaseUnpaidStripeHold(db: D1Database, groupId: string): 
 }
 
 /**
- * 期限切れの後払い確保枠（confirmed・未入金）を一括抽出（Cronの掃除用・#39）。
- * コンビニ（払込票の有効期限は短い）と銀行振込（着金に時間がかかる）で猶予が異なるため、
- * それぞれに別のカットオフ（この日時より古い created_at）を渡す。
- * 銀行振込は checkout.session.expired が発火しないため、この掃除が主な解放手段になる。
- * booking_payment（Stripe・未入金）を持つものだけを対象にするので、管理者の代理予約
- * （Stripe決済なし）は対象外。
+ * 未入金の後払い確保枠（confirmed・未入金）の候補を一括抽出（Cronの掃除用・#39）。
+ * 解放するか否かの判定（作成からの経過日数・利用日の前日など）は呼び出し側（konbini-cleanup）が
+ * 支払い方法ごとに行うため、ここでは判定に必要な情報（支払い方法・作成日時・最も早い利用日）を
+ * 付けて未入金の候補だけを返す。
+ * - コンビニ払い … payment_method='stripe' で confirmed・未入金（カードは pending なので混ざらない）
+ * - 銀行振込 … payment_method='bank_transfer'（checkout.session.expired が発火しないため掃除が主な解放手段）
+ * - 請求書払い（手動） … payment_method='invoice'、payment_status='invoice'（未入金扱い）
+ * source='web'（お客様の予約）に限定し、管理者の代理予約は対象外とする。
  */
-export async function getExpiredStripeHolds(
+export async function getUnpaidHoldCandidates(
   db: D1Database,
-  konbiniCutoffCreatedAt: string,
-  bankCutoffCreatedAt: string,
-): Promise<Array<{ id: string }>> {
+): Promise<Array<{ id: string; payment_method: string; created_at: string; earliest_date: string | null }>> {
   const { results } = await db
     .prepare(
-      `SELECT bg.id FROM booking_groups bg
-       WHERE bg.status = 'confirmed' AND bg.payment_status = 'unpaid'
-         AND EXISTS (
-           SELECT 1 FROM booking_payments bp
-           WHERE bp.group_id = bg.id AND bp.provider = 'stripe' AND bp.status <> 'paid'
-             AND COALESCE(bp.kind,'booking') = 'booking'
-             AND bp.created_at < (CASE WHEN bg.payment_method = 'bank_transfer' THEN ? ELSE ? END)
-         )
-         AND bg.payment_method IN ('stripe','bank_transfer')`,
+      `SELECT bg.id AS id,
+              bg.payment_method AS payment_method,
+              bg.created_at AS created_at,
+              (SELECT MIN(b.date) FROM bookings b
+                 WHERE b.group_id = bg.id AND b.status = 'confirmed') AS earliest_date
+       FROM booking_groups bg
+       WHERE bg.status = 'confirmed'
+         AND bg.payment_status <> 'paid'
+         AND bg.source = 'web'
+         AND bg.payment_method IN ('stripe','bank_transfer','invoice')`,
     )
-    .bind(bankCutoffCreatedAt, konbiniCutoffCreatedAt)
-    .all<{ id: string }>();
+    .all<{ id: string; payment_method: string; created_at: string; earliest_date: string | null }>();
   return results ?? [];
 }
 

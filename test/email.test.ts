@@ -324,6 +324,24 @@ describe('email - お支払い待ち予約受付（銀行振込・コンビニ�
     expect(m.html).toContain('&lt;script&gt;');
     expect(m.html).not.toContain('<script>x</script>');
   });
+  it('請求書払い（viaStripe:false）はStripeではなく当社発行の請求書を案内する', () => {
+    const m = paymentPendingBookingEmail({
+      customerName: '山田太郎',
+      bookingNumber: '20260826-003',
+      spaceName: '名駅フリースペース',
+      days: sampleDays,
+      total: 4840,
+      paymentMethodLabel: '請求書払い',
+      viaStripe: false,
+      mypageUrl: 'https://booking.space-albe.com/mypage.html',
+    });
+    expect(m.text).toContain('請求書払い');
+    expect(m.text).toContain('請求書'); // 振込先は当社発行の請求書に記載
+    expect(m.text).not.toContain('Stripe'); // 請求書払いはStripe非経由
+    expect(m.text).toContain('自動的にキャンセル'); // 期限内未入金は自動キャンセル
+    expect(m.html).not.toContain('Stripe');
+    expect(m.html).toContain('請求書');
+  });
 });
 
 describe('email - 解放後の着金 管理者アラート（#39）', () => {

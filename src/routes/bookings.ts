@@ -133,8 +133,14 @@ interface CreateBookingBody {
   termsAgreed?: boolean;
 }
 
-/** 請求書払いは利用日の何日前まで受け付けるか（#38） */
-const INVOICE_DEADLINE_DAYS = 5;
+/**
+ * 後払いの受付リード日数（利用日の何日前まで受け付けるか）。
+ * - コンビニ払い … 払込票の有効期限が短いため 5日前まで（#67）。
+ * - 銀行振込（Stripe）・請求書払い（手動）… 着金・請求書発行に日数がかかるため 7日前まで（#38）。
+ *   ※銀行振込と手動請求書は同じルールで運用する。
+ */
+const KONBINI_LEAD_DAYS = 5;
+const TRANSFER_LEAD_DAYS = 7;
 
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
   return {
@@ -280,8 +286,8 @@ app.post('/', async (c) => {
     // 銀行振込・請求書払いは入金までに日数がかかるため、ご利用日まで一定の猶予を必須とする。
     const methodLabel = paymentMethod === 'invoice' ? '請求書払い' : '銀行振込';
     const earliestDate = [...body.items].map((i) => i.date).sort()[0];
-    if (earliestDate < addDaysJST(today, INVOICE_DEADLINE_DAYS)) {
-      return c.json({ error: `${methodLabel}はご利用日の${INVOICE_DEADLINE_DAYS}日前までの受付となります。${INVOICE_DEADLINE_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
+    if (earliestDate < addDaysJST(today, TRANSFER_LEAD_DAYS)) {
+      return c.json({ error: `${methodLabel}はご利用日の${TRANSFER_LEAD_DAYS}日前までの受付となります。${TRANSFER_LEAD_DAYS}日以内のご予約はカード決済をご利用ください。` }, 400);
     }
   }
   // 利用目的・利用人数（必須）#59/#61、過去利用・きっかけ（任意）#60、規約同意（必須）#60
@@ -704,14 +710,33 @@ app.post('/', async (c) => {
     changeUrl: `${origin}/booking-change/?num=${encodeURIComponent(bookingNumber)}`,
     isInvoice: paymentMethod === 'invoice',
   };
-  // 予約確認（本予約確定）メールの送信可否。
+  // 予約確認メールの送信可否。
   //  - pending（カード/PayPal）… 入金確定時に送る（ここでは送らない）
-  //  - 銀行振込（confirmed・未入金）… 下のブロックで「お振込のお願い（未入金は自動キャンセル）」
-  //    メールを送るため、ここでは通常の確定メールを送らない
-  //  - confirmed（請求書・0円）… ここで確定メールを送る
+  //  - 銀行振込（confirmed・未入金）… 下の決済ブロックで「お支払い待ち（未入金は自動キャンセル）」
+  //    メールを送るため、ここでは送らない
+  //  - 請求書払い（confirmed・未入金／total>0）… 銀行振込と同じルール。ここで「お支払い待ち」
+  //    メールを送る（振込先は当社発行の請求書に記載）。
+  //  - confirmed（0円 等）… ここで通常の確定メールを送る
+  const invoicePending = paymentMethod === 'invoice' && totals.total > 0;
   if (initialStatus === 'confirmed' && paymentMethod !== 'bank_transfer') {
-    const confirm = bookingConfirmationEmail(emailData);
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
+    if (invoicePending && email) {
+      const pend = paymentPendingBookingEmail({
+        customerName: contactName || 'お客様',
+        bookingNumber,
+        spaceName: space.name,
+        eventName: body.eventName,
+        days: mailDays,
+        total: totals.total,
+        paymentMethodLabel: '請求書払い',
+        viaStripe: false, // 振込先は当社発行の請求書（マイページDL可）に記載
+        mypageUrl: member ? `${origin}/mypage.html` : undefined,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...pend }));
+    } else {
+      const confirm = bookingConfirmationEmail(emailData);
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
+    }
+    // 管理者宛の新規予約通知（請求書払いは入金確認を手動で行うため必ず通知する）
     const admins = await adminRecipients(c.env, space.id);
     if (admins.length) {
       const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
@@ -735,7 +760,7 @@ app.post('/', async (c) => {
       const earliestUse = [...body.items].map((i) => i.date).sort()[0];
       const leadDays = daysBetween(today, earliestUse);
       const konbiniOk =
-        konbiniReady && space.payment_mode === 'card_konbini_bank' && !!member && leadDays >= INVOICE_DEADLINE_DAYS;
+        konbiniReady && space.payment_mode === 'card_konbini_bank' && !!member && leadDays >= KONBINI_LEAD_DAYS;
       try {
         const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
           productName: `ご予約 ${bookingNumber}（${space.name}）`,

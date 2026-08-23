@@ -663,13 +663,27 @@ export function paymentPendingBookingEmail(d: {
   eventName?: string;
   days: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   total: number;
-  /** 例: 銀行振込 / コンビニ払い */
+  /** 例: 銀行振込 / コンビニ払い / 請求書払い */
   paymentMethodLabel: string;
+  /**
+   * お支払い先の案内元。
+   * - true（既定）… Stripe（決済代行）からのメールに振込先/払込番号が記載される（銀行振込・コンビニ）。
+   * - false … 手動の請求書払い。お振込先は当社発行の請求書（マイページからDL可）に記載。
+   */
+  viaStripe?: boolean;
   mypageUrl?: string;
 }): { subject: string; html: string; text: string } {
+  const viaStripe = d.viaStripe !== false;
   const subject = `【レンタルスペースALBE】ご予約を承りました（お支払い待ち）（${d.bookingNumber}）`;
   const eventText = d.eventName ? `イベント名: ${d.eventName}\n` : '';
-  const mypageText = d.mypageUrl ? `\nご予約状況はマイページでご確認いただけます:\n${d.mypageUrl}\n` : '';
+  const mypageLabel = viaStripe ? 'ご予約状況' : 'ご予約状況・請求書';
+  const mypageText = d.mypageUrl ? `\n${mypageLabel}はマイページでご確認いただけます:\n${d.mypageUrl}\n` : '';
+  const detailText = viaStripe
+    ? '・お支払い方法・お振込先（または払込番号）は、Stripe（決済代行）からお送りするメールに記載されています。そちらをご確認のうえ、お支払いをお願いいたします。'
+    : '・お振込先・お支払い金額は、別途お送りする（マイページからもダウンロードいただける）請求書に記載しております。そちらをご確認のうえ、お振込みをお願いいたします。';
+  const detailHtml = viaStripe
+    ? '<li>お支払い方法・お振込先（または払込番号）は、<strong>Stripe（決済代行）から届くメール</strong>に記載されています。そちらをご確認のうえお支払いください。</li>'
+    : '<li>お振込先・お支払い金額は、<strong>別途お送りする請求書（マイページからもダウンロード可）</strong>に記載しております。そちらをご確認のうえお振込みください。</li>';
   const text = `${d.customerName} 様
 
 ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
@@ -682,7 +696,7 @@ ${daysBlockText(d.days)}
 お支払い方法: ${d.paymentMethodLabel}
 
 ◆お支払いについて
-・お支払い方法・お振込先（または払込番号）は、Stripe（決済代行）からお送りするメールに記載されています。そちらをご確認のうえ、お支払いをお願いいたします。
+${detailText}
 ・お支払いには期限があります。期限までにご入金が確認できない場合、ご予約は自動的にキャンセルとなります。
 ・ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。
 ${mypageText}`;
@@ -707,7 +721,7 @@ ${eventHtml}
 <div style="margin:14px 0;padding:14px;background:#fff8e6;border:1px solid #f0c36d;border-radius:8px">
 <div style="font-weight:700;margin-bottom:6px">お支払いについて</div>
 <ul style="margin:6px 0 0;padding-left:18px">
-<li>お支払い方法・お振込先（または払込番号）は、<strong>Stripe（決済代行）から届くメール</strong>に記載されています。そちらをご確認のうえお支払いください。</li>
+${detailHtml}
 <li>お支払いには<strong>期限</strong>があります。期限までにご入金が確認できない場合、ご予約は<strong>自動的にキャンセル</strong>となります。</li>
 <li>ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。</li>
 </ul>

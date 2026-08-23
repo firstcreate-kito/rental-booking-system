@@ -799,26 +799,27 @@ app.post('/', async (c) => {
         });
         await createBookingPayment(c.env.DB, { id: payId, groupId, provider: 'stripe', amount: totals.total, sessionId: session.id }, now);
         checkoutUrl = session.url;
-        // 振込先（仮想口座）を取得して保存し、お客様にメールでも案内する（マイページにも表示）。
-        // 取得できなくても予約は成立（Stripeのホスト画面には口座が表示される）。
+        // 振込先（仮想口座）を取得（ベストエフォート）。取得できればマイページ表示用に保存する。
+        let bankInfo: Awaited<ReturnType<typeof createJpBankTransferFundingInstructions>> = null;
         try {
-          const bank = await createJpBankTransferFundingInstructions(c.env.STRIPE_SECRET_KEY!, customerId);
-          if (bank) {
-            await setBookingPaymentBankInfo(c.env.DB, payId, JSON.stringify(bank));
-            if (email) {
-              const mail = bankTransferInfoEmail({
-                customerName: contactName || 'お客様',
-                bookingNumber,
-                spaceName: space.name,
-                amount: totals.total,
-                bank,
-                mypageUrl: origin ? `${origin}/mypage.html` : undefined,
-              });
-              c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
-            }
-          }
+          bankInfo = await createJpBankTransferFundingInstructions(c.env.STRIPE_SECRET_KEY!, customerId);
+          if (bankInfo) await setBookingPaymentBankInfo(c.env.DB, payId, JSON.stringify(bankInfo));
         } catch {
-          /* 口座案内の失敗は予約に影響させない */
+          /* 口座情報の取得失敗はメール送信に影響させない（下で必ず案内メールを送る） */
+        }
+        // ALBEからの「お振込のお願い」メールは Stripe とは別に必ず送る（#39）。
+        // 口座が取得できていれば同封、取得できなくてもお支払い案内ページ（Stripe）へ誘導する。
+        if (email) {
+          const mail = bankTransferInfoEmail({
+            customerName: contactName || 'お客様',
+            bookingNumber,
+            spaceName: space.name,
+            amount: totals.total,
+            bank: bankInfo,
+            paymentUrl: session.url ?? undefined,
+            mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+          });
+          c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
         }
       } catch (err) {
         checkoutUrl = null;

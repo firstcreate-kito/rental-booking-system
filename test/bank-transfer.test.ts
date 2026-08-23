@@ -70,4 +70,20 @@ describe('bankTransferInfoEmail', () => {
     expect(m.text).toContain('自動的にキャンセル');
     expect(m.html).toContain('お支払い待ち');
   });
+  it('口座情報が取れないときも案内メールを生成（お支払い画面URLへ誘導）', () => {
+    const m = bankTransferInfoEmail({
+      customerName: '山田 太郎',
+      bookingNumber: 'B2',
+      spaceName: 'S',
+      amount: 4840,
+      bank: null,
+      paymentUrl: 'https://checkout.stripe.com/pay/cs_test_123',
+      mypageUrl: 'https://booking.space-albe.com/mypage.html',
+    });
+    expect(m.subject).toContain('お振込先');
+    expect(m.text).toContain('¥4,840');
+    expect(m.text).toContain('お支払い案内ページ');
+    expect(m.text).toContain('https://checkout.stripe.com/pay/cs_test_123');
+    expect(m.html).toContain('お支払い案内ページを開く');
+  });
 });

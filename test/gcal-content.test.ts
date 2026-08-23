@@ -23,8 +23,9 @@ const base: BookingCalendarData = {
 };
 
 describe('カレンダー タイトル', () => {
-  it('本予約は【予約完了】＋名前｜スペース（時間は含めない）', () => {
-    expect(buildCalendarTitle(base, false)).toBe('【予約完了】 山田 太郎｜ 名駅エクササイズスペース');
+  it('本予約は【予約完了】＋名前｜スペース／時間（全角｜／・半角スペースを厳密に保つ）', () => {
+    // 外部サイネージがこの書式を解釈するため、半角/全角・空白を含め厳密一致で固定する
+    expect(buildCalendarTitle(base, false)).toBe('【予約完了】 山田 太郎｜ 名駅エクササイズスペース／3時間');
   });
   it('商談中は【商談中】', () => {
     expect(buildCalendarTitle(base, true)).toContain('【商談中】');

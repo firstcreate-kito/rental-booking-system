@@ -6,6 +6,7 @@ import type { Env } from '../types';
 import type { MissingCalendarBookingRow, BookingCalendarData } from '../db/repository';
 import { getBookingCalendarData } from '../db/repository';
 import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, patchEventContent, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
+import { toMinutes } from './time';
 
 const TENTATIVE_PREFIX = '【商談中】';
 
@@ -213,6 +214,13 @@ export async function reconcileMissingCalendarEvents(
 
 const yenFmt = (n: number): string => '¥' + Number(n || 0).toLocaleString('ja-JP');
 
+/** 合計利用時間の表示（例: 9時間 / 1.5時間）。外部サイネージがこの表記を解釈する。 */
+function totalHoursLabel(rows: ReadonlyArray<{ start_time: string; end_time: string }>): string {
+  const mins = rows.reduce((s, r) => s + (toMinutes(r.end_time) - toMinutes(r.start_time)), 0);
+  const h = mins / 60;
+  return (Number.isInteger(h) ? String(h) : h.toFixed(1)) + '時間';
+}
+
 /** 支払い方法の表示（カード/コンビニは Stripe に集約されるため併記） */
 function paymentMethodText(paymentMethod: string | null): string {
   const map: Record<string, string> = {
@@ -232,11 +240,14 @@ function paymentStatusText(paymentStatus: string, total: number): string {
   return '入金待ち';
 }
 
-/** タイトル：【予約完了/商談中】 お客様名｜ スペース名 */
+/**
+ * タイトル：「【予約完了】 お客様名｜ スペース名／N時間」（例：【予約完了】 山田 太郎｜ 名駅フリースペース／9時間）
+ * 外部サイネージがこの表記（全角の｜・／、半角スペース）を解釈するため、書式は変更しないこと。
+ */
 export function buildCalendarTitle(data: BookingCalendarData, tentative: boolean): string {
   const badge = tentative ? '【商談中】' : '【予約完了】';
   const sp = data.spaceName ? `｜ ${data.spaceName}` : '';
-  return `${badge} ${data.customerName}${sp}`;
+  return `${badge} ${data.customerName}${sp}／${totalHoursLabel(data.rows)}`;
 }
 
 /** 説明欄：予約の基本情報を出力 */

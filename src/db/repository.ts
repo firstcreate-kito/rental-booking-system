@@ -2257,6 +2257,8 @@ export interface BookingCalendarData {
   spaceName: string;
   customerName: string;
   phone: string | null;
+  email: string | null;
+  company: string | null;
   eventName: string;
   purpose: string | null;
   headcount: number | null;
@@ -2273,9 +2275,9 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
   const g = await db
     .prepare(
       `SELECT bg.booking_number, bg.status, bg.event_name, bg.total_amount, bg.payment_status, bg.payment_method,
-              bg.purpose, bg.headcount, bg.customer_id, bg.space_id,
+              bg.purpose, bg.headcount, bg.customer_id, bg.space_id, bg.invoice_name,
               s.name AS space_name, s.google_calendar_id,
-              c.contact_name, c.phone
+              c.contact_name, c.phone, c.email
        FROM booking_groups bg
        LEFT JOIN spaces s ON s.id = bg.space_id
        LEFT JOIN customers c ON c.id = bg.customer_id
@@ -2293,10 +2295,12 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
       headcount: number | null;
       customer_id: string | null;
       space_id: string;
+      invoice_name: string | null;
       space_name: string | null;
       google_calendar_id: string | null;
       contact_name: string | null;
       phone: string | null;
+      email: string | null;
     }>();
   if (!g) return null;
 
@@ -2334,6 +2338,8 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
     spaceName: g.space_name ?? '',
     customerName: g.contact_name ?? 'お客様',
     phone: g.phone,
+    email: g.email,
+    company: g.invoice_name,
     eventName: g.event_name,
     purpose: g.purpose,
     headcount: g.headcount,
@@ -2744,6 +2750,7 @@ export async function getOverdueUnpaidBookings(db: D1Database, cutoffDate: strin
 
 export interface MissingCalendarBookingRow {
   id: string;
+  group_id: string;
   date: string;
   start_time: string;
   end_time: string;
@@ -2765,7 +2772,7 @@ export async function getBookingsMissingCalendarEvent(
 ): Promise<MissingCalendarBookingRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT b.id, b.date, b.start_time, b.end_time, b.status,
+      `SELECT b.id, b.group_id, b.date, b.start_time, b.end_time, b.status,
               bg.booking_number, bg.event_name,
               s.google_calendar_id, c.contact_name
        FROM bookings b

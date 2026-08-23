@@ -6,7 +6,6 @@ import type { Env } from '../types';
 import type { MissingCalendarBookingRow, BookingCalendarData } from '../db/repository';
 import { getBookingCalendarData } from '../db/repository';
 import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, patchEventContent, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
-import { toMinutes } from './time';
 
 const TENTATIVE_PREFIX = '【商談中】';
 
@@ -173,17 +172,28 @@ export async function reconcileMissingCalendarEvents(
   rows: readonly MissingCalendarBookingRow[],
 ): Promise<{ created: number; failed: number }> {
   if (!gcalConfigured(env) || rows.length === 0) return { created: 0, failed: 0 };
+  const origin = env.PUBLIC_BASE_URL || '';
   let created = 0;
   let failed = 0;
   const updates: D1PreparedStatement[] = [];
+  // グループの詳細（タイトル・説明の生成に必要）はグループ単位でキャッシュして再取得を避ける
+  const dataCache = new Map<string, BookingCalendarData | null>();
   for (const r of rows) {
     if (!r.google_calendar_id) continue;
     const tentative = r.status === 'tentative';
     const name = r.contact_name ?? '';
     try {
+      let data = dataCache.get(r.group_id);
+      if (data === undefined) {
+        data = await getBookingCalendarData(env.DB, r.group_id);
+        dataCache.set(r.group_id, data);
+      }
+      // 通常同期と同じリッチ形式で作成（取得失敗時のみ簡易形式でフォールバック）
+      const summary = data ? buildCalendarTitle(data, tentative) : bookingSummary(r.event_name, name, tentative);
+      const description = data ? buildCalendarDescription(data, origin) : bookingDescription(r.booking_number, name, tentative);
       const ev = await insertEvent(env, r.google_calendar_id, {
-        summary: bookingSummary(r.event_name, name, tentative),
-        description: bookingDescription(r.booking_number, name, tentative),
+        summary,
+        description,
         startISO: toJstRfc3339(r.date, r.start_time),
         endISO: toJstRfc3339(r.date, r.end_time),
       });
@@ -202,46 +212,50 @@ export async function reconcileMissingCalendarEvents(
 // ---------------------------------------------------------------------------
 
 const yenFmt = (n: number): string => '¥' + Number(n || 0).toLocaleString('ja-JP');
-const METHOD_LABEL: Record<string, string> = { stripe: 'Stripe', paypal: 'PayPal', bank_transfer: '銀行振込', invoice: '請求書払い' };
 
-/** 合計利用時間の表示（例: 3時間 / 1.5時間） */
-function totalHoursLabel(rows: ReadonlyArray<{ start_time: string; end_time: string }>): string {
-  const mins = rows.reduce((s, r) => s + (toMinutes(r.end_time) - toMinutes(r.start_time)), 0);
-  const h = mins / 60;
-  return (Number.isInteger(h) ? String(h) : h.toFixed(1)) + '時間';
+/** 支払い方法の表示（カード/コンビニは Stripe に集約されるため併記） */
+function paymentMethodText(paymentMethod: string | null): string {
+  const map: Record<string, string> = {
+    stripe: 'クレジットカード／コンビニ払い',
+    paypal: 'PayPal',
+    bank_transfer: '銀行振込',
+    invoice: '請求書払い',
+  };
+  return map[paymentMethod || ''] || '—';
 }
 
-/** 支払いステータスの表示 */
-function paymentStatusLabel(paymentStatus: string, paymentMethod: string | null, total: number): string {
+/** 支払いステータスの表示（完了／入金待ち） */
+function paymentStatusText(paymentStatus: string, total: number): string {
   if (total <= 0) return '支払不要（¥0）';
-  const m = METHOD_LABEL[paymentMethod || ''] || '';
-  if (paymentStatus === 'paid') return `支払済${m ? '（' + m + '）' : ''}`;
+  if (paymentStatus === 'paid') return '完了';
   if (paymentStatus === 'invoice') return '請求書払い（未入金）';
-  return `未入金${m ? '（' + m + '）' : ''}`;
+  return '入金待ち';
 }
 
-/** タイトル：【予約完了/商談中】 お客様名｜ スペース名／N時間 */
+/** タイトル：【予約完了/商談中】 お客様名｜ スペース名 */
 export function buildCalendarTitle(data: BookingCalendarData, tentative: boolean): string {
   const badge = tentative ? '【商談中】' : '【予約完了】';
   const sp = data.spaceName ? `｜ ${data.spaceName}` : '';
-  return `${badge} ${data.customerName}${sp}／${totalHoursLabel(data.rows)}`;
+  return `${badge} ${data.customerName}${sp}`;
 }
 
-/** 説明欄：ご指定の項目を出力 */
+/** 説明欄：予約の基本情報を出力 */
 export function buildCalendarDescription(data: BookingCalendarData, origin: string): string {
-  const optLabel = data.options.length ? data.options.map((o) => `${o.name}×${o.quantity}`).join('、') : 'なし';
+  const optLabel = data.options.length ? data.options.map((o) => `${o.name}×${o.quantity}`).join('／') : 'なし';
   const adminUrl = origin ? `${origin}/admin.html?booking=${encodeURIComponent(data.bookingNumber)}` : '';
   const lines = [
-    `スペース名：${data.spaceName}`,
-    data.phone ? `電話番号：${data.phone}` : '',
-    `予約確認番号：${data.bookingNumber}`,
+    `予約番号：${data.bookingNumber}`,
     `イベント名：${data.eventName || '—'}`,
-    data.purpose ? `利用目的：${data.purpose}` : '',
-    data.headcount != null ? `利用人数：${data.headcount}` : '',
+    `利用目的：${data.purpose || '—'}`,
+    `ご利用人数：${data.headcount != null ? data.headcount + '名' : '—'}`,
+    `過去のご利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
     `オプション：${optLabel}`,
-    `ご利用金額：${yenFmt(data.total)}`,
-    `支払いステータス：${paymentStatusLabel(data.paymentStatus, data.paymentMethod, data.total)}`,
-    `利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
+    `メールアドレス：${data.email || '—'}`,
+    `電話番号：${data.phone || '—'}`,
+    `会社名：${data.company || '—'}`,
+    `支払い方法：${paymentMethodText(data.paymentMethod)}`,
+    `支払いステータス：${paymentStatusText(data.paymentStatus, data.total)}`,
+    `ご利用金額（税込）：${yenFmt(data.total)}`,
     adminUrl ? `管理画面リンク：${adminUrl}` : '',
     '',
     CHANGE_NOTE,

@@ -50,6 +50,8 @@ app.post('/checkout', requireAuth, async (c) => {
       customerEmail: customer.email || undefined,
       clientReferenceId: purchaseId,
       metadata: { purchaseId, customerId: customer.id, productId: product.id },
+      // チケットは即時発行のためクレジットカードのみに固定（コンビニ等が自動表示されないよう明示）
+      paymentMethodTypes: ['card'],
     });
   } catch (err) {
     return c.json({ error: '決済ページの作成に失敗しました：' + (err as Error).message }, 502);

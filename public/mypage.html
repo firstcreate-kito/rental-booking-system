@@ -467,7 +467,7 @@ const statusLabel = s => ({confirmed:'本予約',cancelled:'キャンセル',com
 function enterLoggedIn(body) {
   M.token = body.token; M.member = body.customer;
   resetIdle();
-  document.getElementById('who').textContent = (body.customer.contactName||body.customer.email) + ' さん';
+  document.getElementById('who').textContent = 'ログイン中：' + (body.customer.contactName||body.customer.email) + ' 様';
   document.getElementById('loginView').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   loadAll();
@@ -557,7 +557,7 @@ async function submitRegister() {
     document.getElementById('resumeView').classList.remove('hidden');
     return;
   }
-  document.getElementById('who').textContent = (body.customer.contactName || body.customer.email) + ' さん';
+  document.getElementById('who').textContent = 'ログイン中：' + (body.customer.contactName || body.customer.email) + ' 様';
   document.getElementById('registerView').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   loadAll();
@@ -988,7 +988,7 @@ async function changePassword() {
   }
   initLoginExtras(); // 外部ログインのボタン表示・login_error表示（ログイン画面のとき）
   if (!CR_FROM_BOOKING && location.hash !== '#forgot' && restoreSession()) {
-    document.getElementById('who').textContent = (M.member && (M.member.contactName || M.member.email) || '') + ' さん';
+    document.getElementById('who').textContent = 'ログイン中：' + (M.member && (M.member.contactName || M.member.email) || '') + ' 様';
     document.getElementById('loginView').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     loadAll();

@@ -164,6 +164,7 @@
   </a>
   <nav class="albe-nav">
     <span class="albe-who" id="devBadge">デモ環境（開発用）</span>
+    <span class="albe-who hidden" id="loginBadge" style="background:#dcfce7;color:#166534;border-color:#86efac"></span>
     <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
   </nav>
 </header>
@@ -543,6 +544,20 @@ function applyMemberLoggedInUI(p) {
   }
   if (!document.getElementById('f_email').value) document.getElementById('f_email').value = p.email || '';
   if (!document.getElementById('f_phone').value) document.getElementById('f_phone').value = p.phone || '';
+  updateLoginBadge();
+}
+// ヘッダーの常時ログイン表示（全ステップで「ログイン中：○○様」を出す）
+function updateLoginBadge() {
+  const el = document.getElementById('loginBadge');
+  if (!el) return;
+  if (S.token && S.member) {
+    const nm = (S.member.contactName || S.member.email || '').trim() || 'お客様';
+    el.innerHTML = '✓ ログイン中：' + escHtml(nm) + ' 様　<a href="javascript:void(0)" onclick="memberLogout()" style="color:#166534;text-decoration:underline">ログアウト</a>';
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+    el.textContent = '';
+  }
 }
 // 保存済みセッションからログイン状態を復元（他ページから移動してきた場合など）
 async function restoreMemberSession() {
@@ -726,6 +741,7 @@ async function resumeBookingFromRegister() {
       document.getElementById('f_phone').value = p.phone || '';
       document.getElementById('loginForm').classList.add('hidden');
       document.getElementById('memberBox').classList.remove('hidden');
+      updateLoginBadge();
       saveMemberSession(); resetMemberIdle(); // 以降のページ移動でもログイン継続
     }
   }
@@ -1388,6 +1404,7 @@ async function onMemberLoggedIn(body) {
   document.getElementById('memberName').textContent = body.customer.contactName || body.customer.email;
   document.getElementById('loginForm').classList.add('hidden');
   document.getElementById('memberBox').classList.remove('hidden');
+  updateLoginBadge();
   const pr = await api('/api/mypage/profile', { headers: authHeaders() });
   if (pr.ok && pr.body.profile) {
     document.getElementById('ptBal').textContent = pr.body.profile.point_balance;
@@ -1409,6 +1426,7 @@ async function onMemberLoggedIn(body) {
 function memberLogout(idle) {
   S.token = null; S.member = null;
   clearMemberSession();
+  updateLoginBadge();
   if (_memberIdleTimer) { clearTimeout(_memberIdleTimer); _memberIdleTimer = null; }
   document.getElementById('loginForm').classList.remove('hidden');
   document.getElementById('memberBox').classList.add('hidden');

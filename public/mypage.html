@@ -394,21 +394,6 @@ if (CR_FROM_BOOKING) { showRegister(); }
     set('r_lastName', q.get('name')); // 氏名は姓欄に補助入力（お客様が調整可）
   }
 })();
-// メールのログインリンク（?magic=…）で来た場合は、それを最優先でログイン確定。
-// それ以外は、リロード／再訪でもタブ内はログイン継続（無操作15分で失効）。予約フロー登録経由・#forgot は除く。
-(async () => {
-  if (new URLSearchParams(location.search).get('magic')) {
-    await consumeMagicIfPresent();
-    return;
-  }
-  if (!CR_FROM_BOOKING && location.hash !== '#forgot' && restoreSession()) {
-    document.getElementById('who').textContent = (M.member && (M.member.contactName || M.member.email) || '') + ' さん';
-    document.getElementById('loginView').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    loadAll();
-    resetIdle();
-  }
-})();
 function resumeBooking() { location.href = 'index.html?resume=1'; }
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {
@@ -862,6 +847,23 @@ async function changePassword() {
   msg.textContent = ok ? 'パスワードを変更しました' : (body.error || '変更に失敗しました');
   if (ok) { document.getElementById('pw_cur').value=''; document.getElementById('pw_new').value=''; }
 }
+
+// ── 起動処理（すべての関数・定数の定義後に実行）─────────────────────
+// メールのログインリンク（?magic=…）で来た場合は、それを最優先でログイン確定。
+// それ以外は、リロード／再訪でもタブ内はログイン継続（無操作15分で失効）。予約フロー登録経由・#forgot は除く。
+(async () => {
+  if (new URLSearchParams(location.search).get('magic')) {
+    await consumeMagicIfPresent();
+    return;
+  }
+  if (!CR_FROM_BOOKING && location.hash !== '#forgot' && restoreSession()) {
+    document.getElementById('who').textContent = (M.member && (M.member.contactName || M.member.email) || '') + ' さん';
+    document.getElementById('loginView').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    loadAll();
+    resetIdle();
+  }
+})();
 </script>
 </body>
 </html>

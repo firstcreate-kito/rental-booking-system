@@ -398,11 +398,23 @@ function restoreSession() {
   M.token = s.token; M.member = s.member;
   return true;
 }
-function resetIdle() {
+// setTimeout は 32bit（約24.8日）が上限で、それを超える遅延を渡すと即時発火してしまう。
+// 30日のような長い無操作タイムアウトでも正しく動くよう、上限以内で分割して再セットする。
+const MAX_TIMEOUT_MS = 2000000000; // < 2^31-1（約23日）
+function armIdle(remainingMs) {
   if (_idleTimer) clearTimeout(_idleTimer);
   if (!M.token) return;
+  const delay = Math.min(remainingMs, MAX_TIMEOUT_MS);
+  _idleTimer = setTimeout(() => {
+    const left = remainingMs - delay;
+    if (left > 0) armIdle(left); // まだ猶予あり → 残り時間で再セット
+    else idleLogout();
+  }, delay);
+}
+function resetIdle() {
+  if (!M.token) { if (_idleTimer) clearTimeout(_idleTimer); return; }
   saveSession(); // 最終操作時刻を更新
-  _idleTimer = setTimeout(idleLogout, IDLE_MS);
+  armIdle(IDLE_MS);
 }
 function backToLogin(message) {
   clearSession(); M.token = null; M.member = null;

@@ -509,11 +509,23 @@ function readMemberSession() {
   if (Date.now() - (s.at || 0) > MEMBER_IDLE_MS) { clearMemberSession(); return null; } // 既に無操作タイムアウト
   return s;
 }
-function resetMemberIdle() {
+// setTimeout は約24.8日（32bit）が上限で、超える遅延は即時発火してしまう。
+// 30日の無操作タイムアウトでも正しく動くよう、上限以内で分割して再セットする。
+const MEMBER_MAX_TIMEOUT_MS = 2000000000; // < 2^31-1（約23日）
+function armMemberIdle(remainingMs) {
   if (_memberIdleTimer) clearTimeout(_memberIdleTimer);
   if (!S.token) return;
+  const delay = Math.min(remainingMs, MEMBER_MAX_TIMEOUT_MS);
+  _memberIdleTimer = setTimeout(() => {
+    const left = remainingMs - delay;
+    if (left > 0) armMemberIdle(left); // まだ猶予あり → 残りで再セット
+    else if (S.token) memberLogout(true);
+  }, delay);
+}
+function resetMemberIdle() {
+  if (!S.token) { if (_memberIdleTimer) clearTimeout(_memberIdleTimer); return; }
   saveMemberSession(); // 最終操作時刻を更新（スライド）
-  _memberIdleTimer = setTimeout(() => { if (S.token) memberLogout(true); }, MEMBER_IDLE_MS);
+  armMemberIdle(MEMBER_IDLE_MS);
 }
 ['click','keydown','mousemove','scroll','touchstart'].forEach(ev =>
   document.addEventListener(ev, () => { if (S.token) resetMemberIdle(); }, { passive: true }));

@@ -601,11 +601,25 @@ function setStep(i) {
   document.getElementById('steps').innerHTML = STEP_LABELS
     .map((l, idx) => '<span class="' + (idx === i ? 'active' : '') + '">' + (idx + 1) + '. ' + l + '</span>').join('');
 }
-function show(id) {
+// 各ビューとステップ番号の対応（ブラウザ戻る＝popstate 時のステップ表示にも使う）
+const VIEW_STEP = { 'view-spaces': 0, 'view-calendar': 1, 'view-cart': 2, 'view-options': 3, 'view-customer': 4, 'view-done': 5 };
+let currentView = null;
+function show(id, fromPop) {
   ['view-spaces','view-calendar','view-cart','view-options','view-customer','view-done']
     .forEach(v => document.getElementById(v).classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
   updateSpaceBanner(id);
+  currentView = id;
+  if (!fromPop) syncHistory(id); // ブラウザ履歴に現在ステップを反映（戻るボタン対応）
+}
+// ブラウザ履歴に現在のビューを積む/据え置く。「ブラウザの戻る」で予約ステップを1つ戻せるようにする。
+function syncHistory(id) {
+  try {
+    const cur = history.state && history.state.albeView;
+    if (!cur || cur === id) history.replaceState({ albeView: id }, '');          // 初回/同一：据え置き
+    else if (id === 'view-done') history.replaceState({ albeView: id }, '');       // 完了：戻ってフロー再突入させない
+    else history.pushState({ albeView: id }, '');                                  // 前進：履歴を積む
+  } catch (e) {}
 }
 // 予約中スペース名の常時表示バーを同期（スペース選択画面では非表示）
 function updateSpaceBanner(id) {
@@ -779,7 +793,7 @@ async function enterRebook(groupId) {
   // スペースを選択してカレンダー表示（日時はお客様が選ぶ）
   S.deepLinked = true;
   selectSpace(t.spaceId);
-  try { history.replaceState(null, '', location.pathname); } catch (e) {} // ?rebook= をURLから除去
+  try { history.replaceState(history.state, '', location.pathname); } catch (e) {} // ?rebook= をURLから除去
   showRebookBanner(sp.name, dropped);
   return true;
 }
@@ -804,7 +818,7 @@ async function resumeBookingFromRegister() {
   } catch (e) {}
   localStorage.removeItem('albe_resume_booking');
   localStorage.removeItem('albe_resume_token');
-  history.replaceState(null, '', location.pathname); // ?resume=1 をURLから除去
+  history.replaceState(history.state, '', location.pathname); // ?resume=1 をURLから除去
   if (!state || !state.spaceId) return false;
   const sp = S.spaces.find(s => s.id === state.spaceId);
   if (!sp) return false;
@@ -883,7 +897,7 @@ async function consumeBookingMagic(token) {
     const r = await api('/api/auth/magic-link/consume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
     ok = r.ok; body = r.body;
   } catch (e) {}
-  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  try { history.replaceState(history.state, '', location.pathname); } catch (e) {}
   const d = readDraft();
   const haveDraft = !!(d && S.spaces.find(s => s.id === d.spaceId));
   if (!ok || !body || !body.token) {
@@ -903,7 +917,7 @@ async function consumeBookingMagic(token) {
 }
 // 認証失敗（?login_error=）：下書きがあれば復元し、メッセージ表示
 async function handleBookingLoginError(code) {
-  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  try { history.replaceState(history.state, '', location.pathname); } catch (e) {}
   await restoreMemberSession();
   const d = readDraft();
   if (d && S.spaces.find(s => s.id === d.spaceId)) { await restoreDraft(d); }
@@ -1782,6 +1796,28 @@ async function submitBooking() {
     });
   } catch (e) {}
 }
+
+// 「ブラウザの戻る」/スマホの端スワイプ戻る：サイトを離れず、予約ステップを1つ戻す。
+window.addEventListener('popstate', function (e) {
+  // 1) 時刻選択モーダルが開いていれば、まず閉じる（画面遷移はしない）
+  const modal = document.getElementById('modal');
+  if (modal && modal.classList.contains('show')) {
+    closeModal();
+    try { history.pushState({ albeView: currentView }, ''); } catch (_) {} // 現在ビューを再固定
+    return;
+  }
+  // 2) 予約完了後に戻る→新規予約の最初へ（完了フローへの再突入・二重送信を防止）
+  if (currentView === 'view-done') {
+    S.space = null; S.cart = []; S.optQty = {};
+    show('view-spaces', true); setStep(0);
+    return;
+  }
+  // 3) 通常：履歴に記録したビューへ戻す。必要な状態が無ければスペース選択へフォールバック
+  let v = (e.state && e.state.albeView) || 'view-spaces';
+  if (v !== 'view-spaces' && !S.space) v = 'view-spaces';
+  show(v, true);
+  setStep(VIEW_STEP[v] != null ? VIEW_STEP[v] : 0);
+});
 
 loadSpaces();
 

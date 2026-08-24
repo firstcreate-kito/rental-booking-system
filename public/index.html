@@ -33,6 +33,15 @@
   .steps { display: flex; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 18px; flex-wrap: wrap; }
   .steps span { padding: 4px 10px; border-radius: 999px; background: #eef2f7; }
   .steps span.active { background: var(--brand); color: #fff; }
+  /* 予約中スペース名の常時表示バー（どのスペースを予約中か迷わないように）。
+     top:0＋ヘッダーより上のz-indexで、スクロール時は最上部にピン留めされる */
+  .space-banner { position: sticky; top: 0; z-index: 6; display: flex; align-items: center;
+    gap: 8px; background: var(--key-w, #eef4ff); border: 1px solid var(--brand);
+    color: var(--brand); border-radius: 10px; padding: 9px 14px; margin: 0 0 14px;
+    font-weight: 700; font-size: 14px; box-shadow: 0 2px 8px rgba(31,111,235,.12); }
+  .space-banner .sb-ico { font-size: 15px; }
+  .space-banner .sb-label { font-weight: 500; color: var(--muted); font-size: 12px; }
+  .space-banner .sb-name { font-size: 15px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
   .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
@@ -170,6 +179,11 @@
   </nav>
 </header>
 <main>
+  <div class="space-banner hidden" id="spaceBanner">
+    <span class="sb-ico">📍</span>
+    <span class="sb-label">予約中のスペース</span>
+    <span class="sb-name" id="spaceBannerName"></span>
+  </div>
   <div class="steps" id="steps"></div>
 
   <!-- STEP 0: スペース選択 -->
@@ -582,6 +596,18 @@ function show(id) {
   ['view-spaces','view-calendar','view-cart','view-options','view-customer','view-done']
     .forEach(v => document.getElementById(v).classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
+  updateSpaceBanner(id);
+}
+// 予約中スペース名の常時表示バーを同期（スペース選択画面では非表示）
+function updateSpaceBanner(id) {
+  const bar = document.getElementById('spaceBanner');
+  if (!bar) return;
+  if (id !== 'view-spaces' && S.space && S.space.name) {
+    document.getElementById('spaceBannerName').textContent = S.space.name;
+    bar.classList.remove('hidden');
+  } else {
+    bar.classList.add('hidden');
+  }
 }
 
 async function loadSpaces() {

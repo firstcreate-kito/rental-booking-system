@@ -9,14 +9,14 @@
  *   - /assets/ の静的ファイル: ネットワーク優先＋失敗時キャッシュ（オフラインでも見た目維持）。
  * これにより「古い空き状況が出る」「決済が二重に走る」等の事故を防ぐ。
  */
-const CACHE = 'albe-pwa-v1';
+const CACHE = 'albe-pwa-v2';
 // クリーンURL（拡張子なし）で指定する。Cloudflareのアセットは /offline.html →
 // /offline へ307リダイレクトするため、.html を指定すると cache.addAll が失敗する。
 const PRECACHE = [
   '/offline',
   '/assets/tokens.css',
   '/assets/albe-header.css',
-  '/assets/albe-logo.png',
+  '/assets/albe-logo.svg',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
   '/assets/apple-touch-icon.png',

@@ -184,7 +184,7 @@ ${embed ? 'body{ padding-bottom:0 !important; } .datebar{ border-top:0; }' : ''}
 <body${embed ? ' class="embed"' : ''}>
 ${embed ? '' : `<header class="albe-topbar">
   <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
-    <img class="albe-logo" src="/assets/albe-logo.png" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <img class="albe-logo" src="/assets/albe-logo.svg" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
     <span class="albe-brand-text">RENTAL SPACE ALBE</span>
   </a>
   <nav class="albe-nav">

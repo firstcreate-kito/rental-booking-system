@@ -34,6 +34,8 @@
   .btn.sm { padding:5px 10px; font-size:12px; }
   .btn.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .btn.danger { background:#fff; color:var(--bad); border:1px solid var(--bad); }
+  /* 予約履歴などの操作ボタン群：折り返しても重ならないよう間隔を確保して整列（#98関連の重なり修正） */
+  .actwrap { display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:flex-end; }
   .tabs { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
   .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; font-size:13px; }
   .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
@@ -52,6 +54,8 @@
     table.resp td.act { display:block; text-align:center; padding:12px 0 8px; }
     table.resp td.act::before { content:""; }
     table.resp td.act:empty { display:none; }
+    /* スマホ（カード型）では操作ボタンを縦積み・全幅で見やすく */
+    table.resp td.act .actwrap { flex-direction:column; align-items:stretch; }
     table.resp td.act .btn { width:100%; }
   }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
@@ -615,7 +619,7 @@ function bookingRow(b) {
     '<td data-label="日程">' + span + '</td>' +
     '<td data-label="金額">' + yen(b.total_amount) + '</td>' +
     '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td>' +
-    '<td class="act">' + action + '</td></tr>';
+    '<td class="act"><div class="actwrap">' + action + '</div></td></tr>';
 }
 // 銀行振込の振込先（予約番号→口座情報）。bookingRow 描画時に格納。
 const _bankInfoMap = {};

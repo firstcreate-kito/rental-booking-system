@@ -27,6 +27,12 @@ app.post('/stripe', async (c) => {
     return c.json({ error: 'signature verification failed: ' + (err as Error).message }, 400);
   }
 
+  // 受信イベントの記録（原因特定用・Cloudflare Observabilityで検索できる）
+  {
+    const s = event.data?.object as { id?: string; payment_status?: string } | undefined;
+    console.log('[webhook] stripe event', { type: event.type, sessionId: s?.id, paymentStatus: s?.payment_status });
+  }
+
   // コンビニ払込票の発行（未入金の completed）→ 枠を仮押さえ（tentative）＋受付メール（#39）。
   // カード即時決済は payment_status='paid' で来るので下の PAID_EVENTS 側で処理する。
   if (event.type === 'checkout.session.completed') {

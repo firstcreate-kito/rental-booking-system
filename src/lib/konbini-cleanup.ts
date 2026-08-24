@@ -39,6 +39,13 @@ export async function runReleaseExpiredKonbiniHolds(env: Env): Promise<{ release
     const ok = await releaseUnpaidStripeHold(env.DB, h.id);
     if (!ok) continue;
     released++;
+    console.warn('[release] unpaid hold auto-cancelled', {
+      groupId: h.id,
+      method: h.payment_method,
+      createdAt: h.created_at,
+      earliestDate: h.earliest_date,
+      reason: createdExpired ? 'created-expired' : 'use-date-imminent',
+    });
     if (cal?.calendarId) {
       await deleteBookingFromCalendar(env, cal.calendarId, (cal.rows ?? []).map((r) => r.google_event_id)).catch(() => {});
     }

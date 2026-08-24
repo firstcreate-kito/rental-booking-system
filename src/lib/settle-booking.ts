@@ -72,6 +72,7 @@ export async function settlePaidBookingSession(
   // 仮押さえを解放（自動キャンセル）した後に着金したレアケース（主に銀行振込）。
   // 枠は既に手放しているため自動確定はせず、入金だけ記録して管理者へ要対応通知する（#39）。
   if (group && (group.status === 'cancelled' || group.status === 'failed')) {
+    console.warn('[settle] paid after release (late payment)', { groupId, bookingNumber: group.booking_number, groupStatus: group.status, method: group.payment_method });
     bg(notifyLatePaymentOnReleased(env, groupId));
     return { ok: true, established: false, groupId };
   }
@@ -81,15 +82,18 @@ export async function settlePaidBookingSession(
   if (group && (group.status === 'pending' || group.status === 'tentative')) {
     const outcome = await finalizeImmediateBooking(env, groupId, origin);
     if (outcome === 'confirmed' || outcome === 'already') {
+      console.log('[settle] established (payment-first)', { groupId, bookingNumber: group.booking_number, outcome, method: group.payment_method });
       try { await createDocumentForGroup(env.DB, groupId, 'receipt'); } catch { /* 書類発行失敗は決済に影響させない */ }
       bg(notifyBookingEstablished(env, groupId));
       return { ok: true, established: true, groupId };
     }
     // 枠が埋まっていた → 自動返金＋不成立
+    console.warn('[settle] slot conflict on finalize → auto-refund + fail', { groupId, bookingNumber: group.booking_number, outcome, method: group.payment_method });
     let refundOk = false;
     if (paymentIntent && env.STRIPE_SECRET_KEY) {
       refundOk = (await refundPayment(env.STRIPE_SECRET_KEY, paymentIntent)).ok;
     }
+    console.warn('[settle] auto-refund result', { groupId, bookingNumber: group.booking_number, refundOk });
     await failBookingGroup(env.DB, groupId);
     bg(notifyBookingFailed(env, groupId, refundOk));
     return { ok: true, established: false, refunded: refundOk, groupId };
@@ -99,6 +103,7 @@ export async function settlePaidBookingSession(
   // 領収書を発行し、入金確認メール（お客様・管理者）を送る。Webhook 再配信（already）時は
   // 二重発行・二重送信しない。
   if (r.already) return { ok: true, alreadyConfirmed: true, groupId };
+  console.log('[settle] payment confirmed on confirmed hold', { groupId, bookingNumber: group?.booking_number, method: group?.payment_method });
   let receiptPath: string | null = null;
   try {
     const doc = await createDocumentForGroup(env.DB, groupId, 'receipt');

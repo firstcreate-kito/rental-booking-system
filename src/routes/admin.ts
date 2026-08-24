@@ -1091,6 +1091,18 @@ app.post('/bookings/:number/reschedule', async (c) => {
   }
   // options を省略した場合は既存のオプションを維持（合計はそのまま）
   const optionsProvided = reqOptions !== undefined;
+  // オプションが「実際に」変わったかを判定（変更通知メールの「変更点」表示・送信要否に使う）。
+  // 未指定＝据え置きなので変更なし。指定時は旧選択（option_id×数量）と比較する。
+  let optionsChanged = false;
+  if (optionsProvided) {
+    const { results: oldSelRows } = await db
+      .prepare('SELECT option_id, quantity FROM booking_option_selections WHERE group_id = ?')
+      .bind(g.id)
+      .all<{ option_id: string; quantity: number }>();
+    const oldSig = (oldSelRows ?? []).map((o) => `${o.option_id}:${o.quantity}`).sort().join('|');
+    const newSig = newSelections.map((o) => `${o.optionId}:${o.quantity}`).sort().join('|');
+    optionsChanged = oldSig !== newSig;
+  }
   const curOptRow = await db
     .prepare('SELECT COALESCE(SUM(subtotal),0) AS t FROM booking_option_selections WHERE group_id = ?')
     .bind(g.id)
@@ -1211,13 +1223,23 @@ app.post('/bookings/:number/reschedule', async (c) => {
     showAmount: !isTentative,
     // オプションを編集した場合のみメールに反映（未指定なら省略）
     options: optionsProvided ? optionLines : undefined,
+    // 「変更点」に『オプション』を出すのは実際に変わったときだけ（据え置き保存で誤表示しない）
+    optionsChanged,
   };
+  // 実際に何か変わったか（日時／オプション／金額）。何も変わっていない保存では
+  // 紛らわしい「変更しました」メールを送らない。
+  const dayKey = (d: { date: string; startTime: string; endTime: string }) => `${d.date} ${d.startTime}-${d.endTime}`;
+  const daysChanged =
+    oldDays.length !== newDays.length ||
+    oldDays.map(dayKey).sort().join('|') !== newDays.map(dayKey).sort().join('|');
+  const amountChanged = !!adjustment && adjustment.type !== 'zero';
+  const anyChange = daysChanged || optionsChanged || amountChanged;
   const custEmail = cust?.email ? String(cust.email) : '';
-  if (custEmail) {
+  if (anyChange && custEmail) {
     c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
   }
   const rsAdmins = await adminRecipients(c.env, g.space_id);
-  if (rsAdmins.length) {
+  if (anyChange && rsAdmins.length) {
     const adminMail = adminRescheduleEmail({ ...mailData, customerEmail: custEmail || undefined, customerPhone: cust?.phone ? String(cust.phone) : undefined });
     c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...adminMail }));
     // 料金変更（差額）が出た本予約のみ、返金/追加請求の対応要アラートを発信（#62/#64）

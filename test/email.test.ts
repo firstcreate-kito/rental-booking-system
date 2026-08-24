@@ -175,6 +175,24 @@ describe('email - 日時変更（reschedule）テンプレート', () => {
     expect(m.text).toContain('変更後の合計金額（税込）: ¥20,000');
     expect(m.text).not.toContain('差額');
   });
+  it('オプション欄を渡しても optionsChanged=false なら「変更点: オプション」を出さない', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 1200, oldTotal: 1200, status: 'confirmed', showAmount: true,
+      options: [], optionsChanged: false,
+    });
+    expect(m.html).not.toContain('変更点: オプション');
+    expect(m.text).not.toContain('【変更点】オプション');
+  });
+  it('optionsChanged=true のときだけ「変更点」にオプションを出す', () => {
+    const m = rescheduleEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      oldDays, newDays, total: 1200, oldTotal: 1200, status: 'confirmed', showAmount: true,
+      options: [{ name: '椅子', quantity: 2, subtotal: 200 }], optionsChanged: true,
+    });
+    expect(m.html).toContain('オプション');
+    expect(m.text).toContain('オプション');
+  });
   it('管理者通知: 連絡先と変更前後を含む', () => {
     const m = adminRescheduleEmail({
       bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',

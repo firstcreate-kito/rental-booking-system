@@ -290,6 +290,8 @@ export interface RescheduleEmailData {
   showAmount: boolean;
   /** 変更後のオプション（undefined=セクションを出さない / []=「なし」） */
   options?: ReadonlyArray<{ name: string; quantity: number; subtotal: number }>;
+  /** オプションが実際に変わったか（「変更点」への表示可否。省略時は変更なし扱い） */
+  optionsChanged?: boolean;
   /** 変更前の合計金額（税込）。指定時は「変更前→変更後」と差額を表示 */
   oldTotal?: number;
 }
@@ -356,7 +358,7 @@ ${note}</div>`;
 function changeSummaryText(d: RescheduleEmailData): string {
   const parts: string[] = [];
   if (!sameDays(d.oldDays, d.newDays)) parts.push('ご利用日時');
-  if (d.options !== undefined) parts.push('オプション');
+  if (d.optionsChanged) parts.push('オプション');
   if (d.showAmount && d.oldTotal !== undefined && d.oldTotal !== d.total) parts.push('お支払い金額');
   if (parts.length === 0) return '';
   return `【変更点】${parts.join('・')}\n\n`;
@@ -364,7 +366,7 @@ function changeSummaryText(d: RescheduleEmailData): string {
 function changeSummaryHtml(d: RescheduleEmailData): string {
   const parts: string[] = [];
   if (!sameDays(d.oldDays, d.newDays)) parts.push('ご利用日時');
-  if (d.options !== undefined) parts.push('オプション');
+  if (d.optionsChanged) parts.push('オプション');
   if (d.showAmount && d.oldTotal !== undefined && d.oldTotal !== d.total) parts.push('お支払い金額');
   if (parts.length === 0) return '';
   return `<p style="margin:8px 0"><span style="display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:3px 10px;font-size:13px;font-weight:600">変更点: ${parts.map(escapeHtml).join('・')}</span></p>`;

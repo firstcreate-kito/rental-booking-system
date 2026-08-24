@@ -1984,6 +1984,32 @@ export async function getCancelPolicies(db: D1Database): Promise<CancelPolicyRow
   return results ?? [];
 }
 
+/** スペース個別のキャンセルポリシー段階（空なら共通ポリシーを使う）#99 */
+export async function getSpaceCancelPolicyRows(db: D1Database, spaceId: string): Promise<CancelPolicyRow[]> {
+  const { results } = await db
+    .prepare('SELECT space_id, days_before, charge_pct, cutoff_time FROM cancel_policies WHERE space_id = ? ORDER BY sort_order')
+    .bind(spaceId)
+    .all<CancelPolicyRow>();
+  return results ?? [];
+}
+
+/** スペース個別のキャンセルポリシー段階を置き換える（tiers が空なら削除＝共通に戻す）#99 */
+export async function setSpaceCancelPolicyTiers(
+  db: D1Database,
+  spaceId: string,
+  tiers: Array<{ daysBefore: number; chargePct: number; cutoffTime: string | null; sortOrder: number }>,
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM cancel_policies WHERE space_id = ?').bind(spaceId)];
+  for (const t of tiers) {
+    stmts.push(
+      db
+        .prepare('INSERT INTO cancel_policies (id, space_id, days_before, charge_pct, cutoff_time, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), spaceId, t.daysBefore, t.chargePct, t.cutoffTime, t.sortOrder),
+    );
+  }
+  await db.batch(stmts);
+}
+
 /** 顧客の指定年月(YYYY-MM)のセルフキャンセル回数 */
 export async function getMonthlyCancelCount(
   db: D1Database,

@@ -87,7 +87,7 @@ a.link{ color:var(--brand); }
     <div id="cancelPolicy" class="policybox hidden">
       <strong>キャンセルについて</strong><br>
       ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
-      ・キャンセル料：31日前まで無料／30〜15日前 50%／14日前〜前日 80%／当日 100%。キャンセル料が発生する場合は、お手続き前に担当者より金額をご案内します。
+      ・キャンセル料は<b>スペース・時期により異なります</b>。「キャンセル」をお選びいただくと、発生するキャンセル料・ご返金額を画面に表示します。
     </div>
     <div id="reschedulePolicy" class="policybox hidden">
       <strong>日時変更について</strong><br>

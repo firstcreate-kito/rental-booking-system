@@ -16,6 +16,8 @@ import {
   insertSpace,
   updateSpace,
   getSpaceById,
+  getSpaceCancelPolicyRows,
+  setSpaceCancelPolicyTiers,
   getHolidaysAll,
   upsertHoliday,
   deleteHoliday,
@@ -69,7 +71,6 @@ import {
   getCustomerByEmail,
   getBookingGroupByNumber,
   getBookingsByGroup,
-  getCancelPolicies,
   refundBookingPoints,
   peekNextBookingSeq,
   setSystemSetting,
@@ -108,8 +109,9 @@ import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail, ADMIN_SESSION_IDLE_MINUTES } from '../lib/auth';
 import { buildXlsx, type Sheet } from '../lib/xlsx';
 import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
-import { getDayType, isClosed, daysBetween, type HolidayType } from '../lib/calendar';
-import { computeCancelCharge, selectCancelPolicy, computeAdjustment, type CancelPolicyTier } from '../lib/cancellation';
+import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
+import { computeAdjustment } from '../lib/cancellation';
+import { computeGroupCancel } from '../lib/cancellation-service';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
@@ -574,25 +576,6 @@ app.post('/bookings/:number/confirm', async (c) => {
   return c.json({ bookingNumber: number, status: 'confirmed', calendarWarning });
 });
 
-/** 予約グループのキャンセル料を日別に計算（キャンセルはしない） */
-async function computeGroupCancel(db: D1Database, spaceId: string, bookings: Array<{ id: string; date: string; price: number; status: string }>, now: string) {
-  const policiesAll = await getCancelPolicies(db);
-  const tiers: CancelPolicyTier[] = selectCancelPolicy(
-    policiesAll.map((p) => ({ spaceId: p.space_id, daysBefore: p.days_before, chargePct: p.charge_pct, cutoffTime: p.cutoff_time })),
-    spaceId,
-  );
-  const today = now.slice(0, 10);
-  let totalFee = 0;
-  const breakdown = bookings
-    .filter((b) => b.status !== 'cancelled')
-    .map((b) => {
-      const charge = computeCancelCharge(tiers, b.date, now, b.price);
-      totalFee += charge.cancelFee;
-      return { bookingId: b.id, date: b.date, price: b.price, daysBefore: daysBetween(today, b.date), chargePct: charge.chargePct, cancelFee: charge.cancelFee };
-    });
-  return { totalFee, breakdown };
-}
-
 /** GET /api/admin/bookings/:number/cancel-preview キャンセル料の事前確認 */
 app.get('/bookings/:number/cancel-preview', async (c) => {
   const db = c.env.DB;
@@ -600,7 +583,7 @@ app.get('/bookings/:number/cancel-preview', async (c) => {
   if (!g) return c.json({ error: 'booking not found' }, 404);
   if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
   const bookings = await getBookingsByGroup(db, g.id);
-  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, nowJST());
+  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, nowJST(), g.original_date);
   return c.json({ bookingNumber: g.booking_number, status: g.status, totalFee, breakdown });
 });
 
@@ -614,7 +597,7 @@ app.post('/bookings/:number/cancel', async (c) => {
 
   const bookings = await getBookingsByGroup(db, g.id);
   const now = nowJST();
-  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now);
+  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now, g.original_date);
 
   const stmts: D1PreparedStatement[] = [];
   for (const b of breakdown) {
@@ -1548,6 +1531,28 @@ app.put('/spaces/:id', requireRole('owner', 'manager'), async (c) => {
     throw err;
   }
   return c.json({ id, ...input });
+});
+
+// スペース別キャンセルポリシーのプリセット（#99）。
+// 'piano'（ピアノ練習室特別）= 8日以上前:無料 / 2〜7日前:50% / 前日・当日:100%。
+// 'standard' = スペース個別を持たず共通ポリシーに従う。
+const PIANO_CANCEL_TIERS = [
+  { daysBefore: 7, chargePct: 50, cutoffTime: null, sortOrder: 1 },
+  { daysBefore: 1, chargePct: 100, cutoffTime: null, sortOrder: 2 },
+];
+
+/** GET /api/admin/spaces/:id/cancel-policy 現在のプリセット（standard/piano） */
+app.get('/spaces/:id/cancel-policy', async (c) => {
+  const rows = await getSpaceCancelPolicyRows(c.env.DB, c.req.param('id'));
+  return c.json({ preset: rows.length ? 'piano' : 'standard' });
+});
+
+/** PUT /api/admin/spaces/:id/cancel-policy {preset:'standard'|'piano'} プリセットを設定 */
+app.put('/spaces/:id/cancel-policy', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { preset?: string };
+  const preset = body.preset === 'piano' ? 'piano' : 'standard';
+  await setSpaceCancelPolicyTiers(c.env.DB, c.req.param('id'), preset === 'piano' ? PIANO_CANCEL_TIERS : []);
+  return c.json({ ok: true, preset });
 });
 
 // ---------------------------------------------------------------------------

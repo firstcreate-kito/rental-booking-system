@@ -17,12 +17,17 @@ export interface CancelBreakdownRow {
   cancelFee: number;
 }
 
-/** グループ全体のキャンセル料を段階ポリシーで計算（admin の同名処理と同じ算出） */
+/**
+ * グループ全体のキャンセル料を段階ポリシーで計算する。
+ * @param referenceDate 料率判定の基準日（省略時は各明細の利用日）。「当初利用日」を渡すと、
+ *   遠い日へ日程変更してから無料キャンセルする抜け穴を防げる（#99）。
+ */
 export async function computeGroupCancel(
   db: D1Database,
   spaceId: string,
   bookings: Array<{ id: string; date: string; price: number; status: string }>,
   now: string,
+  referenceDate?: string | null,
 ): Promise<{ totalFee: number; breakdown: CancelBreakdownRow[] }> {
   const policiesAll = await getCancelPolicies(db);
   const tiers: CancelPolicyTier[] = selectCancelPolicy(
@@ -34,9 +39,10 @@ export async function computeGroupCancel(
   const breakdown = bookings
     .filter((b) => b.status !== 'cancelled')
     .map((b) => {
-      const charge = computeCancelCharge(tiers, b.date, now, b.price);
+      const ref = referenceDate || b.date; // 当初利用日があればそれを基準に料率を判定
+      const charge = computeCancelCharge(tiers, ref, now, b.price);
       totalFee += charge.cancelFee;
-      return { bookingId: b.id, date: b.date, price: b.price, daysBefore: daysBetween(today, b.date), chargePct: charge.chargePct, cancelFee: charge.cancelFee };
+      return { bookingId: b.id, date: b.date, price: b.price, daysBefore: daysBetween(today, ref), chargePct: charge.chargePct, cancelFee: charge.cancelFee };
     });
   return { totalFee, breakdown };
 }
@@ -65,11 +71,12 @@ export interface CancelQuote {
  */
 export async function quoteCancellation(
   db: D1Database,
-  group: { space_id: string; total_amount: number; payment_status: string },
+  group: { space_id: string; total_amount: number; payment_status: string; original_date?: string | null },
   bookings: Array<{ id: string; date: string; price: number; status: string }>,
   now: string,
 ): Promise<CancelQuote> {
-  const { totalFee, breakdown } = await computeGroupCancel(db, group.space_id, bookings, now);
+  // 当初利用日を基準に料率を判定（遠い日へ変更→無料キャンセルの抜け穴を防ぐ #99）
+  const { totalFee, breakdown } = await computeGroupCancel(db, group.space_id, bookings, now, group.original_date ?? null);
   const paidAmount = group.payment_status === 'paid' ? group.total_amount : 0;
   const refundAmount = Math.max(0, paidAmount - totalFee);
   const chargePctMax = breakdown.reduce((m, b) => Math.max(m, b.chargePct), 0);

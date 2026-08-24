@@ -56,6 +56,17 @@ describe('quoteCancellation（#100 キャンセル見積り・確定額）', () 
     expect(q.refundAmount).toBe(4840);
   });
 
+  it('当初利用日を基準に料率を判定（遠い日へ変更しても抜け穴にならない・#99）', async () => {
+    const q = await quoteCancellation(
+      fakeDb(POLICIES),
+      { space_id: 'S1', total_amount: 4840, payment_status: 'paid', original_date: '2026-09-11' },
+      // 実際の予約日は遠い(10/20＝本来0%)が、当初利用日9/11基準で80%になる
+      [{ id: 'b1', date: '2026-10-20', price: 4840, status: 'confirmed' }],
+      '2026-09-01 10:00:00',
+    );
+    expect(q.cancelFee).toBe(3872); // 当初9/11基準で80%（実日基準なら0円だが抜け穴を塞ぐ）
+  });
+
   it('キャンセル済みの明細は集計対象外', async () => {
     const q = await quoteCancellation(
       fakeDb(POLICIES),

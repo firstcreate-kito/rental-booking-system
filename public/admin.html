@@ -426,6 +426,12 @@
         </div>
         <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行します（コンビニは利用5日前まで、銀行振込は利用7日前までの受付）。</div>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="width:auto;margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
+        <label style="margin-top:12px">キャンセルポリシー（このスペース）</label>
+        <select id="sp_cancel_policy">
+          <option value="standard">標準（共通：31日前まで無料／30〜15日前50%／14日前〜前日80%／当日100%）</option>
+          <option value="piano">ピアノ練習室特別（8日以上前=無料／2〜7日前=50%／前日・当日=100%）</option>
+        </select>
+        <div class="muted" style="font-size:12px;margin-top:4px">直前予約・変更が多いスペース（防音室・ピアノ練習室など）向けの特別設定。日時変更は空き次第で無料のままです。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -1295,8 +1301,15 @@ function fillSpaceForm(s) {
   const modeEl = document.querySelector('input[name="sp_paymode"][value="' + mode + '"]');
   if (modeEl) modeEl.checked = true;
   document.getElementById('sp_manual_invoice').checked = s ? !!s.allow_manual_invoice : false;
+  // キャンセルポリシー プリセット（#99）：新規は標準、既存は取得して反映
+  document.getElementById('sp_cancel_policy').value = 'standard';
+  if (s) loadSpaceCancelPolicy(s.id);
   document.getElementById('spMsg').textContent = '';
   document.getElementById('spForm').classList.remove('hidden');
+}
+async function loadSpaceCancelPolicy(id) {
+  const { ok, body } = await api('/api/admin/spaces/' + id + '/cancel-policy');
+  if (ok && body.preset) document.getElementById('sp_cancel_policy').value = body.preset;
 }
 async function testCalendar() {
   const calendarId = document.getElementById('sp_gcal').value.trim();
@@ -1338,6 +1351,11 @@ async function saveSpace() {
     ? await api('/api/admin/spaces/' + editing, jsonBody(payload, 'PUT'))
     : await api('/api/admin/spaces', jsonBody(payload));
   if (!res.ok) { msg.className = 'msg bad'; msg.textContent = res.body.error || '保存に失敗しました'; return; }
+  // キャンセルポリシー プリセットを保存（#99）
+  const spaceId = editing || (res.body && res.body.id);
+  if (spaceId) {
+    await api('/api/admin/spaces/' + spaceId + '/cancel-policy', jsonBody({ preset: document.getElementById('sp_cancel_policy').value }, 'PUT'));
+  }
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();

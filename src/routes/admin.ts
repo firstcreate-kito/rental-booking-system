@@ -103,7 +103,7 @@ import {
   getBookingEventsForGroup,
 } from '../db/repository';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
-import { refundPaypalCapture } from '../lib/paypal';
+import { refundPaypalCapture, paypalConfigured } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail, ADMIN_SESSION_IDLE_MINUTES } from '../lib/auth';
@@ -255,6 +255,37 @@ app.post('/test-email', requireRole('owner', 'manager'), async (c) => {
   });
   // 送信元の設定状況も返す（原因切り分け用）
   return c.json({ configured, hasApiKey: !!c.env.RESEND_API_KEY, hasFrom: !!c.env.MAIL_FROM, mailFrom: c.env.MAIL_FROM ?? null, ...result });
+});
+
+/**
+ * GET /api/admin/system-status システム連携モード診断（#84）
+ * ステージング／本番で「今どのモードで動いているか」を安全に確認するための一覧。
+ * 秘密値（APIキー等）は一切返さず、モード（test/live・sandbox/live）と
+ * 設定済みか否か（boolean）だけを返す。Stripeのモードは鍵の接頭辞から判定
+ * （sk_live→本番／sk_test→テスト）。鍵そのものは応答に含めない。
+ */
+app.get('/system-status', requireRole('owner', 'manager'), (c) => {
+  const env = c.env;
+  const sk = (env.STRIPE_SECRET_KEY ?? '').trim();
+  const stripeMode = sk.startsWith('sk_live') ? 'live' : sk.startsWith('sk_test') ? 'test' : 'unknown';
+  const paypalMode = env.PAYPAL_MODE?.trim() === 'live' ? 'live' : 'sandbox';
+  return c.json({
+    appEnv: env.APP_ENV ?? 'unknown',
+    publicBaseUrl: env.PUBLIC_BASE_URL ?? null,
+    gate: { basicAuth: !!(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS) },
+    payments: {
+      stripe: { configured: stripeConfigured(env), mode: stripeMode, konbini: env.STRIPE_KONBINI_ENABLED === 'true' },
+      paypal: { configured: paypalConfigured(env), mode: paypalMode },
+    },
+    email: { configured: !!(env.RESEND_API_KEY && env.MAIL_FROM), adminRecipient: !!env.MAIL_ADMIN },
+    calendar: { configured: gcalConfigured(env) },
+    logins: {
+      google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+      line: !!(env.LINE_CHANNEL_ID && env.LINE_CHANNEL_SECRET),
+    },
+    pdf: { configured: !!(env.CF_ACCOUNT_ID && env.CF_BROWSER_API_TOKEN) },
+    retention: { anonymizeEnabled: env.ANONYMIZE_ENABLED === 'true' },
+  });
 });
 
 // ---------------------------------------------------------------------------

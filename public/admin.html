@@ -121,6 +121,7 @@
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
       <button id="tab-export" onclick="showTab('export')">エクスポート</button>
       <button id="tab-issuer" onclick="showTab('issuer')">事業者情報</button>
+      <button id="tab-sysstatus" onclick="showTab('sysstatus')">システム状態</button>
     </div>
 
     <!-- 予約一覧 -->
@@ -482,6 +483,21 @@
       <div><label>備考（書類下部に表示・任意）</label><input id="iss_note" placeholder="※お問い合わせは上記までお願いいたします。" /></div>
       <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn sm" onclick="saveIssuer()">保存</button></div>
       <div class="msg" id="issMsg"></div>
+    </section>
+
+    <!-- システム状態（連携モード診断・#84） -->
+    <section id="view-sysstatus" class="card hidden">
+      <h2>システム状態</h2>
+      <div class="muted">この画面が「今どの環境・どのモードで動いているか」を表示します。ステージング（テスト環境）と本番を見分けたり、決済がテスト／本番のどちらかを確認するのに使います。<b>秘密の鍵そのものは一切表示しません</b>（設定済みかどうか・モードだけ）。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:center">
+        <button class="btn ghost sm" onclick="loadSystemStatus()">🔄 最新の状態を取得</button>
+        <span class="muted" id="ssUpdated"></span>
+      </div>
+      <div id="ssEnvBanner" style="margin-top:12px"></div>
+      <div class="tablewrap" style="margin-top:12px">
+        <table class="resp"><thead><tr><th>項目</th><th>状態</th><th>補足</th></tr></thead><tbody id="ssBody"></tbody></table>
+      </div>
+      <div class="msg" id="ssMsg"></div>
     </section>
 
     <!-- カレンダー管理 -->
@@ -986,7 +1002,7 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','changereq','viewing','proxy','tent','spaces','calendar','issuer','options','questions','pricing','tickets','customers','export'].forEach(x => {
+  ['list','changereq','viewing','proxy','tent','spaces','calendar','issuer','sysstatus','options','questions','pricing','tickets','customers','export'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
@@ -995,6 +1011,7 @@ function showTab(t) {
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
   if (t === 'issuer') loadIssuer();
+  if (t === 'sysstatus') loadSystemStatus();
   if (t === 'options') loadOptionsAdmin();
   if (t === 'questions') loadQuestionsMgmt();
   if (t === 'pricing') loadPricingMgmt();
@@ -1869,6 +1886,60 @@ async function loadIssuer() {
   set('iss_name', iss.name); set('iss_zip', iss.zip); set('iss_tel', iss.tel);
   set('iss_address', iss.address); set('iss_email', iss.email); set('iss_reg', iss.invoiceRegNo);
   set('iss_bank', iss.bankInfo); set('iss_note', iss.note);
+}
+// システム状態（連携モード診断・#84）
+async function loadSystemStatus() {
+  const msg = document.getElementById('ssMsg');
+  const body = document.getElementById('ssBody');
+  const banner = document.getElementById('ssEnvBanner');
+  msg.className = 'msg'; msg.textContent = '';
+  body.innerHTML = '<tr><td colspan="3" class="muted">取得中…</td></tr>';
+  const { ok, body: d } = await api('/api/admin/system-status');
+  if (!ok) {
+    body.innerHTML = '';
+    msg.className = 'msg bad';
+    msg.textContent = (d && d.error) || '取得に失敗しました（この機能はオーナー／マネージャー権限が必要です）';
+    return;
+  }
+  // 色つきピル
+  const pill = (text, tone) => {
+    const c = tone === 'good' ? '#0a7d33' : tone === 'warn' ? '#b26a00' : tone === 'bad' ? '#b3261e' : '#5b6470';
+    const bg = tone === 'good' ? '#e7f6ec' : tone === 'warn' ? '#fff2dd' : tone === 'bad' ? '#fde8e6' : '#eef1f4';
+    return '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;color:' + c + ';background:' + bg + '">' + text + '</span>';
+  };
+  const yn = (b) => b ? pill('設定済み', 'good') : pill('未設定', 'muted');
+
+  // 環境バナー（本番＝赤系／それ以外＝青系）
+  const isProd = (d.appEnv === 'production') || (d.publicBaseUrl || '').indexOf('booking.space-albe.com') >= 0;
+  banner.innerHTML =
+    '<div style="padding:10px 14px;border-radius:10px;font-weight:700;border:1px solid ' +
+    (isProd ? '#f3b1ab;background:#fde8e6;color:#b3261e' : '#a9c9f0;background:#e8f0fe;color:#1a56c4') + '">' +
+    (isProd ? '⚠ 本番環境（実際のお客様・売上に反映されます）' : '🧪 テスト環境（ステージング）— ここでの操作は本番に影響しません') +
+    '　<span style="font-weight:400">APP_ENV=' + (d.appEnv || '?') + '</span></div>';
+
+  // 決済モードのピル（test/sandbox＝warn、live＝good）
+  const modePill = (mode, configured) => {
+    if (!configured) return pill('未設定', 'muted');
+    if (mode === 'live') return pill('本番(live)', 'good');
+    if (mode === 'test') return pill('テスト(test)', 'warn');
+    if (mode === 'sandbox') return pill('サンドボックス', 'warn');
+    return pill(mode || '不明', 'bad');
+  };
+  const rows = [
+    ['公開URL', d.publicBaseUrl ? pill(d.publicBaseUrl, 'muted') : pill('未設定', 'warn'), '書類・メール内リンクの基底URL'],
+    ['公開ゲート（Basic認証）', d.gate.basicAuth ? pill('有効', 'good') : pill('無効（公開中）', 'warn'), '公開前はON推奨。本番公開時にOFF'],
+    ['Stripe決済', modePill(d.payments.stripe.mode, d.payments.stripe.configured),
+      'コンビニ払い: ' + (d.payments.stripe.konbini ? '有効' : '無効')],
+    ['PayPal決済', modePill(d.payments.paypal.mode, d.payments.paypal.configured), 'sandbox＝テスト用／live＝本番'],
+    ['メール送信（Resend）', yn(d.email.configured), '管理者宛先: ' + (d.email.adminRecipient ? '設定済み' : '未設定')],
+    ['Googleカレンダー連携', yn(d.calendar.configured), '予約のカレンダー書き込み'],
+    ['Googleログイン', yn(d.logins.google), '会員のソーシャルログイン'],
+    ['LINEログイン', yn(d.logins.line), '会員のソーシャルログイン'],
+    ['PDF生成', yn(d.pdf.configured), '未設定でもHTML表示にフォールバック'],
+    ['個人情報の匿名化', d.retention.anonymizeEnabled ? pill('実行モード', 'warn') : pill('ドライラン', 'muted'), '7年経過データの自動匿名化'],
+  ];
+  body.innerHTML = rows.map(r => '<tr><td><b>' + r[0] + '</b></td><td>' + r[1] + '</td><td class="muted">' + r[2] + '</td></tr>').join('');
+  document.getElementById('ssUpdated').textContent = '取得: ' + new Date().toLocaleString('ja-JP');
 }
 async function saveContactUrl() {
   const msg = document.getElementById('cfgMsg');

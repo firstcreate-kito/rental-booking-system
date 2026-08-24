@@ -17,7 +17,12 @@
     "db:seed:tickets:remote": "wrangler d1 execute albe_booking --remote --file=./seeds/tickets.sql",
     "db:seed:issuer:remote": "wrangler d1 execute albe_booking --remote --file=./seeds/issuer.sql",
     "db:reset:local": "node scripts/reset-local-db.mjs && npm run db:migrate:local && npm run db:seed:local",
-    "deploy:setup": "npm run db:migrate:remote && npm run db:seed:remote && npm run deploy"
+    "deploy:setup": "npm run db:migrate:remote && npm run db:seed:remote && npm run deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "tail:staging": "wrangler tail albe-booking-api-staging",
+    "db:migrate:staging": "wrangler d1 migrations apply albe_booking_staging --remote --env staging",
+    "db:seed:staging": "wrangler d1 execute albe_booking_staging --remote --env staging --file=./seeds/seed.sql && wrangler d1 execute albe_booking_staging --remote --env staging --file=./seeds/options.sql && wrangler d1 execute albe_booking_staging --remote --env staging --file=./seeds/tickets.sql && wrangler d1 execute albe_booking_staging --remote --env staging --file=./seeds/issuer.sql",
+    "staging:setup": "npm run db:migrate:staging && npm run db:seed:staging && npm run deploy:staging"
   },
   "dependencies": {
     "hono": "^4.6.14"

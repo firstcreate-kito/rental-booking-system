@@ -43,5 +43,51 @@
   //  - "0 0 * * *"  : 毎日 00:00 UTC（＝日本時間 09:00）に未入金アラート（#41/#42）
   "triggers": {
     "crons": ["*/5 * * * *", "0 0 * * *"]
+  },
+  // ───────────────────────────────────────────────────────────────
+  // ステージング（テスト環境）#84
+  // 本番（booking.space-albe.com）とは「別Worker・別D1・別シークレット」の
+  // 完全独立した検証用環境。ここで自由に予約・決済・変更をテストしても、
+  // 本番の予約データ・売上・Googleカレンダー・お客様メールには一切影響しない。
+  //   デプロイ : npm run deploy:staging     （= wrangler deploy --env staging）
+  //   マイグレ : npm run db:migrate:staging
+  //   URL     : https://albe-booking-api-staging.<workers.devサブドメイン>.workers.dev
+  // ※初回のみ、別D1の作成とシークレット投入を手動で行う（docs/staging-setup.md）。
+  "env": {
+    "staging": {
+      "name": "albe-booking-api-staging",
+      // 本番ドメイン(routes)は継承されない。workers.dev のURLだけで配信する。
+      "workers_dev": true,
+      "observability": {
+        "enabled": true
+      },
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "run_worker_first": true
+      },
+      // ステージング専用D1（本番とは完全に別のデータベース）。
+      // 初回に `wrangler d1 create albe_booking_staging` で発行したIDを
+      // `node scripts/set-d1-id.mjs <ID> --staging` で下の PLACEHOLDER に差し替える。
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "albe_booking_staging",
+          "database_id": "PLACEHOLDER_STAGING_D1_ID",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "staging",
+        // workers.dev のサブドメインが異なる場合はここを実URLに合わせる。
+        "PUBLIC_BASE_URL": "https://albe-booking-api-staging.rental-space-albe.workers.dev"
+      },
+      // ステージングでは自動Cron（未入金アラート・自動解放・リマインド等）を止め、
+      // 本番の管理者受信箱にテスト由来の通知が飛ばないようにする。
+      // Cronの挙動を試したいときは一時的に本番と同じ配列を入れて検証する。
+      "triggers": {
+        "crons": []
+      }
+    }
   }
 }

@@ -1174,21 +1174,42 @@ function buildTimeOptions() {
   document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => opt(t, false)).join('');
   document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => opt(t, true)).join('');
   const st = document.getElementById('mStart');
-  // 開始: 先頭の有効な枠（当日は現在時刻に最も近い次の枠）を自動選択
-  for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }
+  // 開始: その日で最早の「空いている」枠を自動選択（予約済み/商談中/過去は飛ばす）。
+  // 予約が入っている枠を初期選択して「予約できる」と誤解させないため（S.booked 反映後に再計算）。
+  let picked = null;
+  for (const o of st.options) {
+    if (o.disabled) continue;                       // 過去時刻は不可
+    if (slotKind(o.value, addMin(o.value, 30))) continue; // 予約済み/商談中の枠は飛ばす
+    picked = o.value; break;
+  }
+  if (picked) {
+    st.value = picked;
+  } else {
+    // その日は空きなし：先頭の非過去枠にフォールバック（プレビューで満枠と表示される）
+    for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }
+  }
   // 終了: 開始の1時間後を既定にする（30分単位の勘違い防止）
   setDefaultEnd();
   S.pickState = 'done'; // 初期表示は既定の1時間を選択済み状態にする
 }
-// 終了時刻を「開始＋1時間」に設定（営業終了を超える場合は入る範囲で最も遅い有効枠）
+// 終了時刻を「開始＋1時間」に設定。ただし開始以降で最初の予約に食い込まない範囲まで。
+// （営業終了や次の予約を超える場合は、入る範囲で最も遅い有効枠）
 function setDefaultEnd() {
   const st = document.getElementById('mStart'), en = document.getElementById('mEnd');
-  const target = toMin(st.value) + 60;
+  const sMin = toMin(st.value);
+  // 開始以降で最初に予約が入っている時刻（連続して予約できるのはそこまで）
+  let firstBusy = Infinity;
+  for (const b of (S.booked || [])) {
+    const bs = toMin(b.startTime);
+    if (bs >= sMin) firstBusy = Math.min(firstBusy, bs);
+  }
+  const target = Math.min(sMin + 60, firstBusy);
   let chosen = null, lastValid = null;
   for (const o of en.options) {
-    if (o.disabled || toMin(o.value) <= toMin(st.value)) continue;
+    const em = toMin(o.value);
+    if (o.disabled || em <= sMin || em > firstBusy) continue; // 予約に食い込む終了は選ばない
     lastValid = o.value;
-    if (toMin(o.value) >= target) { chosen = o.value; break; }
+    if (em >= target) { chosen = o.value; break; }
   }
   en.value = chosen || lastValid || st.value;
 }
@@ -1208,6 +1229,8 @@ async function openModal(date) {
   document.getElementById('mWarn').classList.add('hidden');
   document.getElementById('modal').classList.add('show');
   S.booked = [];
+  // 予約状況の取得までは選択（青ハイライト）を出さない。空き枠が確定してから初期選択する（誤解防止）。
+  S.pickState = 'start';
   renderSlotBar();
   const { body } = await api('/api/spaces/' + S.space.id + '/day?date=' + date);
   S.booked = body.booked || [];

@@ -1,0 +1,58 @@
+name: Deploy
+
+# 自宅・外出先のブラウザ（スマホ可）からデプロイするためのワークフロー。
+# GitHub → Actions → 「Deploy」→ Run workflow → environment を選んで実行。
+# 開発PCや wrangler のローカル環境は不要（すべてGitHubのクラウド上で実行）。
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'デプロイ先'
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+
+# 同一環境への同時デプロイを防ぐ（後発が待つ）
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 壊れたコードを本番/ステージングに出さないための安全ゲート
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Deploy (${{ github.event.inputs.environment }})
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            echo "▶ 本番へデプロイします"
+            npx wrangler deploy
+          else
+            echo "▶ ステージングへデプロイします"
+            npx wrangler deploy --env staging
+          fi

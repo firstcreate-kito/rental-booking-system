@@ -1174,16 +1174,22 @@ function buildTimeOptions() {
   document.getElementById('mStart').innerHTML = ts.slice(0, -1).map(t => opt(t, false)).join('');
   document.getElementById('mEnd').innerHTML = ts.slice(1).map(t => opt(t, true)).join('');
   const st = document.getElementById('mStart');
-  // 開始: その日で最早の「空いている」枠を自動選択（予約済み/商談中/過去は飛ばす）。
-  // 予約が入っている枠を初期選択して「予約できる」と誤解させないため（S.booked 反映後に再計算）。
-  let picked = null;
+  // 開始: 08:00（＝日中の基準）以降で最早の「空いている」枠を自動選択。
+  // 予約済み/商談中/過去は飛ばす。24時間営業(東別院など)で 00:00 を初期選択して
+  // 午前/午後を取り違えさせないため、基準は max(開店時刻, 08:00)。
+  // 08:00以降が全て埋まっている場合のみ、その日全体で最早の空き枠にフォールバック。
+  const PREF_START = 8 * 60; // 08:00
+  const anchor = Math.max(toMin(S.space.openTime), PREF_START);
+  let picked = null, earliestFree = null;
   for (const o of st.options) {
-    if (o.disabled) continue;                       // 過去時刻は不可
-    if (slotKind(o.value, addMin(o.value, 30))) continue; // 予約済み/商談中の枠は飛ばす
-    picked = o.value; break;
+    if (o.disabled) continue;                                   // 過去時刻は不可
+    if (slotKind(o.value, addMin(o.value, 30))) continue;       // 予約済み/商談中の枠は飛ばす
+    if (earliestFree === null) earliestFree = o.value;          // その日全体で最早の空き
+    if (toMin(o.value) >= anchor) { picked = o.value; break; }  // 08:00以降で最早の空き（優先）
   }
-  if (picked) {
-    st.value = picked;
+  const chosenStart = picked || earliestFree;
+  if (chosenStart) {
+    st.value = chosenStart;
   } else {
     // その日は空きなし：先頭の非過去枠にフォールバック（プレビューで満枠と表示される）
     for (const o of st.options) { if (!o.disabled) { st.value = o.value; break; } }

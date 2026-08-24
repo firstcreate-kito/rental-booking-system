@@ -1216,11 +1216,18 @@ export function adminChangeRequestEmail(d: {
   customerEmail?: string;
   customerPhone?: string;
   proposedDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  /** キャンセル希望のとき、お客様が同意済みの確定額（#100） */
+  cancelFee?: number;
+  refundAmount?: number;
   adminUrl?: string;
 }): { subject: string; html: string; text: string } {
   const label = changeRequestTypeLabel(d.type);
   const subject = `【変更リクエスト】${label}／${d.spaceName}（${d.bookingNumber}）`;
   const proposed = d.proposedDays && d.proposedDays.length ? `\n\n【ご希望の日時】\n${daysBlockText(d.proposedDays)}` : '';
+  // キャンセル希望：お客様が画面で同意済みの確定額を明記（実際の徴収・返金はスタッフが処理）
+  const agreed = d.cancelFee !== undefined
+    ? `\n\n【お客様が同意済みの金額】\nキャンセル料: ${yen(d.cancelFee)}\nご返金額: ${yen(d.refundAmount ?? 0)}`
+    : '';
   const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
   const text = `お客様から予約変更リクエストが届きました。
 管理画面の「変更リクエスト」から内容を確認し、承認または却下してください。
@@ -1229,7 +1236,7 @@ export function adminChangeRequestEmail(d: {
 スペース: ${d.spaceName}
 イベント名: ${d.eventName}
 お客様: ${contact}
-ご相談内容: ${label}
+ご相談内容: ${label}${agreed}
 
 ご連絡事項:
 ${d.message}${proposed}
@@ -1246,6 +1253,7 @@ ${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご相談内容</td><td>${escapeHtml(label)}</td></tr>
 </table>
+${d.cancelFee !== undefined ? `<div style="margin:12px 0;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px"><div style="color:#9a3412;font-weight:700;margin-bottom:4px">お客様が同意済みの金額</div><div>キャンセル料：<strong>${yen(d.cancelFee)}</strong>／ご返金額：<strong>${yen(d.refundAmount ?? 0)}</strong></div></div>` : ''}
 <p style="margin:6px 0;color:#6b7280">ご連絡事項</p>
 <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.message)}</p>
 ${proposedHtml}

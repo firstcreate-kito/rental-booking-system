@@ -21,12 +21,14 @@ import {
   getSystemSetting,
   getDocumentsForCustomer,
   getBookingGroupByNumber,
+  getBookingsByGroup,
   createChangeRequest,
   type ChangeRequestType,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { adminRecipients } from '../lib/notify';
 import { evaluateCancel, leadDays } from '../lib/change-policy';
+import { quoteCancellation } from '../lib/cancellation-service';
 import { pointExpiryStatus } from '../lib/points';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
@@ -107,6 +109,21 @@ app.get('/bookings/:number/history', async (c) => {
 });
 
 /**
+ * GET /api/mypage/bookings/:number/cancel-quote キャンセル時の確定額（キャンセル料・返金額）#100
+ * お客様がキャンセルを選んだときに、発生金額を事前提示するために使う。
+ */
+app.get('/bookings/:number/cancel-quote', async (c) => {
+  const db = c.env.DB;
+  const customer = c.get('customer');
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g || !g.customer_id || g.customer_id !== customer.id) return c.json({ error: 'not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
+  const bookings = await getBookingsByGroup(db, g.id);
+  const quote = await quoteCancellation(db, g, bookings, nowJST());
+  return c.json(quote);
+});
+
+/**
  * POST /api/mypage/bookings/:number/change-request 予約変更リクエスト（#54）
  * 会員が自分の予約に対して変更希望（日時変更/オプション/キャンセル/その他）を送信。
  * 管理者が承認するまで予約自体は変わらない（受付のみ）。
@@ -160,9 +177,22 @@ app.post('/bookings/:number/change-request', async (c) => {
   const space = await getSpaceById(db, g.space_id);
   const spaceName = space?.name ?? '';
   const now = nowJST();
+
+  // キャンセル希望は確定額（キャンセル料・返金額）を算出し、記録と管理者通知に含める（#100）
+  let cancelFee: number | undefined;
+  let refundAmount: number | undefined;
+  if (type === 'cancel') {
+    const bookings = await getBookingsByGroup(db, g.id);
+    const q = await quoteCancellation(db, g, bookings, now);
+    cancelFee = q.cancelFee;
+    refundAmount = q.refundAmount;
+  }
+  const yen = (n: number) => '¥' + Math.round(n).toLocaleString('ja-JP');
+  const agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
+
   const id = await createChangeRequest(
     db,
-    { groupId: g.id, customerId: customer.id, bookingNumber: number, type, message: message || '（キャンセル希望）', contact: customer.email, proposedItems: proposed },
+    { groupId: g.id, customerId: customer.id, bookingNumber: number, type, message: (message || '（キャンセル希望）') + agreedNote, contact: customer.email, proposedItems: proposed },
     now,
   );
 
@@ -188,6 +218,8 @@ app.post('/bookings/:number/change-request', async (c) => {
           customerName: customer.contactName || 'お客様',
           customerEmail: customer.email,
           proposedDays: proposed ?? undefined,
+          cancelFee,
+          refundAmount,
           adminUrl: `${origin}/admin.html`,
         }),
       }),

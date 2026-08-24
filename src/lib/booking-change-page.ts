@@ -96,6 +96,14 @@ a.link{ color:var(--brand); }
       ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
     </div>
     <div id="cancelBlock" class="msg bad hidden"></div>
+    <!-- #100 キャンセル時の確定額表示＋同意 -->
+    <div id="cancelQuote" class="policybox hidden" style="color:#9a3412;background:#fff7ed;border-color:#fed7aa">
+      <div id="quoteLines"></div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;color:inherit">
+        <input type="checkbox" id="c_agree" onchange="agreeChange()" style="width:auto;margin-top:3px">
+        <span>上記の金額に同意します</span>
+      </label>
+    </div>
     <div id="proposedWrap">
       <label>ご希望の日時（任意）</label>
       <div class="grid3">
@@ -134,6 +142,7 @@ var _prefill = null;
 var _hours = null; // 対象スペースの営業時間 {open, close, slot}
 var _daysUntil = null; // 当初利用日までの残日数（#76）
 var _cutoff = 4;       // これ未満（3日前以降）はオンラインキャンセル不可
+var _cancelQuote = null; // #100 キャンセル時の確定額
 
 function onTypeChange(){
   var t = $('c_type').value;
@@ -145,16 +154,42 @@ function onTypeChange(){
   // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
   var blocked = (t === 'cancel') && (_daysUntil != null) && (_daysUntil < _cutoff);
   var cb = $('cancelBlock');
+  var quoteBox = $('cancelQuote');
+  var agree = $('c_agree');
+  quoteBox.classList.add('hidden');
+  if (agree) agree.checked = false;
   if (blocked){
     cb.textContent = (_daysUntil <= 0)
       ? '当日のオンラインキャンセルは承っておりません。お手数ですがお電話・メールフォームよりご連絡ください。'
       : '利用日の3日前以降は、オンラインでのキャンセルを承っておりません。キャンセル料が発生する場合は手続き前に担当者より金額をご案内します。お手数ですがメールフォームよりご連絡ください。';
     cb.classList.remove('hidden');
     $('submitBtn').disabled = true;
+    return;
+  }
+  cb.classList.add('hidden');
+  if (t === 'cancel'){
+    // #100 キャンセルの確定額を表示し、同意チェックを入れるまで送信不可
+    renderCancelQuote();
+    quoteBox.classList.remove('hidden');
+    $('submitBtn').disabled = true;
   } else {
-    cb.classList.add('hidden');
     $('submitBtn').disabled = false;
   }
+}
+function agreeChange(){ var a = $('c_agree'); $('submitBtn').disabled = !(a && a.checked); }
+function renderCancelQuote(){
+  var q = _cancelQuote, lines = $('quoteLines');
+  if (!q){
+    lines.innerHTML = '金額の自動計算ができませんでした。送信後、担当者より金額をご案内します。';
+    $('c_agree').checked = true; $('submitBtn').disabled = false; return;
+  }
+  var yen = function(n){ return '¥' + Math.round(n).toLocaleString('ja-JP'); };
+  lines.innerHTML =
+    '<strong>キャンセルにかかる金額</strong><br>' +
+    'キャンセル料：<b>' + yen(q.cancelFee) + '</b>（' + q.chargePctMax + '%）<br>' +
+    'ご返金額：<b>' + yen(q.refundAmount) + '</b>' +
+    (q.paidAmount === 0 ? '<br><span style="font-size:12px">※お支払い前のため、返金はありません。</span>' : '') +
+    '<br><span style="font-size:12px">最終確認・返金のお手続きは担当者が行います。</span>';
 }
 
 // 対象スペースの営業時間内・30分刻みで開始/終了の選択肢を作る
@@ -195,6 +230,7 @@ async function doLookup(){
     _hours = j.spaceHours || null;
     _daysUntil = (typeof j.daysUntilUse === 'number') ? j.daysUntilUse : null;
     _cutoff = j.selfCancelCutoffDays || 4;
+    _cancelQuote = j.cancelQuote || null; // #100
     buildTimeOptions();
     if (j.cancelled){ m.className='msg bad'; m.textContent='このご予約はキャンセル済みです。'; return; }
     // 予約内容を表示

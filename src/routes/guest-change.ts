@@ -3,6 +3,8 @@ import type { AppBindings } from '../types';
 import {
   getBookingContactByNumber,
   getBookingSummaryForGroup,
+  getBookingGroupByNumber,
+  getBookingsByGroup,
   getSpaceById,
   createChangeRequest,
   hitRateLimit,
@@ -12,6 +14,7 @@ import { guestContactMatches, normalizeEmail } from '../lib/verify';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
 import { adminRecipients } from '../lib/notify';
 import { evaluateCancel, leadDays } from '../lib/change-policy';
+import { quoteCancellation } from '../lib/cancellation-service';
 import { nowJST, todayJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -64,6 +67,16 @@ app.post('/lookup', async (c) => {
   const space = await getSpaceById(c.env.DB, contact.space_id);
   // 当初利用日までの残日数（#76・キャンセル可否/文言表示の材料）
   const daysUntilUse = contact.original_date ? leadDays(contact.original_date, todayJST()) : null;
+  // キャンセル時の確定額（キャンセル料・返金額）を事前提示用に算出（#100）
+  let cancelQuote: { cancelFee: number; refundAmount: number; chargePctMax: number; paidAmount: number } | null = null;
+  if (contact.status !== 'cancelled') {
+    const grp = await getBookingGroupByNumber(c.env.DB, String(b.bookingNumber).trim());
+    if (grp) {
+      const bks = await getBookingsByGroup(c.env.DB, grp.id);
+      const q = await quoteCancellation(c.env.DB, grp, bks, nowJST());
+      cancelQuote = { cancelFee: q.cancelFee, refundAmount: q.refundAmount, chargePctMax: q.chargePctMax, paidAmount: q.paidAmount };
+    }
+  }
   return c.json({
     matched: true,
     cancelled: contact.status === 'cancelled',
@@ -71,6 +84,7 @@ app.post('/lookup', async (c) => {
     // 変更・キャンセルポリシー判定用（#76）
     daysUntilUse,
     originalDate: contact.original_date,
+    cancelQuote, // #100 キャンセル時の確定額
     selfCancelCutoffDays: 4, // これ未満（3日前以降）はオンラインキャンセル不可
     // 希望日時ドロップダウン（30分刻み）の範囲に使うスペース営業時間（#75）
     spaceHours: space ? { open: space.open_time, close: space.close_time, slot: space.slot_minutes || 30 } : null,
@@ -120,9 +134,25 @@ app.post('/request', async (c) => {
   const spaceName = space?.name ?? '';
   const email = normalizeEmail(b.email);
   const now = nowJST();
+
+  // キャンセル希望は確定額（キャンセル料・返金額）を算出し、記録と管理者通知に含める（#100）
+  let cancelFee: number | undefined;
+  let refundAmount: number | undefined;
+  if (type === 'cancel') {
+    const grp = await getBookingGroupByNumber(c.env.DB, String(b.bookingNumber).trim());
+    if (grp) {
+      const bks = await getBookingsByGroup(c.env.DB, grp.id);
+      const q = await quoteCancellation(c.env.DB, grp, bks, now);
+      cancelFee = q.cancelFee;
+      refundAmount = q.refundAmount;
+    }
+  }
+  const yen = (n: number) => '¥' + Math.round(n).toLocaleString('ja-JP');
+  const agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
+
   await createChangeRequest(
     c.env.DB,
-    { groupId: contact.group_id, customerId: contact.customer_id, bookingNumber: String(b.bookingNumber).trim(), type, message: message || '（キャンセル希望）', contact: email, proposedItems: proposed },
+    { groupId: contact.group_id, customerId: contact.customer_id, bookingNumber: String(b.bookingNumber).trim(), type, message: (message || '（キャンセル希望）') + agreedNote, contact: email, proposedItems: proposed },
     now,
   );
 

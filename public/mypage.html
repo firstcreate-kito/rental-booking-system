@@ -336,6 +336,16 @@
       </details>
     </div>
     <div id="cr_cancelBlock" class="msg bad" style="display:none;margin-bottom:10px"></div>
+    <!-- #100 キャンセル時の確定額表示＋同意 -->
+    <div id="cr_cancelQuote" style="display:none;margin-bottom:10px">
+      <div style="padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px">
+        <div id="cr_quoteLines"></div>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px">
+          <input type="checkbox" id="cr_agree" style="width:auto;margin-top:3px" onchange="crAgreeChange()">
+          <span>上記の金額に同意します</span>
+        </label>
+      </div>
+    </div>
     <div id="cr_dt" style="margin-bottom:10px">
       <label>ご希望の日時（分かる範囲でOK）</label>
       <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -769,16 +779,52 @@ function crToggle() {
   // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
   const blocked = (type === 'cancel') && (_crDaysUntil != null) && (_crDaysUntil < CR_CANCEL_CUTOFF);
   const cb = document.getElementById('cr_cancelBlock');
+  const quoteBox = document.getElementById('cr_cancelQuote');
+  const agree = document.getElementById('cr_agree');
+  const submit = document.getElementById('cr_submit');
+  // いったんリセット
+  quoteBox.style.display = 'none';
+  if (agree) agree.checked = false;
   if (blocked) {
     cb.textContent = (_crDaysUntil <= 0)
       ? '当日のオンラインキャンセルは承っておりません。お手数ですがお電話・メールフォームよりご連絡ください。'
       : '利用日の3日前以降は、オンラインでのキャンセルを承っておりません。キャンセル料が発生する場合は手続き前に担当者より金額をご案内します。お手数ですがメールフォームよりご連絡ください。';
     cb.style.display = '';
-    document.getElementById('cr_submit').disabled = true;
-  } else {
-    cb.style.display = 'none';
-    document.getElementById('cr_submit').disabled = false;
+    submit.disabled = true;
+    return;
   }
+  cb.style.display = 'none';
+  if (type === 'cancel') {
+    // #100 キャンセルの確定額を表示し、同意チェックを入れるまで送信不可
+    quoteBox.style.display = '';
+    submit.disabled = true;
+    loadCancelQuote();
+  } else {
+    submit.disabled = false;
+  }
+}
+function crAgreeChange() {
+  const agree = document.getElementById('cr_agree');
+  document.getElementById('cr_submit').disabled = !(agree && agree.checked);
+}
+async function loadCancelQuote() {
+  const lines = document.getElementById('cr_quoteLines');
+  lines.innerHTML = '<span class="muted">金額を計算中…</span>';
+  const { ok, body } = await api('/api/mypage/bookings/' + encodeURIComponent(_crNum) + '/cancel-quote');
+  if (!ok) {
+    // 取得できない場合は同意を求めず送信可に（従来どおり担当者案内）
+    lines.innerHTML = '<span class="muted">金額の自動計算ができませんでした。送信後、担当者より金額をご案内します。</span>';
+    document.getElementById('cr_agree').checked = true;
+    document.getElementById('cr_submit').disabled = false;
+    return;
+  }
+  const yen = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+  lines.innerHTML =
+    '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">キャンセルにかかる金額</div>' +
+    '<div>キャンセル料：<strong>' + yen(body.cancelFee) + '</strong>（' + body.chargePctMax + '%）</div>' +
+    '<div>ご返金額：<strong>' + yen(body.refundAmount) + '</strong></div>' +
+    (body.paidAmount === 0 ? '<div class="muted" style="font-size:12px;margin-top:4px">※お支払い前のため、返金はありません。</div>' : '') +
+    '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・返金のお手続きは担当者が行います。</div>';
 }
 async function submitChangeReq() {
   if (!_crNum) return;

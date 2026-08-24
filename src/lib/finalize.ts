@@ -7,7 +7,7 @@ import {
   promoteBookingGroupToConfirmed,
 } from '../db/repository';
 import { intervalsOverlap } from './availability';
-import { checkCalendarConflict, syncBookingCalendarEvents } from './gcal-sync';
+import { checkCalendarConflictExcluding, syncBookingCalendarEvents } from './gcal-sync';
 
 type Env = AppBindings['Bindings'];
 
@@ -24,7 +24,11 @@ export async function isGroupSlotFree(env: Env, groupId: string): Promise<boolea
     if (existing.some((e) => intervalsOverlap(b.start_time, b.end_time, e.start_time, e.end_time))) return false;
   }
   const items = rows.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time }));
-  const calc = await checkCalendarConflict(env, space?.google_calendar_id ?? null, items);
+  // このグループ自身のカレンダー予定は除外して判定する。銀行振込・コンビニ等で
+  // 作成時に既に自分のイベントを書き込んでいる場合、それを「外部の競合」と誤検知して
+  // 入金済みの予約を不成立＋自動返金にしてしまうのを防ぐ（#39/#42）。
+  const ownEventIds = rows.map((b) => b.google_event_id);
+  const calc = await checkCalendarConflictExcluding(env, space?.google_calendar_id ?? null, items, ownEventIds);
   return !calc.conflict;
 }
 

@@ -421,11 +421,11 @@
         <label style="margin-top:10px">お支払い方法（プリセット）</label>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
           <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_only" style="width:auto;margin-top:3px"> <span>① クレジットカード決済のみ<br><span class="muted" style="font-size:12px">カード（Stripe）＋PayPal。直前まで予約可。</span></span></label>
-          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="width:auto;margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用5日前まで（直前は非表示）。</span></span></label>
-          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="width:auto;margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニ・銀行振込とも利用5日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="width:auto;margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用7日前まで（直前は非表示）。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="width:auto;margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニは利用5日前まで、銀行振込は利用7日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行し、ご利用日の5日前までの受付です。</div>
-        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="width:auto;margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用5日前まで。</span></span></label>
+        <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行します（コンビニは利用5日前まで、銀行振込は利用7日前までの受付）。</div>
+        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="width:auto;margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>

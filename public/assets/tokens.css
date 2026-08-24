@@ -112,3 +112,18 @@ textarea:focus {
   border-color: var(--key);
 }
 input::placeholder, textarea::placeholder { color: var(--ink-3); } /* R13-10：例示は薄く */
+
+/* R13-12 チェックボックス／ラジオ：タップしやすい大きさに統一（オプション選択UIに準拠）。
+   個別に width/height をインライン指定しない（この共通指定に集約：R13-11）。
+   スマホでは指で押しやすいよう約2倍に拡大し、支払い方法・規約同意の押し間違い／見落としを防ぐ。 */
+input[type=checkbox], input[type=radio] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--key);   /* オン時をブランド色に */
+  cursor: pointer;
+  vertical-align: middle;
+  flex: 0 0 auto;             /* flex行で潰れない・伸びない */
+}
+@media (max-width: 640px) {
+  input[type=checkbox], input[type=radio] { width: 28px; height: 28px; }
+}

@@ -415,18 +415,18 @@
         </div>
         <p class="muted" style="margin:2px 0 0;font-size:12px">「予約可能期間」を過ぎ「閲覧可能期間」内の日は、カレンダーで空き状況のみ表示（クリック不可・お問い合わせ案内）。閲覧可能期間は予約可能期間以上に自動調整されます。</p>
         <div class="row" style="gap:18px;margin-top:8px">
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wda" checked style="width:auto"> 平日に予約可</label>
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked style="width:auto"> 土日祝に予約可</label>
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked style="width:auto"> 公開する</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wda" checked> 平日に予約可</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked> 土日祝に予約可</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked> 公開する</label>
         </div>
         <label style="margin-top:10px">お支払い方法（プリセット）</label>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_only" style="width:auto;margin-top:3px"> <span>① クレジットカード決済のみ<br><span class="muted" style="font-size:12px">カード（Stripe）＋PayPal。直前まで予約可。</span></span></label>
-          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="width:auto;margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用7日前まで（直前は非表示）。</span></span></label>
-          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="width:auto;margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニは利用5日前まで、銀行振込は利用7日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_only" style="margin-top:3px"> <span>① クレジットカード決済のみ<br><span class="muted" style="font-size:12px">カード（Stripe）＋PayPal。直前まで予約可。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用7日前まで（直前は非表示）。</span></span></label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_konbini_bank" style="margin-top:3px"> <span>③ ＋コンビニ払い＋銀行振込<br><span class="muted" style="font-size:12px">コンビニは利用5日前まで、銀行振込は利用7日前まで（直前は非表示）。コンビニは本番設定後に有効化。</span></span></label>
         </div>
         <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行します（コンビニは利用5日前まで、銀行振込は利用7日前までの受付）。</div>
-        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="width:auto;margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
+        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
         <label style="margin-top:12px">キャンセルポリシー（このスペース）</label>
         <select id="sp_cancel_policy">
           <option value="standard">標準（共通：31日前まで無料／30〜15日前50%／14日前〜前日80%／当日100%）</option>
@@ -585,7 +585,7 @@
         <div class="grid">
           <div>
             <label>総在庫数</label><input id="op_stock" type="number" />
-            <label style="display:flex;gap:6px;align-items:center;margin:6px 0 0;font-size:12px;font-weight:normal;color:var(--muted)"><input type="checkbox" id="op_unlimited" style="width:auto" onchange="toggleStockField()"> サービス系（在庫無制限）</label>
+            <label style="display:flex;gap:6px;align-items:center;margin:6px 0 0;font-size:12px;font-weight:normal;color:var(--muted)"><input type="checkbox" id="op_unlimited" onchange="toggleStockField()"> サービス系（在庫無制限）</label>
           </div>
           <div><label>1予約あたり上限（空欄=なし）</label><input id="op_maxqty" type="number" /></div>
           <div><label>並び順</label><input id="op_sort" type="number" value="0" /></div>
@@ -593,7 +593,7 @@
         <label>対象スペース（チェックした部屋で表示。複数で在庫共有）</label>
         <div id="op_spaces" class="row" style="gap:12px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px"></div>
         <div class="row" style="gap:18px;margin-top:8px">
-          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="op_active" checked style="width:auto"> 公開する</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="op_active" checked> 公開する</label>
         </div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="document.getElementById('optForm').classList.add('hidden')">閉じる</button>
@@ -654,7 +654,7 @@
           <label>対象スペース</label>
           <div class="muted" style="font-size:12px;margin:-2px 0 4px">チェックしたスペースだけに割増を適用します。何も選ばない場合は全スペースが対象です。</div>
           <div id="se_spaces" class="row" style="gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:130px;overflow:auto"></div>
-          <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="se_active" checked style="width:auto" /> 有効</label>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="se_active" checked /> 有効</label>
           <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
             <button class="btn ghost sm" onclick="toggleSeasonalForm(false)">キャンセル</button>
             <button class="btn" onclick="submitSeasonal()">保存</button>
@@ -689,9 +689,9 @@
             <div><label>終了日 *</label><input id="cm_to" type="date" /></div>
           </div>
           <div class="row" style="gap:16px;margin-top:6px">
-            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_wd" checked style="width:auto" /> 平日を対象</label>
-            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_we" checked style="width:auto" /> 土日祝を対象</label>
-            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_active" checked style="width:auto" /> 有効</label>
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_wd" checked /> 平日を対象</label>
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_we" checked /> 土日祝を対象</label>
+            <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cm_active" checked /> 有効</label>
           </div>
           <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
             <button class="btn ghost sm" onclick="toggleCampaignForm(false)">キャンセル</button>
@@ -1384,7 +1384,7 @@ async function loadPricingMgmt() {
   document.getElementById('cm_space').innerHTML = '<option value="">全スペース共通</option>' +
     A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
   document.getElementById('se_spaces').innerHTML = A.spaces.map(s =>
-    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="se-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="se-space" value="' + s.id + '"> ' + s.name + '</label>').join('');
   await Promise.all([loadSeasonal(), loadCampaigns()]);
 }
 function toggleSeasonalForm(show) {
@@ -1519,9 +1519,9 @@ let lastCustomerTickets = [];
 async function initCustomers() {
   if (A.spaces.length === 0) await loadSpaces();
   document.getElementById('cp_spaces').innerHTML = A.spaces.map(s =>
-    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="cp-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="cp-space" value="' + s.id + '"> ' + s.name + '</label>').join('');
   document.getElementById('tk_spaces').innerHTML = A.spaces.map(s =>
-    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="tk-space" value="' + s.id + '" style="width:auto"> ' + s.name + '</label>').join('');
+    '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)"><input type="checkbox" class="tk-space" value="' + s.id + '"> ' + s.name + '</label>').join('');
   // 販売中のチケット商品を発行用ドロップダウンへ
   const tp = await api('/api/admin/ticket-products');
   ticketProducts = (tp.body && tp.body.products) || [];
@@ -1730,7 +1730,7 @@ function renderTpSpaceChecks(selected) {
   const set = new Set(selected || []);
   document.getElementById('tp_spaces').innerHTML = A.spaces.map(s =>
     '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)">' +
-    '<input type="checkbox" class="tp-space" value="' + s.id + '" style="width:auto"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
+    '<input type="checkbox" class="tp-space" value="' + s.id + '"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
 }
 function resetTicketProductForm() {
   document.getElementById('tp_id').value = '';
@@ -1805,7 +1805,7 @@ function renderSpaceChecks(selected) {
   const set = new Set(selected || []);
   document.getElementById('op_spaces').innerHTML = A.spaces.map(s =>
     '<label style="display:flex;gap:5px;align-items:center;margin:0;font-size:13px;color:var(--ink)">' +
-    '<input type="checkbox" class="op-space" value="' + s.id + '" style="width:auto"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
+    '<input type="checkbox" class="op-space" value="' + s.id + '"' + (set.has(s.id) ? ' checked' : '') + '> ' + s.name + '</label>').join('');
 }
 function fillOptionForm(o) {
   document.getElementById('op_editing').value = o ? o.id : '';

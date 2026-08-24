@@ -41,8 +41,35 @@ input:not([type=checkbox]):not([type=radio]):not([type=file])…, select, textar
 …:focus { outline:2px solid var(--key); outline-offset:2px; border-color:var(--key); }
 ```
 
-- 対象外: チェックボックス／ラジオ／ファイル／レンジ等（セレクタで除外済み）。
+- 対象外: チェックボックス／ラジオ／ファイル／レンジ等（枠線ルールはセレクタで除外）。
+  ただしチェックボックス／ラジオの**大きさ**は R13-12 で別途 `tokens.css` に集約。
 - `--field` は **WEBサイト側 `_handover/tokens.css` の `--field`（#8a867e）と同値**（両サイト統一）。
+
+### R13-12 チェックボックス／ラジオの大きさ（実装済み）
+
+ブラウザ既定のチェックボックス／ラジオは小さく、スマホで押し間違い・見落としが起きやすい
+（特に「お支払い方法」「規約同意」）。大きさは **`tokens.css` の1か所**に集約する。
+
+- **基準サイズはオプション選択UI（`.opt-row` の 22px）に合わせる**。PC=22px、
+  **スマホ（≤640px）は 28px（約2倍）**に拡大してタップしやすくする。
+- オン時の色は `accent-color: var(--key)`（ブランド色）で統一。
+- **各HTML／JSで `style="width:auto"` 等の個別サイズ指定をしない**（この共通指定が効かなくなる）。
+  必要なのは余白・整列だけ（`margin` / `align-items`）に留める。
+
+```css
+/* tokens.css（抜粋・R13-12） */
+input[type=checkbox], input[type=radio] {
+  width: 22px; height: 22px; accent-color: var(--key);
+  cursor: pointer; vertical-align: middle; flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+  input[type=checkbox], input[type=radio] { width: 28px; height: 28px; }
+}
+```
+
+- 適用範囲は顧客向け・管理画面（`admin.html`）を含む**全ページ共通**（`tokens.css` を読む全画面）。
+- 選択肢が「行」になるUI（支払い方法・規約同意）は、`.opt-row` に倣って
+  行に余白＋区切り線を付け、行全体を押しやすいタップ領域にする。
 
 ---
 

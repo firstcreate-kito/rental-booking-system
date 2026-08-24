@@ -132,8 +132,9 @@
   /* オプション一覧の1行。※「任意」バッジの .opt（tokens.css）とは別クラスにする（名前衝突回避） */
   .opt-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); min-height: 56px; }
   .opt-row > div:first-child { min-width: 0; }  /* 長い名称は折り返す（右の操作欄を押し出さない） */
-  /* 数量入力：共通入力スタイル（width:100%）に負けないよう幅を固定。数値は中央寄せ。 */
-  .opt-row .qty { width: 72px !important; flex: 0 0 auto; text-align: center; }
+  /* 数量選択（ドロップダウン）：共通スタイル（width:100%）に負けないよう幅を固定。
+     プルダウンの矢印が収まるよう少し広め。数値は中央寄せ。 */
+  .opt-row .qty { width: 88px !important; flex: 0 0 auto; text-align: center; text-align-last: center; }
   /* チェックボックスの大きさは共通指定(tokens.css R13-12)に集約。ここでは余白のみ調整 */
   .opt-row input[type=checkbox] { margin: 0; }
   /* お支払い方法：オプション選択UI(.opt-row)に合わせた、押しやすい行リスト。
@@ -1335,20 +1336,21 @@ async function goOptions() {
       if (cap != null && pre > cap) pre = cap; // 在庫上限で丸め
       const ctrl = o.type === 'toggle'
         ? '<input type="checkbox"' + (pre > 0 ? ' checked' : '') + (soldOut ? ' disabled' : '') + ' onchange="setOpt(\'' + o.id + '\', this.checked?1:0)">'
-        : '<input class="qty" type="number" min="0" value="' + pre + '"' + (cap != null ? ' max="' + cap + '"' : '') + (soldOut ? ' disabled' : '') + ' oninput="clampQty(this,' + (cap == null ? 'null' : cap) + ',\'' + o.id + '\')">';
+        : qtySelect(o.id, pre, cap, soldOut);
       const soldOutTag = soldOut ? ' <span style="color:var(--bad);font-size:11px">在庫なし</span>' : '';
       return '<div class="opt-row"><div><div>' + o.name + '</div><div class="muted">' + price + ' ' + stock + soldOutTag + '</div></div><div>' + ctrl + '</div></div>';
     }).join('');
   show('view-options');
   saveDraft(); // ここまで（スペース・日時）を下書き保存
 }
-// 数量を在庫上限の範囲に丸めて反映（上限超えの入力を防ぐ）
-function clampQty(el, cap, id) {
-  let q = Math.floor(Number(el.value) || 0);
-  if (q < 0) q = 0;
-  if (cap != null && q > cap) q = cap;
-  el.value = q;
-  setOpt(id, q);
+// 数量は在庫（残数）や予約あたり上限の範囲で選ぶドロップダウン。
+// 在庫が分からないまま任意の数字を入力させず、選べる数だけを提示する（0=注文なし）。
+const OPT_QTY_UNLIMITED_MAX = 20; // 在庫無制限（サービス系）の選択上限
+function qtySelect(id, pre, cap, soldOut) {
+  const max = cap != null ? cap : OPT_QTY_UNLIMITED_MAX;
+  let opts = '';
+  for (let n = 0; n <= max; n++) opts += '<option value="' + n + '"' + (n === pre ? ' selected' : '') + '>' + n + '</option>';
+  return '<select class="qty"' + (soldOut ? ' disabled' : '') + ' onchange="setOpt(\'' + id + '\', Number(this.value))">' + opts + '</select>';
 }
 function setOpt(id, v) { const q = Number(v); if (q > 0) S.optQty[id] = q; else delete S.optQty[id]; }
 

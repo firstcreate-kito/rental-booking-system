@@ -32,11 +32,20 @@ export interface SendResult {
 /** Resend API で1通送信する。失敗しても例外は投げない。 */
 export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendResult> {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) {
+    // 送信基盤の設定漏れ（RESEND_API_KEY / MAIL_FROM）は「メールが飛ばない」直接原因になるため記録する。
+    console.error('[email] skipped: RESEND_API_KEY or MAIL_FROM not set', {
+      hasApiKey: !!env.RESEND_API_KEY,
+      hasFrom: !!env.MAIL_FROM,
+      subject: msg.subject,
+    });
     return { ok: false, skipped: true };
   }
   // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）
   const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
-  if (recipients.length === 0) return { ok: false, error: 'no recipient' };
+  if (recipients.length === 0) {
+    console.warn('[email] no recipient', { subject: msg.subject });
+    return { ok: false, error: 'no recipient' };
+  }
   // 返信先（任意）：送信元を noreply@… にしてもお客様の返信が実際の受信箱に届くようにする。
   const replyTo = (env.MAIL_REPLY_TO ?? '').trim();
   try {
@@ -57,10 +66,14 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
+      // Resend からのエラー（ドメイン未認証・APIキー不正・レート制限など）を記録。
+      console.error('[email] resend error', { status: res.status, detail: detail.slice(0, 300), to: recipients.length, subject: msg.subject });
       return { ok: false, error: `resend ${res.status}: ${detail.slice(0, 200)}` };
     }
+    console.log('[email] sent', { to: recipients.length, subject: msg.subject });
     return { ok: true };
   } catch (err) {
+    console.error('[email] send exception', { error: (err as Error).message, subject: msg.subject });
     return { ok: false, error: (err as Error).message };
   }
 }

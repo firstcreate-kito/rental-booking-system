@@ -1450,17 +1450,28 @@ async function previewModal() {
     prev.innerHTML = '概算 <strong>' + yen(body.total) + '</strong>' + (note ? '<br><span style="color:#b45309">' + note + '</span>' : '') + seasonalNote;
     // チケット残量のライブ表示：対象スペース＆保有チケットがあるときのみ（#82）
     if (tnote) {
-      const R = ticketRemainHours();
-      if (R > 0) {
-        // 実際にチケットが消費される時間＝課金対象時間（billableHours：1時間単位・最低利用の切り上げ込み）
+      const list = S.usableTickets || [];
+      if (list.length) {
+        // チケットは1予約につき1枚を使用（合計ではなく1枚ずつ表示）。
+        const CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+        const tno = (i) => CIRCLED[i] || ('(' + (i + 1) + ')');
+        // 実際に消費される時間＝課金対象時間（billableHours：1時間単位・最低利用の切り上げ込み）
         const consume = (d && d.billableHours != null) ? d.billableHours : actual;
-        if (consume <= R) {
-          tnote.style.cssText = 'margin-top:8px;padding:9px 12px;border-radius:8px;background:#eefaf1;border:1px solid #bfe3c8;font-size:13px;color:#0a7d33;line-height:1.6';
-          tnote.innerHTML = '🎫 チケット残り <b>' + R + '時間</b> ／ 選択中 <b>' + consume + '時間</b> → 予約後の残り <b>' + (R - consume) + '時間</b>（追加のお支払いなし）';
-        } else {
-          tnote.style.cssText = 'margin-top:8px;padding:9px 12px;border-radius:8px;background:#fff8e6;border:1px solid #f0c36d;font-size:13px;color:#8a5a00;line-height:1.6';
-          tnote.innerHTML = '🎫 チケット残り <b>' + R + '時間</b> ／ 選択中 <b>' + consume + '時間</b> → チケット ' + R + '時間分を充当＋<b>差額 ' + (consume - R) + '時間分はお支払い</b>';
-        }
+        const maxOne = Math.max.apply(null, list.map((t) => t.remaining_hours || 0));
+        const covered = maxOne >= consume; // 1枚でまかなえるか
+        const rows = list.map((t, i) =>
+          '<div style="display:flex;justify-content:space-between;gap:8px">' +
+            '<span>🎫 チケット' + tno(i) + '　残り <b>' + t.remaining_hours + '時間</b></span>' +
+            '<span style="opacity:.75;white-space:nowrap">〜' + t.valid_until + '</span>' +
+          '</div>').join('');
+        const foot = covered
+          ? '選択中 <b>' + consume + '時間</b>：チケット1枚でお支払いできます（追加のお支払いなし）'
+          : '選択中 <b>' + consume + '時間</b>：1枚で不足する分は差額のお支払いになります';
+        tnote.style.cssText = covered
+          ? 'margin-top:8px;padding:9px 12px;border-radius:8px;background:#eefaf1;border:1px solid #bfe3c8;font-size:13px;color:#0a7d33;line-height:1.7'
+          : 'margin-top:8px;padding:9px 12px;border-radius:8px;background:#fff8e6;border:1px solid #f0c36d;font-size:13px;color:#8a5a00;line-height:1.7';
+        tnote.innerHTML = '<div style="font-size:12px;opacity:.8;margin-bottom:2px">保有チケットの残り時間</div>' + rows +
+          '<div style="margin-top:4px;border-top:1px dashed currentColor;padding-top:4px">' + foot + '</div>';
         tnote.classList.remove('hidden');
       }
     }

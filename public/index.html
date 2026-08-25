@@ -184,7 +184,6 @@
   <nav class="albe-nav">
     <span class="albe-who" id="devBadge">デモ環境（開発用）</span>
     <span class="albe-who hidden" id="loginBadge" style="background:#dcfce7;color:#166534;border-color:#86efac"></span>
-    <a class="albe-contact" href="/tickets" style="background:var(--key,#1f3aa6);color:#fff;border-color:var(--key,#1f3aa6);font-weight:700">🎫 チケット購入</a>
     <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
   </nav>
 </header>
@@ -208,6 +207,12 @@
       <button class="btn ghost sm" id="backToSpacesBtn" onclick="backToSpaces()">← スペース選択へ</button>
       <strong id="calSpaceName"></strong>
       <button class="btn ghost sm hidden" id="favBtn" onclick="toggleFavorite()" style="margin-left:auto"></button>
+    </div>
+    <!-- 回数券対象スペース（防音室A/B・東別院）のみ表示：既存チケット保有者への案内（#82） -->
+    <div id="ticketGuideNote" class="hidden" style="margin:0 0 12px;padding:12px 14px;border:1px solid #bfe3c8;background:#eefaf1;border-radius:10px;font-size:14px;line-height:1.7">
+      <b style="color:#0a7d33">🎫 以前の回数券（チケット）をお持ちの方へ</b><br>
+      残っている回数券はそのままご利用いただけます。<b>以前と同じメールアドレスで会員登録／ログイン</b>すると自動で引き継がれます。
+      <a href="/ticket-guide" target="_blank" rel="noopener" style="font-weight:700;color:#0a7d33;white-space:nowrap">▶ ご利用ガイドを見る</a>
     </div>
     <div class="cal-head">
       <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
@@ -928,12 +933,21 @@ async function handleBookingLoginError(code) {
 
 function backToSpaces() { S.space = null; S.cart = []; show('view-spaces'); setStep(0); }
 
+// 回数券（チケット）の対象スペース。既存チケット保有者への案内をこのスペースのみに出す（#82）。
+const TICKET_GUIDE_SPACES = ['meieki-piano-a', 'meieki-piano-b', 'higashibetsuin-piano-24h'];
+function updateTicketGuideNote() {
+  const el = document.getElementById('ticketGuideNote');
+  if (!el) return;
+  const show = !!(S.space && (TICKET_GUIDE_SPACES.includes(S.space.id) || TICKET_GUIDE_SPACES.includes(S.space.slug)));
+  el.classList.toggle('hidden', !show);
+}
 function selectSpace(id) {
   S.space = S.spaces.find(s => s.id === id);
   S.cart = [];
   const now = new Date();
   S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
   document.getElementById('calSpaceName').textContent = S.space.name;
+  updateTicketGuideNote();
   loadCalendar();
 }
 

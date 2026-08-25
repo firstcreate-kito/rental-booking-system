@@ -184,6 +184,7 @@
   <nav class="albe-nav">
     <span class="albe-who" id="devBadge">デモ環境（開発用）</span>
     <span class="albe-who hidden" id="loginBadge" style="background:#dcfce7;color:#166534;border-color:#86efac"></span>
+    <a class="albe-mini" id="hdrLoginLink" href="javascript:void(0)" onclick="openLoginModal()">ログイン</a>
     <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
   </nav>
 </header>
@@ -213,6 +214,7 @@
       <b style="color:#0a7d33">🎫 以前の回数券（チケット）をお持ちの方へ</b><span id="ticketGuideRemain" class="hidden" style="color:#0a7d33;font-weight:700;margin-left:6px"></span><br>
       残っている回数券はそのままご利用いただけます。<b>以前と同じメールアドレスで会員登録／ログイン</b>すると自動で引き継がれます。
       <a href="/ticket-guide" target="_blank" rel="noopener" style="font-weight:700;color:#0a7d33;white-space:nowrap">▶ ご利用ガイドを見る</a>
+      <span id="ticketGuideLogin" class="hidden"><br><a href="javascript:void(0)" onclick="openLoginModal()" style="font-weight:700;color:#0a7d33">🔑 ログインして残り時間を見る</a></span>
     </div>
     <div class="cal-head">
       <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
@@ -500,6 +502,43 @@
   </div>
 </div>
 
+<!-- ヘッダーからのログイン（その場で・画面遷移なし）。予約中でも選択内容を保ったままログインできる。 -->
+<div class="modal-bg" id="loginModal">
+  <div class="modal">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h2 style="margin:0">ログイン</h2>
+      <button type="button" class="btn ghost sm" onclick="closeLoginModal()" style="font-size:12px">閉じる</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin:6px 0 10px">ログインすると、回数券の残り時間・クーポン・ポイントがご利用いただけます。予約の入力内容はそのまま保持されます。</div>
+    <div id="hdrOauth" class="hidden" style="margin:0 0 12px">
+      <button class="btn ghost hidden" id="hdrGoogleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="oauthContinue('google')">Googleでログイン</button>
+      <button class="btn ghost hidden" id="hdrLineBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px" onclick="oauthContinue('line')">LINEでログイン</button>
+      <div style="margin:12px 0 2px;text-align:center;color:var(--muted);font-size:12px">またはメールアドレスで</div>
+    </div>
+    <label>メールアドレス</label>
+    <input id="hlEmail" type="email" autocomplete="email" />
+    <label>パスワード</label>
+    <input id="hlPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')hdrLogin()" />
+    <div class="row" style="justify-content:space-between;align-items:center;margin-top:10px">
+      <span class="msg bad" id="hlMsg" style="font-size:12px"></span>
+      <button class="btn" onclick="hdrLogin()">ログイン</button>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#e5e2dc)">
+      <div class="muted" style="font-size:12px;margin-bottom:6px">パスワードなしでログイン：メールに届く<strong>6桁コード</strong>でログインできます（未登録の方もそのままご利用いただけます）。</div>
+      <button class="btn ghost sm" id="hdrCodeReqBtn" onclick="hdrRequestCode()">コードをメールで受け取る</button>
+      <div id="hlCodeEntry" class="hidden" style="margin-top:8px">
+        <label>確認コード（6桁）</label>
+        <input id="hlCode" inputmode="numeric" maxlength="6" onkeydown="if(event.key==='Enter')hdrVerifyCode()" />
+        <div class="row" style="justify-content:space-between;align-items:center;margin-top:6px">
+          <span class="muted" id="hlCodeMsg" style="font-size:12px"></span>
+          <button class="btn sm" onclick="hdrVerifyCode()">コードでログイン</button>
+        </div>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:12px;font-size:12px">はじめての方は <a href="mypage.html" target="_blank" rel="noopener">こちらから会員登録</a>（別タブ）／ <a href="mypage.html#forgot" target="_blank" rel="noopener">パスワードをお忘れの方</a></div>
+  </div>
+</div>
+
 <!-- 商談中（満枠）の日をホバーした時のお問い合わせ案内ポップアップ -->
 <div id="tentPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #fcd34d;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6"
      onmouseenter="cancelHideTent()" onmouseleave="hideTentHover()">
@@ -587,8 +626,11 @@ function applyMemberLoggedInUI(p) {
 // ヘッダーの常時ログイン表示（全ステップで「ログイン中：○○様」を出す）
 function updateLoginBadge() {
   const el = document.getElementById('loginBadge');
+  const link = document.getElementById('hdrLoginLink');
+  const loggedIn = !!(S.token && S.member);
+  if (link) link.classList.toggle('hidden', loggedIn); // ヘッダーのログインリンクは未ログイン時のみ
   if (!el) return;
-  if (S.token && S.member) {
+  if (loggedIn) {
     const nm = (S.member.contactName || S.member.email || '').trim() || 'お客様';
     el.innerHTML = '✓ ログイン中：' + escHtml(nm) + ' 様　<a href="javascript:void(0)" onclick="memberLogout()" style="color:#166534;text-decoration:underline">ログアウト</a>';
     el.classList.remove('hidden');
@@ -596,6 +638,52 @@ function updateLoginBadge() {
     el.classList.add('hidden');
     el.textContent = '';
   }
+}
+// ヘッダーからのログイン（その場・画面遷移なし）
+function openLoginModal() {
+  const m = document.getElementById('loginModal'); if (!m) return;
+  document.getElementById('hlMsg').textContent = '';
+  document.getElementById('hlCodeMsg').textContent = '';
+  document.getElementById('hlCodeEntry').classList.add('hidden');
+  m.classList.add('show');
+  setTimeout(() => { const e = document.getElementById('hlEmail'); if (e) e.focus(); }, 50);
+}
+function closeLoginModal() { const m = document.getElementById('loginModal'); if (m) m.classList.remove('show'); }
+async function afterHeaderLogin(body) {
+  await onMemberLoggedIn(body);   // 会員UI・チケット/お気に入り読込・再計算（既存処理を再利用）
+  updateTicketGuideNote();        // カレンダーの回数券案内に残量を反映
+  closeLoginModal();
+}
+async function hdrLogin() {
+  const email = document.getElementById('hlEmail').value.trim();
+  const password = document.getElementById('hlPass').value;
+  const msg = document.getElementById('hlMsg');
+  if (!email || !password) { msg.textContent = 'メールとパスワードを入力してください'; return; }
+  const { ok, body } = await api('/api/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  await afterHeaderLogin(body);
+}
+async function hdrRequestCode() {
+  const email = document.getElementById('hlEmail').value.trim();
+  const msg = document.getElementById('hlMsg');
+  if (!email) { msg.textContent = 'メールアドレスを入力してください'; return; }
+  const btn = document.getElementById('hdrCodeReqBtn');
+  btn.disabled = true; msg.textContent = '';
+  const { ok, body } = await api('/api/auth/login-code/request', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+  btn.disabled = false;
+  if (!ok) { msg.textContent = body.error || '送信に失敗しました'; return; }
+  document.getElementById('hlCodeEntry').classList.remove('hidden');
+  document.getElementById('hlCodeMsg').textContent = email + ' にコードを送りました（有効期限10分）。';
+  document.getElementById('hlCode').focus();
+}
+async function hdrVerifyCode() {
+  const email = document.getElementById('hlEmail').value.trim();
+  const code = document.getElementById('hlCode').value.trim();
+  const msg = document.getElementById('hlCodeMsg');
+  if (!code) { msg.textContent = 'コードを入力してください'; return; }
+  const { ok, body } = await api('/api/auth/login-code/verify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email, code }) });
+  if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
+  await afterHeaderLogin(body);
 }
 // 保存済みセッションからログイン状態を復元（他ページから移動してきた場合など）
 async function restoreMemberSession() {
@@ -894,9 +982,9 @@ async function initBookingOauth() {
     const { ok, body } = await api('/api/auth/providers');
     if (!ok) return;
     let any = false;
-    if (body.google) { document.getElementById('bkGoogleBtn').classList.remove('hidden'); document.getElementById('loginGoogleBtn').classList.remove('hidden'); any = true; }
-    if (body.line) { document.getElementById('bkLineBtn').classList.remove('hidden'); document.getElementById('loginLineBtn').classList.remove('hidden'); any = true; }
-    if (any) { document.getElementById('custOauth').classList.remove('hidden'); document.getElementById('loginOauth').classList.remove('hidden'); }
+    if (body.google) { document.getElementById('bkGoogleBtn').classList.remove('hidden'); document.getElementById('loginGoogleBtn').classList.remove('hidden'); document.getElementById('hdrGoogleBtn').classList.remove('hidden'); any = true; }
+    if (body.line) { document.getElementById('bkLineBtn').classList.remove('hidden'); document.getElementById('loginLineBtn').classList.remove('hidden'); document.getElementById('hdrLineBtn').classList.remove('hidden'); any = true; }
+    if (any) { document.getElementById('custOauth').classList.remove('hidden'); document.getElementById('loginOauth').classList.remove('hidden'); document.getElementById('hdrOauth').classList.remove('hidden'); }
   } catch (e) {}
 }
 // ボタン押下：入力途中を下書き保存してから認証へ（戻り先=予約フロー）
@@ -962,6 +1050,9 @@ function updateTicketGuideNote() {
     if (S.token && R > 0) { rem.textContent = '（チケット残り ' + R + '時間）'; rem.classList.remove('hidden'); }
     else { rem.textContent = ''; rem.classList.add('hidden'); }
   }
+  // 未ログイン時は「ログインして残り時間を見る」リンクを出す
+  const loginLink = document.getElementById('ticketGuideLogin');
+  if (loginLink) loginLink.classList.toggle('hidden', !!S.token);
 }
 // カレンダー入場時に、対象スペース＆ログイン時のみチケット残量を先読みする（#82）。
 async function prefetchUsableTickets() {

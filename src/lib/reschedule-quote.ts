@@ -37,6 +37,7 @@ export interface RescheduleQuote {
   newTotal: number; // 希望日時での新しいスペース料金
   adjustment: AdjustmentResult; // 差額（surcharge=追加請求 / refund=返金 / zero=変わらず）
   ticket: boolean; // チケット（回数券）予約：日程移動では金額は変わらない
+  paymentMethod: string | null; // 支払方法（'invoice'＝自社口座への直接振込のみ振込手数料を差引く旨を表示）
 }
 
 /**
@@ -84,6 +85,7 @@ export async function quoteReschedule(
       newTotal: group.total_amount,
       adjustment: { type: 'zero', amount: 0 },
       ticket: true,
+      paymentMethod: group.payment_method,
     };
   }
 
@@ -93,5 +95,6 @@ export async function quoteReschedule(
     newTotal,
     adjustment: computeAdjustment(group.total_amount, newTotal),
     ticket: false,
+    paymentMethod: group.payment_method,
   };
 }

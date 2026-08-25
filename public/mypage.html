@@ -873,10 +873,16 @@ async function loadRescheduleQuote() {
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お支払いのご案内は担当者が行います。</div>';
     _rsNeedAgree = true; agreeRow.style.display = 'flex';
   } else if (adj.type === 'refund') {
+    // 自社口座への直接振込（請求書払い=invoice）の返金のみ、振込手数料を差し引く旨を表示。
+    // Stripe収納代行の銀行振込（bank_transfer）やカード等は対象外。
+    const feeNote = body.paymentMethod === 'invoice'
+      ? '<div class="muted" style="font-size:12px;margin-top:4px">振込手数料を差し引いてご返金させていただきます。ご了承くださいませ。</div>'
+      : '';
     lines.innerHTML =
       '<div style="font-weight:700;color:#166534;margin-bottom:4px">日時変更にともなう差額</div>' +
       '<div>変更後の料金：<strong>' + yen(body.newTotal) + '</strong></div>' +
       '<div>ご返金：<strong>' + yen(adj.amount) + '</strong></div>' +
+      feeNote +
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・ご返金のお手続きは担当者が行います。</div>';
     _rsNeedAgree = true; agreeRow.style.display = 'flex';
   } else {

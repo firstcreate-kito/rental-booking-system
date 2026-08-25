@@ -288,6 +288,32 @@ app.get('/system-status', requireRole('owner', 'manager'), (c) => {
   });
 });
 
+/**
+ * GET /api/admin/pending-tickets 付与待ちチケット一覧（#82 既存チケットの移行）
+ * メール一致で会員へ自動付与する「付与待ち」の状況を確認する。?view=unclaimed|claimed|all
+ */
+app.get('/pending-tickets', requireRole('owner', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const view = c.req.query('view') || 'all';
+  const where = view === 'unclaimed' ? 'WHERE claimed_at IS NULL' : view === 'claimed' ? 'WHERE claimed_at IS NOT NULL' : '';
+  try {
+    const { results } = await db
+      .prepare(`SELECT id, email, name, scope, remaining_hours, valid_until, legacy_code, note, claimed_at FROM pending_tickets ${where} ORDER BY claimed_at IS NOT NULL, name`)
+      .all();
+    const rows = results || [];
+    const summary = await db
+      .prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN claimed_at IS NULL THEN 1 ELSE 0 END) AS unclaimed, SUM(remaining_hours) AS hours FROM pending_tickets')
+      .first<{ total: number; unclaimed: number; hours: number }>();
+    return c.json({
+      items: rows,
+      summary: { total: summary?.total ?? 0, unclaimed: summary?.unclaimed ?? 0, claimed: (summary?.total ?? 0) - (summary?.unclaimed ?? 0), hours: summary?.hours ?? 0 },
+    });
+  } catch (e) {
+    // テーブル未作成（マイグレーション未適用）でも管理画面を壊さない
+    return c.json({ items: [], summary: { total: 0, unclaimed: 0, claimed: 0, hours: 0 } });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 予約管理
 // ---------------------------------------------------------------------------

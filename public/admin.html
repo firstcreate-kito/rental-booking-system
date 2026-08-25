@@ -498,6 +498,14 @@
         <table class="resp"><thead><tr><th>項目</th><th>状態</th><th>補足</th></tr></thead><tbody id="ssBody"></tbody></table>
       </div>
       <div class="msg" id="ssMsg"></div>
+
+      <hr style="margin:22px 0;border:none;border-top:1px solid var(--line)" />
+      <h2>付与待ちチケット（既存チケット移行・#82）</h2>
+      <div class="muted">公開前に投入した既存チケットの付与状況です。お客様が<b>同じメールアドレスで会員登録／ログイン</b>すると自動でマイページに付与されます（未付与＝まだ登録されていない方）。</div>
+      <div id="ptSummary" style="margin:10px 0;font-weight:700"></div>
+      <div class="tablewrap" style="margin-top:6px">
+        <table class="resp"><thead><tr><th>氏名</th><th>メール</th><th>対象</th><th>残時間</th><th>有効期限</th><th>状態</th></tr></thead><tbody id="ptBody"></tbody></table>
+      </div>
     </section>
 
     <!-- カレンダー管理 -->
@@ -1940,6 +1948,27 @@ async function loadSystemStatus() {
   ];
   body.innerHTML = rows.map(r => '<tr><td><b>' + r[0] + '</b></td><td>' + r[1] + '</td><td class="muted">' + r[2] + '</td></tr>').join('');
   document.getElementById('ssUpdated').textContent = '取得: ' + new Date().toLocaleString('ja-JP');
+  loadPendingTickets();
+}
+// 付与待ちチケット（既存チケット移行・#82）
+async function loadPendingTickets() {
+  const sum = document.getElementById('ptSummary');
+  const tb = document.getElementById('ptBody');
+  const { ok, body } = await api('/api/admin/pending-tickets');
+  if (!ok) { sum.textContent = ''; tb.innerHTML = '<tr><td colspan="6" class="muted">取得できませんでした</td></tr>'; return; }
+  const s = body.summary || { total: 0, unclaimed: 0, claimed: 0, hours: 0 };
+  if (!s.total) { sum.textContent = 'まだ投入されていません（公開直前に移行データを投入します）。'; tb.innerHTML = ''; return; }
+  sum.textContent = '合計 ' + s.total + '件（付与済み ' + s.claimed + ' / 未付与 ' + s.unclaimed + '）・残時間合計 ' + s.hours + '時間';
+  const esc = x => String(x == null ? '' : x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const scopeLabel = v => v === 'ab' ? '名駅防音室A・B' : v === 'higashibetsuin' ? '東別院' : v;
+  tb.innerHTML = (body.items || []).map(it => {
+    const claimed = !!it.claimed_at;
+    const badge = claimed
+      ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#0a7d33;background:#e7f6ec">付与済み</span>'
+      : '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#b26a00;background:#fff2dd">未付与</span>';
+    return '<tr><td data-label="氏名">' + esc(it.name) + '</td><td data-label="メール">' + esc(it.email) + '</td><td data-label="対象">' + scopeLabel(it.scope) +
+      '</td><td data-label="残時間">' + it.remaining_hours + 'h</td><td data-label="有効期限">' + esc(it.valid_until) + '</td><td data-label="状態">' + badge + '</td></tr>';
+  }).join('');
 }
 async function saveContactUrl() {
   const msg = document.getElementById('cfgMsg');

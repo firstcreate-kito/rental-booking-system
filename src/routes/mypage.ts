@@ -30,6 +30,7 @@ import { adminRecipients } from '../lib/notify';
 import { evaluateCancel, leadDays } from '../lib/change-policy';
 import { quoteCancellation } from '../lib/cancellation-service';
 import { quoteReschedule } from '../lib/reschedule-quote';
+import { claimPendingTicketsForCustomer } from '../lib/ticket-migration';
 import { pointExpiryStatus } from '../lib/points';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
@@ -284,7 +285,15 @@ app.get('/coupons', async (c) => {
 
 /** GET /api/mypage/tickets 保有チケット一覧 */
 app.get('/tickets', async (c) => {
-  const tickets = await getMemberTickets(c.env.DB, c.get('customer').id, todayJST());
+  const customer = c.get('customer');
+  // #82 既存チケットの移行：メール一致の付与待ちチケットがあれば、この時点で自動付与する
+  // （登録/ログイン方法を問わず、マイページを開いた時点で確実に付与される。idempotent）。
+  try {
+    await claimPendingTicketsForCustomer(c.env.DB, customer.id, customer.email, todayJST());
+  } catch (e) {
+    /* 付与に失敗しても一覧表示は続行（次回アクセスで再試行される） */
+  }
+  const tickets = await getMemberTickets(c.env.DB, customer.id, todayJST());
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
   return c.json({ tickets, contactUrl });
 });
@@ -307,7 +316,14 @@ app.get('/documents', async (c) => {
 app.get('/usable-tickets', async (c) => {
   const spaceId = c.req.query('spaceId');
   if (!spaceId) return c.json({ tickets: [] });
-  const tickets = await getUsableTicketsForSpace(c.env.DB, c.get('customer').id, spaceId, todayJST());
+  const customer = c.get('customer');
+  // #82 予約時にも付与待ちチケットを取り込む（マイページ未訪問でも予約でチケットが使える）
+  try {
+    await claimPendingTicketsForCustomer(c.env.DB, customer.id, customer.email, todayJST());
+  } catch (e) {
+    /* 付与失敗時も一覧取得は続行 */
+  }
+  const tickets = await getUsableTicketsForSpace(c.env.DB, customer.id, spaceId, todayJST());
   return c.json({ tickets });
 });
 

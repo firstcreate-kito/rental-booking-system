@@ -355,6 +355,8 @@
           <span class="muted" style="font-size:13px"><strong id="memberName"></strong> 様でクーポン・ポイントをご利用いただけます</span>
         </div>
         <div id="ticketRow" class="hidden">
+          <!-- 保有チケットごとの残量（静的表示）。番号は下の選択肢と一致（#82） -->
+          <div id="ticketBalances" style="margin-bottom:8px"></div>
           <label>チケット（回数券）利用</label>
           <select id="d_ticket" onchange="onTicketChange()"><option value="">使わない</option></select>
         </div>
@@ -1688,9 +1690,28 @@ async function loadUsableTickets() {
   const { ok, body } = await api('/api/mypage/usable-tickets?spaceId=' + encodeURIComponent(S.space.id), { headers: authHeaders() });
   const rows = (ok && body.tickets) ? body.tickets : [];
   S.usableTickets = rows;
-  if (!rows.length) { row.classList.add('hidden'); sel.innerHTML = '<option value="">使わない</option>'; return; }
-  sel.innerHTML = '<option value="">使わない</option>' + rows.map(t =>
-    '<option value="' + t.id + '">' + t.name + '（残' + t.remaining_hours + 'h・〜' + t.valid_until + '）</option>').join('');
+  const bal = document.getElementById('ticketBalances');
+  if (!rows.length) {
+    row.classList.add('hidden');
+    sel.innerHTML = '<option value="">使わない</option>';
+    if (bal) bal.innerHTML = '';
+    return;
+  }
+  // ①②… の番号（保有チケットごとに付与し、残量一覧と選択肢で一致させる）
+  const CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+  const tno = (i) => CIRCLED[i] || ('(' + (i + 1) + ')');
+  // 残量の静的一覧
+  if (bal) {
+    bal.innerHTML = '<div class="muted" style="font-size:12px;margin-bottom:4px">保有チケットの残り時間</div>' +
+      rows.map((t, i) =>
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid #bfe3c8;background:#eefaf1;border-radius:8px;margin-bottom:6px">' +
+          '<span style="color:#0a7d33;font-weight:700;font-size:13px">🎫 チケット' + tno(i) + '　残り ' + t.remaining_hours + '時間</span>' +
+          '<span class="muted" style="font-size:12px;white-space:nowrap">〜' + t.valid_until + '</span>' +
+        '</div>').join('');
+  }
+  // 選択肢（番号を先頭に付けて一覧と対応づけ）
+  sel.innerHTML = '<option value="">使わない</option>' + rows.map((t, i) =>
+    '<option value="' + t.id + '">チケット' + tno(i) + '：' + t.name + '（残' + t.remaining_hours + 'h・〜' + t.valid_until + '）</option>').join('');
   row.classList.remove('hidden');
 }
 // 販売中チケットのご案内（追加購入導線）を組み立て

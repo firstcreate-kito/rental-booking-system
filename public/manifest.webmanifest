@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "レンタルスペースALBE 予約",
   "short_name": "ALBE予約",
   "description": "レンタルスペースALBEの予約・チケット購入・マイページ",
@@ -11,9 +12,33 @@
   "background_color": "#ffffff",
   "theme_color": "#0068b7",
   "categories": ["business", "lifestyle"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "予約する",
+      "short_name": "予約",
+      "description": "スペースを選んで予約する",
+      "url": "/",
+      "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "マイページ",
+      "short_name": "マイページ",
+      "description": "予約履歴・チケット・ポイントの確認",
+      "url": "/mypage.html",
+      "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "チケット購入",
+      "short_name": "チケット",
+      "description": "回数券（チケット）の購入",
+      "url": "/tickets.html",
+      "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

@@ -428,6 +428,11 @@
       </div>
       <div class="muted" id="payNote" style="font-size:12px;margin-top:6px"></div>
     </div>
+    <!-- チケット等で全額まかなえる場合の案内（お支払い方法の代わりに表示・#82関連） -->
+    <div class="card hidden" id="zeroPayNotice" style="margin-top:14px;background:#eefaf1;border-color:#bfe3c8">
+      <strong style="color:#0a7d33">🎫 チケットでお支払い</strong>
+      <div style="font-size:14px;margin-top:6px;line-height:1.7">今回のご予約は<strong>チケット（回数券）で全額まかなえます</strong>。<strong>追加のお支払いは発生しません（¥0）</strong>。そのまま「この内容で予約する」へお進みください。</div>
+    </div>
     <div class="card" style="margin-top:14px;background:#fafbfc">
       <div class="row"><span class="muted">スペース料金（通常）</span><span id="sum_space">-</span></div>
       <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:var(--few)">-</span></div>
@@ -1697,6 +1702,26 @@ async function recomputeSummary() {
   }
   document.getElementById('sum_opt').textContent = yen(body.optionsTotal || 0);
   document.getElementById('sum_total').textContent = yen(body.total || 0);
+  // お支払い方法の出し分け：合計¥0（チケット等で全額まかなえる）なら支払い方法欄は隠し、
+  // 「追加のお支払いはありません」の案内に切り替える。差額が残るときだけ支払い方法を表示。
+  {
+    const total0 = (body.total || 0) === 0;
+    const isTicket = body.primaryKind === 'ticket';
+    const paySec = document.getElementById('paymentSection');
+    const zero = document.getElementById('zeroPayNotice');
+    if (paySec) paySec.classList.toggle('hidden', total0);
+    if (zero) {
+      zero.classList.toggle('hidden', !total0);
+      if (total0 && !isTicket) {
+        // クーポン/ポイント等で¥0になった場合（チケット以外）は文言を汎用に
+        zero.querySelector('strong').textContent = '✓ お支払いは発生しません';
+        zero.querySelector('div').innerHTML = '今回のご予約は<strong>お支払いが発生しません（¥0）</strong>。そのまま「この内容で予約する」へお進みください。';
+      } else if (total0) {
+        zero.querySelector('strong').textContent = '🎫 チケットでお支払い';
+        zero.querySelector('div').innerHTML = '今回のご予約は<strong>チケット（回数券）で全額まかなえます</strong>。<strong>追加のお支払いは発生しません（¥0）</strong>。そのまま「この内容で予約する」へお進みください。';
+      }
+    }
+  }
   document.getElementById('sum_points').textContent = body.pointsEarned ? ('獲得予定ポイント: ' + body.pointsEarned + 'P') : '';
   // 割引行
   const discRow = document.getElementById('sum_disc_row'), disc = document.getElementById('sum_disc');

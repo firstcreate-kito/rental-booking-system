@@ -6,6 +6,23 @@
 
 ---
 
+## ★ 立ち上げ方法（推奨：GitHubから・PC不要）
+
+GitHub → **Actions** → **「Staging bootstrap」** → **Run workflow** を押すだけで、
+D1作成 → wrangler.jsoncへID注入 → マイグレーション → 初回シード → デプロイ まで自動実行されます。
+- 何度実行しても安全（D1は再利用、シードは spaces が空の初回のみ投入。`reseed=yes` で強制再投入）。
+- 前提：GitHub Secrets に `CLOUDFLARE_API_TOKEN`（**Account→D1→Edit 権限が必要**）が登録済み。
+- デプロイ後のURL（ログに表示）:
+  `https://albe-booking-api-staging.rental-space-albe.workers.dev`
+
+> ⚠️ **重要（再発防止）**：`routes` は named environment に継承されるため、`wrangler.jsonc` の
+> `env.staging` には **`"routes": []` を必ず明示**しています。これが無いと本番ドメイン
+> `booking.space-albe.com` をステージングが奪ってしまいます（過去に一度発生・修正済み）。
+
+以下（PowerShellでの手動手順）は、ローカルから操作したい場合の代替手段です。
+
+---
+
 ## 0. これは何？（30秒で理解）
 
 **「本番と同じ設備のミニチュア店舗」を1つ持つ、というだけの話です。**

@@ -349,10 +349,20 @@
     <div id="cr_dt" style="margin-bottom:10px">
       <label>ご希望の日時（分かる範囲でOK）</label>
       <div class="row" style="gap:8px;flex-wrap:wrap">
-        <input id="cr_date" type="date" style="flex:1;min-width:140px" />
-        <select id="cr_start" style="width:110px"></select>
+        <input id="cr_date" type="date" style="flex:1;min-width:140px" onchange="loadRescheduleQuote()" />
+        <select id="cr_start" style="width:110px" onchange="loadRescheduleQuote()"></select>
         <span style="align-self:center">〜</span>
-        <select id="cr_end" style="width:110px"></select>
+        <select id="cr_end" style="width:110px" onchange="loadRescheduleQuote()"></select>
+      </div>
+    </div>
+    <!-- #100 日時変更の差額表示＋同意（差額が生じるときのみ同意を必須にする） -->
+    <div id="cr_rescheduleQuote" style="display:none;margin-bottom:10px">
+      <div style="padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+        <div id="cr_rs_lines"></div>
+        <label id="cr_rs_agree_row" style="display:none;gap:8px;align-items:flex-start;margin-top:10px">
+          <input type="checkbox" id="cr_rs_agree" style="margin-top:3px" onchange="crAgreeChange()">
+          <span>上記の金額に同意します</span>
+        </label>
       </div>
     </div>
     <div style="margin-bottom:10px">
@@ -703,6 +713,7 @@ async function initLoginExtras() {
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
 let _crDaysUntil = null; // 当初利用日までの残日数（#76・キャンセル可否/文言表示）
+let _rsNeedAgree = false; // 日時変更で差額が生じ、同意チェックが必要か（#100）
 const CR_CANCEL_CUTOFF = 4; // これ未満（3日前以降）はオンラインキャンセル不可
 function daysUntilDate(iso) {
   if (!iso) return null;
@@ -782,9 +793,14 @@ function crToggle() {
   const quoteBox = document.getElementById('cr_cancelQuote');
   const agree = document.getElementById('cr_agree');
   const submit = document.getElementById('cr_submit');
-  // いったんリセット
+  // いったんリセット（キャンセル見積・日時変更差額の両方）
   quoteBox.style.display = 'none';
   if (agree) agree.checked = false;
+  const rsBox = document.getElementById('cr_rescheduleQuote');
+  const rsAgree = document.getElementById('cr_rs_agree');
+  rsBox.style.display = 'none';
+  if (rsAgree) rsAgree.checked = false;
+  _rsNeedAgree = false;
   if (blocked) {
     cb.textContent = (_crDaysUntil <= 0)
       ? '当日のオンラインキャンセルは承っておりません。お手数ですがお電話・メールフォームよりご連絡ください。'
@@ -799,13 +815,75 @@ function crToggle() {
     quoteBox.style.display = '';
     submit.disabled = true;
     loadCancelQuote();
+  } else if (type === 'reschedule') {
+    // #100 事前入力済みの日時で差額を計算（差額があれば同意チェックを要求）
+    submit.disabled = false;
+    loadRescheduleQuote();
   } else {
     submit.disabled = false;
   }
 }
+// 送信可否：種類ごとに必要な同意が満たされているかで判定
 function crAgreeChange() {
-  const agree = document.getElementById('cr_agree');
-  document.getElementById('cr_submit').disabled = !(agree && agree.checked);
+  const type = document.getElementById('cr_type').value;
+  const submit = document.getElementById('cr_submit');
+  if (type === 'cancel') {
+    const a = document.getElementById('cr_agree');
+    submit.disabled = !(a && a.checked);
+  } else if (type === 'reschedule') {
+    const a = document.getElementById('cr_rs_agree');
+    submit.disabled = _rsNeedAgree ? !(a && a.checked) : false;
+  } else {
+    submit.disabled = false;
+  }
+}
+// 日時変更の差額を取得して表示。差額（追加/返金）があるときだけ同意を必須にする（#100）
+async function loadRescheduleQuote() {
+  if (document.getElementById('cr_type').value !== 'reschedule') return;
+  const box = document.getElementById('cr_rescheduleQuote');
+  const lines = document.getElementById('cr_rs_lines');
+  const agreeRow = document.getElementById('cr_rs_agree_row');
+  const agree = document.getElementById('cr_rs_agree');
+  const date = document.getElementById('cr_date').value;
+  const start = document.getElementById('cr_start').value;
+  const end = document.getElementById('cr_end').value;
+  if (agree) agree.checked = false;
+  agreeRow.style.display = 'none';
+  // 日時が未入力なら差額表示なし（自由記述の相談として送信可）
+  if (!date || !start || !end) { box.style.display = 'none'; _rsNeedAgree = false; crAgreeChange(); return; }
+  box.style.display = '';
+  lines.innerHTML = '<span class="muted">差額を計算中…</span>';
+  const p = new URLSearchParams({ date: date, start: start, end: end });
+  const { ok, body } = await api('/api/mypage/bookings/' + encodeURIComponent(_crNum) + '/reschedule-quote?' + p.toString());
+  if (!ok) {
+    lines.innerHTML = '<span class="muted">差額の自動計算ができませんでした。送信後、担当者より金額をご案内します。</span>';
+    _rsNeedAgree = false; crAgreeChange(); return;
+  }
+  const yen = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+  if (body.ticket) {
+    lines.innerHTML = '<div>チケット（回数券）でのご予約のため、日時の移動による追加料金はかかりません。</div>';
+    _rsNeedAgree = false; crAgreeChange(); return;
+  }
+  const adj = body.adjustment || { type: 'zero', amount: 0 };
+  if (adj.type === 'surcharge') {
+    lines.innerHTML =
+      '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">日時変更にともなう差額</div>' +
+      '<div>変更後の料金：<strong>' + yen(body.newTotal) + '</strong></div>' +
+      '<div>追加のお支払い：<strong>' + yen(adj.amount) + '</strong></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お支払いのご案内は担当者が行います。</div>';
+    _rsNeedAgree = true; agreeRow.style.display = 'flex';
+  } else if (adj.type === 'refund') {
+    lines.innerHTML =
+      '<div style="font-weight:700;color:#166534;margin-bottom:4px">日時変更にともなう差額</div>' +
+      '<div>変更後の料金：<strong>' + yen(body.newTotal) + '</strong></div>' +
+      '<div>ご返金：<strong>' + yen(adj.amount) + '</strong></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・ご返金のお手続きは担当者が行います。</div>';
+    _rsNeedAgree = true; agreeRow.style.display = 'flex';
+  } else {
+    lines.innerHTML = '<div>この日時変更による料金の変更はありません（' + yen(body.newTotal) + '）。</div>';
+    _rsNeedAgree = false;
+  }
+  crAgreeChange();
 }
 async function loadCancelQuote() {
   const lines = document.getElementById('cr_quoteLines');

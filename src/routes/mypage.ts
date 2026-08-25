@@ -29,6 +29,7 @@ import { hashPassword, verifyPassword } from '../lib/auth';
 import { adminRecipients } from '../lib/notify';
 import { evaluateCancel, leadDays } from '../lib/change-policy';
 import { quoteCancellation } from '../lib/cancellation-service';
+import { quoteReschedule } from '../lib/reschedule-quote';
 import { pointExpiryStatus } from '../lib/points';
 import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
@@ -124,6 +125,28 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
 });
 
 /**
+ * GET /api/mypage/bookings/:number/reschedule-quote?date=&start=&end= 日時変更の差額見積 #100
+ * お客様が日時変更を希望したとき、追加請求／返金の金額を事前提示するために使う（確定はしない）。
+ */
+app.get('/bookings/:number/reschedule-quote', async (c) => {
+  const db = c.env.DB;
+  const customer = c.get('customer');
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g || !g.customer_id || g.customer_id !== customer.id) return c.json({ error: 'not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
+  const date = (c.req.query('date') ?? '').trim();
+  const start = (c.req.query('start') ?? '').trim();
+  const end = (c.req.query('end') ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) {
+    return c.json({ error: 'date/start/end を指定してください' }, 400);
+  }
+  const space = await getSpaceById(db, g.space_id);
+  if (!space) return c.json({ error: 'space not found' }, 404);
+  const quote = await quoteReschedule(db, g, space, [{ date, startTime: start, endTime: end }]);
+  return c.json(quote);
+});
+
+/**
  * POST /api/mypage/bookings/:number/change-request 予約変更リクエスト（#54）
  * 会員が自分の予約に対して変更希望（日時変更/オプション/キャンセル/その他）を送信。
  * 管理者が承認するまで予約自体は変わらない（受付のみ）。
@@ -188,7 +211,18 @@ app.post('/bookings/:number/change-request', async (c) => {
     refundAmount = q.refundAmount;
   }
   const yen = (n: number) => '¥' + Math.round(n).toLocaleString('ja-JP');
-  const agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
+  let agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
+  // 日時変更で差額が生じる場合、お客様が同意した差額を記録に残す（#100）
+  if (type === 'reschedule' && proposed && space) {
+    try {
+      const rq = await quoteReschedule(db, g, space, proposed);
+      if (rq.adjustment.type === 'surcharge') agreedNote += `\n【お客様が同意した金額】追加請求 ${yen(rq.adjustment.amount)}（変更後 ${yen(rq.newTotal)}）`;
+      else if (rq.adjustment.type === 'refund') agreedNote += `\n【お客様が同意した金額】ご返金 ${yen(rq.adjustment.amount)}（変更後 ${yen(rq.newTotal)}）`;
+      else if (!rq.ticket) agreedNote += `\n【お客様が同意した金額】差額なし（${yen(rq.newTotal)}）`;
+    } catch (e) {
+      /* 見積不可時は金額注記なし（担当者が確認） */
+    }
+  }
 
   const id = await createChangeRequest(
     db,

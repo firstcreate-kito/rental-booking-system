@@ -154,6 +154,7 @@ function toPricingConfig(s: SpaceRow): SpacePricingConfig {
     closeTime: s.close_time,
     hasMinimum: !!s.has_minimum,
     minHours: s.min_hours,
+    weekendDayRateOnly: !!s.weekend_day_rate_only,
   };
 }
 
@@ -313,6 +314,7 @@ app.post('/', async (c) => {
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
   }));
 
   const valSpace = toValidationSpace(space);
@@ -950,7 +952,7 @@ app.post('/quote', async (c) => {
     getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
-  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ name: r.name, startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ name: r.name, startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only }));
 
   // 検証（エラーは warnings として返す。見積り自体は算出）
   const valSpace = toValidationSpace(space);
@@ -1185,6 +1187,7 @@ app.post('/:number/reschedule', async (c) => {
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
   }));
 
   const valSpace = toValidationSpace(space);

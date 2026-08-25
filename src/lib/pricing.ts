@@ -31,6 +31,12 @@ export interface SpacePricingConfig {
   closeTime: string; // 'HH:MM'
   hasMinimum: boolean;
   minHours: number;
+  /**
+   * 土日祝は時間料金を出さず常に1日料金にする（#18）。
+   * true のとき、weekend 判定の日は入退時刻に関わらず1日料金（dayRateHours 必須）。
+   * 既定 false（未指定）＝従来通り。
+   */
+  weekendDayRateOnly?: boolean;
 }
 
 /** 1日分の予約入力 */
@@ -48,6 +54,12 @@ export interface SeasonalRule {
   startDate: string; // 'YYYY-MM-DD'
   endDate: string; // 'YYYY-MM-DD'
   surchargePct: number; // 30 = +30%
+  /**
+   * この期間は平日でも1日料金のみにする（#18）。GW・その谷間など。
+   * true のとき、期間内の日は入退時刻に関わらず1日料金（dayRateHours 必須）。
+   * surchargePct と併用可（1日料金へ季節割増も加算される）。既定 false。
+   */
+  dayRateOnly?: boolean;
 }
 
 /** 計算の外部データ */
@@ -89,11 +101,11 @@ export function findSeasonalPct(dateISO: string, rules?: readonly SeasonalRule[]
 export function findSeasonalMatch(
   dateISO: string,
   rules?: readonly SeasonalRule[],
-): { surchargePct: number; name: string | null } | null {
+): { surchargePct: number; name: string | null; dayRateOnly: boolean } | null {
   if (!rules) return null;
   for (const r of rules) {
     if (dateISO >= r.startDate && dateISO <= r.endDate) {
-      return { surchargePct: r.surchargePct, name: r.name ?? null };
+      return { surchargePct: r.surchargePct, name: r.name ?? null, dayRateOnly: r.dayRateOnly ?? false };
     }
   }
   return null;
@@ -129,6 +141,16 @@ export function computeDayPrice(
 
   const isFullSpan = booking.startTime === space.openTime && booking.endTime === space.closeTime;
 
+  // 季節料金ルールの該当判定（金額加算 と 「1日料金のみ期間」判定で共用）
+  const seasonalMatch = findSeasonalMatch(booking.date, ctx.seasonalRules);
+
+  // #18「1日料金のみ」課金の発動条件
+  //  ① 土日祝は1日料金のみ（スペース設定）
+  //  ② この期間は1日料金のみ（季節料金の期間フラグ。GW・谷間など平日も対象）
+  const weekendForcesDay = dayType === 'weekend' && space.weekendDayRateOnly === true;
+  const periodForcesDay = seasonalMatch?.dayRateOnly === true;
+  const dayRateOnly = weekendForcesDay || periodForcesDay;
+
   let billingMode: BillingMode;
   let billableHours: number;
 
@@ -136,6 +158,13 @@ export function computeDayPrice(
     // 1日単位専用スペース: 常に1日料金
     if (space.dayRateHours == null) {
       throw new PricingError('BLOCK_NO_DAY_RATE', 'block課金だが1日料金が未設定です');
+    }
+    billingMode = 'day';
+    billableHours = space.dayRateHours;
+  } else if (dayRateOnly) {
+    // #18: 土日祝 or 指定期間は入退時刻に関わらず1日料金
+    if (space.dayRateHours == null) {
+      throw new PricingError('DAY_RATE_ONLY_NO_DAY_RATE', '1日料金のみ設定だが1日料金（day_rate_hours）が未設定です');
     }
     billingMode = 'day';
     billableHours = space.dayRateHours;
@@ -159,8 +188,7 @@ export function computeDayPrice(
 
   const basePrice = billableHours * rate;
 
-  // 季節料金（該当日の金額に加算）
-  const seasonalMatch = findSeasonalMatch(booking.date, ctx.seasonalRules);
+  // 季節料金（該当日の金額に加算）※ seasonalMatch は上部で算出済み
   const seasonalPct = seasonalMatch?.surchargePct ?? 0;
   const seasonalName = seasonalPct > 0 ? seasonalMatch?.name ?? null : null;
   const seasonalSurcharge = seasonalPct > 0 ? Math.round((basePrice * seasonalPct) / 100) : 0;

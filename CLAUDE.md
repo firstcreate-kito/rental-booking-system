@@ -40,6 +40,8 @@
 ## GitHub Actions ワークフロー
 
 - **Deploy**：コードのデプロイ（staging / production）。上記ルールのガードあり。
+- **DB migrate**：未適用のD1マイグレーションを適用（staging / production）。コードデプロイとは別に実行。
+  本番は `staging_verified=yes` 必須（ステージング先行ガード）。冪等（未適用分のみ適用）。
 - **Staging bootstrap**：ステージングの初期構築（D1作成→マイグレーション→シード→デプロイ）。
 - **Staging secrets**：`*_STAGING` の鍵を staging Worker に投入（テストキーのみ・本番キーはガードで拒否）。
 - **Production secrets**：`*_PROD` の鍵を本番 Worker に投入（`confirm=YES-PRODUCTION` 必須・テスト値はガードで拒否）。
@@ -48,7 +50,8 @@
 
 - `npm run typecheck` と `npm test`（vitest）が Deploy ワークフローで自動実行され、失敗時はデプロイされない。
 - DBスキーマ変更（`migrations/` に新ファイル）を伴う回は、コードデプロイとは別に
-  `npm run db:migrate:staging` → 確認 → `npm run db:migrate:remote` を行う。
+  **「DB migrate」ワークフロー**を `environment=staging` → 確認 → `environment=production`（`staging_verified=yes`）で実行する。
+  （PCがある場合は `npm run db:migrate:staging` → 確認 → `npm run db:migrate:remote` でも可。どちらも冪等）。
 
 ---
 

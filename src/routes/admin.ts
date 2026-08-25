@@ -145,6 +145,7 @@ function toPricingConfig(s: SpaceRow): SpacePricingConfig {
     closeTime: s.close_time,
     hasMinimum: !!s.has_minimum,
     minHours: s.min_hours,
+    weekendDayRateOnly: !!s.weekend_day_rate_only,
   };
 }
 
@@ -446,6 +447,7 @@ async function prepareAdminBooking(
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
   }));
 
   // バリデーション（管理者は受付期間の制約を無視）+ 競合
@@ -1071,7 +1073,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
     getActiveSeasonalRulesForSpace(db, space.id),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
-  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct }));
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only }));
 
   // 休業日・競合チェック（受付期間の制約は管理者につき無視）
   for (const item of body.items) {
@@ -1547,6 +1549,8 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     roomGroup: body.roomGroup ? String(body.roomGroup).trim() : null,
     sameDayCutoffHours: Number.isFinite(Number(body.sameDayCutoffHours)) ? Math.max(0, Math.floor(Number(body.sameDayCutoffHours))) : 1,
     sameDayPriority: Number.isFinite(Number(body.sameDayPriority)) ? Math.floor(Number(body.sameDayPriority)) : 100,
+    // #18: 土日祝は1日料金のみ（時間料金を出さない）。既定OFF。
+    weekendDayRateOnly: !!body.weekendDayRateOnly,
   };
   return { input };
 }
@@ -2006,11 +2010,15 @@ function parseSeasonalInput(b: Record<string, unknown>): { input?: SeasonalInput
   const surchargePct = Number(b.surchargePct ?? 0);
   const isActive = b.isActive === undefined ? true : !!b.isActive;
   const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
+  // #18: この期間は1日料金のみ（GW・谷間など）。割増率0でも成立させる。
+  const dayRateOnly = !!b.dayRateOnly;
   if (!name) return { error: '名称は必須です' };
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: '期間は YYYY-MM-DD で入力してください' };
   if (endDate < startDate) return { error: '終了日は開始日以降にしてください' };
-  if (!Number.isFinite(surchargePct) || surchargePct <= 0) return { error: '割増率（％）は1以上で入力してください' };
-  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive, spaceIds } };
+  if (!Number.isFinite(surchargePct) || surchargePct < 0) return { error: '割増率（％）は0以上で入力してください' };
+  // 割増なし（0%）は「1日料金のみ」期間のときだけ許可（通常の季節料金は1以上必須）
+  if (surchargePct <= 0 && !dayRateOnly) return { error: '割増率（％）は1以上で入力してください（1日料金のみの期間は0でも可）' };
+  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive, spaceIds, dayRateOnly } };
 }
 
 /** GET /api/admin/seasonal 季節料金一覧 */

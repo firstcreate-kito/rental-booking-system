@@ -156,6 +156,95 @@ describe('computeDayPrice - 季節料金', () => {
   });
 });
 
+describe('computeDayPrice - 1日料金のみ課金（#18）', () => {
+  // アルベホール名古屋を想定: 土日祝は1日料金のみ
+  const hallWeekendDayOnly: SpacePricingConfig = { ...hall, weekendDayRateOnly: true };
+
+  it('土日祝は入退時刻に関わらず1日料金（部分利用でも日料金）', () => {
+    const r = computeDayPrice(hallWeekendDayOnly, {
+      date: SATURDAY,
+      startTime: '12:00',
+      endTime: '17:00', // 5時間だが1日料金
+    });
+    expect(r.dayType).toBe('weekend');
+    expect(r.billingMode).toBe('day');
+    expect(r.billableHours).toBe(13);
+    expect(r.price).toBe(13 * 10890); // 141570
+  });
+
+  it('祝日(holiday)も土日祝扱いで1日料金', () => {
+    const holidays = new Map<string, HolidayType>([[WEEKDAY, 'holiday']]);
+    const r = computeDayPrice(
+      hallWeekendDayOnly,
+      { date: WEEKDAY, startTime: '10:00', endTime: '13:00' },
+      { holidays },
+    );
+    expect(r.dayType).toBe('weekend');
+    expect(r.billingMode).toBe('day');
+    expect(r.price).toBe(13 * 10890);
+  });
+
+  it('平日は従来通り時間料金（土日祝フラグの影響を受けない）', () => {
+    const r = computeDayPrice(hallWeekendDayOnly, {
+      date: WEEKDAY,
+      startTime: '10:00',
+      endTime: '16:00',
+    });
+    expect(r.billingMode).toBe('hourly');
+    expect(r.price).toBe(6 * 7260);
+  });
+
+  it('土日入り〜日曜出の複数日は各日とも1日料金', () => {
+    const g = computeGroupSpacePrice(hallWeekendDayOnly, [
+      { date: SATURDAY, startTime: '12:00', endTime: '22:00' },
+      { date: '2026-04-26', startTime: '08:00', endTime: '17:00' }, // Sun
+    ]);
+    expect(g.days[0].billingMode).toBe('day');
+    expect(g.days[1].billingMode).toBe('day');
+    expect(g.spaceTotal).toBe(13 * 10890 * 2); // 283140
+  });
+
+  it('期間指定「1日料金のみ」は平日でも1日料金（GW・谷間）', () => {
+    // hall は weekendDayRateOnly=false のまま。期間フラグだけで平日を1日料金に。
+    const seasonalRules = [
+      { name: 'GW', startDate: '2026-04-29', endDate: '2026-05-06', surchargePct: 0, dayRateOnly: true },
+    ];
+    const GW_WEEKDAY = '2026-05-01'; // Fri（平日）
+    const r = computeDayPrice(
+      hall,
+      { date: GW_WEEKDAY, startTime: '10:00', endTime: '14:00' }, // 4時間だが1日料金
+      { seasonalRules },
+    );
+    expect(r.dayType).toBe('weekday');
+    expect(r.billingMode).toBe('day');
+    expect(r.rate).toBe(7260); // 平日単価で日料金
+    expect(r.price).toBe(13 * 7260); // 94380
+  });
+
+  it('期間指定「1日料金のみ」＋割増% は併用できる', () => {
+    const seasonalRules = [
+      { name: 'GW繁忙', startDate: '2026-04-29', endDate: '2026-05-06', surchargePct: 20, dayRateOnly: true },
+    ];
+    const r = computeDayPrice(
+      hall,
+      { date: '2026-05-01', startTime: '10:00', endTime: '14:00' },
+      { seasonalRules },
+    );
+    expect(r.billingMode).toBe('day');
+    expect(r.basePrice).toBe(13 * 7260); // 94380
+    expect(r.seasonalPct).toBe(20);
+    expect(r.seasonalSurcharge).toBe(Math.round(94380 * 0.2)); // 18876
+    expect(r.price).toBe(94380 + 18876); // 113256
+  });
+
+  it('1日料金のみ指定でも day_rate_hours 未設定ならエラー', () => {
+    const noDayRate: SpacePricingConfig = { ...hall, dayRateHours: null, weekendDayRateOnly: true };
+    expect(() =>
+      computeDayPrice(noDayRate, { date: SATURDAY, startTime: '12:00', endTime: '17:00' }),
+    ).toThrowError(PricingError);
+  });
+});
+
 describe('computeDayPrice - 提供可否', () => {
   it('倉庫は平日不可 → DAY_UNAVAILABLE', () => {
     expect(() =>

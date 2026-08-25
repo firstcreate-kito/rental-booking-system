@@ -1,0 +1,84 @@
+name: DB migrate
+
+# 未適用のD1マイグレーション（migrations/ の新ファイル）を適用する（PC不要・GitHubだけで完結）。
+# コードデプロイ（Deploy ワークフロー）とは別に実行する。スキーマ変更を伴う回の手順:
+#   ① environment=staging で実行 → ② ステージングで動作確認 → ③ environment=production かつ staging_verified=yes
+# 本番はガードにより staging_verified=yes を選ばないと実行できない（ステージング先行ルール）。
+#
+# wrangler d1 migrations apply は「未適用のマイグレーションだけ」を順に適用する（適用済みは再実行しない）ため、
+# 何度実行しても安全（冪等）。
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'マイグレーション適用先'
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+      staging_verified:
+        description: '本番のみ必須：ステージングで確認済みか（production を選ぶ場合は yes）'
+        type: choice
+        required: true
+        default: 'no'
+        options: ['no', 'yes']
+
+concurrency:
+  group: db-migrate-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      # 【ステージング先行の徹底】本番は「ステージングで確認済み」を明示しないと止める
+      - name: Enforce staging-first for production
+        if: ${{ github.event.inputs.environment == 'production' && github.event.inputs.staging_verified != 'yes' }}
+        run: |
+          echo "::error::本番マイグレーションには staging_verified=yes が必要です。まず environment=staging で適用して動作確認し、その後 environment=production かつ staging_verified=yes で実行してください（ステージング先行ルール）。"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: List pending migrations (${{ github.event.inputs.environment }})
+        run: |
+          set -e
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            npx wrangler d1 migrations list albe_booking --remote || true
+          else
+            # staging D1 はリポジトリ上プレースホルダのため実IDを注入してから確認
+            ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="albe_booking_staging") | (.uuid // .database_id)' | head -1)
+            if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+              echo "::error::ステージング用D1が見つかりません。先に「Staging bootstrap」を実行してください。"; exit 1
+            fi
+            sed -i "s/PLACEHOLDER_STAGING_D1_ID/$ID/g" wrangler.jsonc
+            npx wrangler d1 migrations list albe_booking_staging --remote --env staging || true
+          fi
+
+      - name: Apply migrations (${{ github.event.inputs.environment }})
+        run: |
+          set -e
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            echo "▶ 本番D1へマイグレーションを適用します"
+            npx wrangler d1 migrations apply albe_booking --remote
+          else
+            echo "▶ ステージングD1へマイグレーションを適用します"
+            # 実IDは前ステップで注入済み（同一ジョブ・同一チェックアウト）
+            npx wrangler d1 migrations apply albe_booking_staging --remote --env staging
+          fi

@@ -403,6 +403,7 @@
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
           <div><label>1日料金の時間数（空欄=なし。例:13）</label><input id="sp_drh" type="number" /></div>
         </div>
+        <label style="display:flex;gap:6px;align-items:flex-start;margin:8px 0 0"><input type="checkbox" id="sp_weekend_day_only" style="margin-top:3px"> <span>土日祝は「1日料金のみ」にする（#18）<br><span class="muted" style="font-size:12px">複数日利用が多い施設（例：アルベホール名古屋）向け。ONにすると土日祝は入退時刻に関わらず1日料金になります（時間料金は出しません）。平日は従来どおり時間料金＋1日料金。※1日料金の時間数の設定が必要です。</span></span></label>
         <div class="grid">
           <div><label>営業開始 *</label><input id="sp_open" placeholder="08:00" /></div>
           <div><label>営業終了 *</label><input id="sp_close" placeholder="22:00" /></div>
@@ -654,7 +655,7 @@
           <input type="hidden" id="se_id" />
           <div class="grid">
             <div><label>名称 *</label><input id="se_name" placeholder="例）GW料金" /></div>
-            <div><label>割増率(%) *</label><input id="se_pct" type="number" placeholder="30" /></div>
+            <div><label>割増率(%)</label><input id="se_pct" type="number" placeholder="30" /><span class="muted" style="font-size:11px;display:block">※「1日料金のみ」にチェックする場合は0でも可</span></div>
           </div>
           <div class="grid">
             <div><label>開始日 *</label><input id="se_from" type="date" /></div>
@@ -664,6 +665,7 @@
           <div class="muted" style="font-size:12px;margin:-2px 0 4px">チェックしたスペースだけに割増を適用します。何も選ばない場合は全スペースが対象です。</div>
           <div id="se_spaces" class="row" style="gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:130px;overflow:auto"></div>
           <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="se_active" checked /> 有効</label>
+          <label style="display:flex;gap:6px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="se_day_only" style="margin-top:3px" /> <span>この期間は「1日料金のみ」にする（#18）<br><span class="muted" style="font-size:12px">GW・その谷間など。対象スペースの平日でも入退時刻に関わらず1日料金になります（対象スペース未選択なら全スペース）。割増率と併用可。</span></span></label>
           <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
             <button class="btn ghost sm" onclick="toggleSeasonalForm(false)">キャンセル</button>
             <button class="btn" onclick="submitSeasonal()">保存</button>
@@ -1327,6 +1329,7 @@ function fillSpaceForm(s) {
   const modeEl = document.querySelector('input[name="sp_paymode"][value="' + mode + '"]');
   if (modeEl) modeEl.checked = true;
   document.getElementById('sp_manual_invoice').checked = s ? !!s.allow_manual_invoice : false;
+  document.getElementById('sp_weekend_day_only').checked = s ? !!s.weekend_day_rate_only : false;
   // キャンセルポリシー プリセット（#99）：新規は標準、既存は取得して反映
   document.getElementById('sp_cancel_policy').value = 'standard';
   if (s) loadSpaceCancelPolicy(s.id);
@@ -1371,6 +1374,7 @@ async function saveSpace() {
     isActive: document.getElementById('sp_active').checked,
     paymentMode: (document.querySelector('input[name="sp_paymode"]:checked') || {}).value || 'card_bank',
     allowManualInvoice: document.getElementById('sp_manual_invoice').checked,
+    weekendDayRateOnly: document.getElementById('sp_weekend_day_only').checked,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing
@@ -1403,6 +1407,7 @@ function toggleSeasonalForm(show) {
     document.getElementById('se_id').value = '';
     ['se_name','se_pct','se_from','se_to'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('se_active').checked = true;
+    document.getElementById('se_day_only').checked = false;
     document.querySelectorAll('.se-space').forEach(el => el.checked = false);
     document.getElementById('seMsg').textContent = '';
   }
@@ -1416,7 +1421,7 @@ async function loadSeasonal() {
   const { body } = await api('/api/admin/seasonal');
   const rows = body.seasonal || [];
   document.getElementById('seasonalBody').innerHTML = rows.length ? rows.map(s =>
-    '<tr><td>' + s.name + '</td><td>' + s.start_date + ' 〜 ' + s.end_date + '</td><td>+' + s.surcharge_pct + '%</td>' +
+    '<tr><td>' + s.name + (s.day_rate_only ? ' <span class="pill" style="background:#fef3c7;color:#92400e">1日料金のみ</span>' : '') + '</td><td>' + s.start_date + ' 〜 ' + s.end_date + '</td><td>' + (s.surcharge_pct > 0 ? '+' + s.surcharge_pct + '%' : (s.day_rate_only ? '—' : '+0%')) + '</td>' +
     '<td>' + spaceNames(s.space_ids) + '</td>' +
     '<td><span class="pill ' + (s.is_active ? 'confirmed' : 'cancelled') + '">' + (s.is_active ? '有効' : '無効') + '</span></td>' +
     '<td style="white-space:nowrap"><button class="btn ghost sm" onclick=\'editSeasonal(' + JSON.stringify(s) + ')\'>編集</button> ' +
@@ -1431,6 +1436,7 @@ function editSeasonal(s) {
   document.getElementById('se_from').value = s.start_date;
   document.getElementById('se_to').value = s.end_date;
   document.getElementById('se_active').checked = !!s.is_active;
+  document.getElementById('se_day_only').checked = !!s.day_rate_only;
   const ids = s.space_ids || [];
   document.querySelectorAll('.se-space').forEach(el => el.checked = ids.includes(el.value));
 }
@@ -1444,6 +1450,7 @@ async function submitSeasonal() {
     startDate: document.getElementById('se_from').value,
     endDate: document.getElementById('se_to').value,
     isActive: document.getElementById('se_active').checked,
+    dayRateOnly: document.getElementById('se_day_only').checked,
     spaceIds,
   };
   const { ok, body } = await api('/api/admin/seasonal' + (id ? '/' + id : ''), jsonBody(payload, id ? 'PUT' : 'POST'));

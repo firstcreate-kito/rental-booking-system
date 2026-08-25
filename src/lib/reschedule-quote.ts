@@ -22,6 +22,7 @@ function toPricingConfig(s: SpaceRow): SpacePricingConfig {
     closeTime: s.close_time,
     hasMinimum: !!s.has_minimum,
     minHours: s.min_hours,
+    weekendDayRateOnly: !!s.weekend_day_rate_only,
   };
 }
 
@@ -65,6 +66,7 @@ export async function quoteReschedule(
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
   }));
   const dayInputs: DayBookingInput[] = proposedItems.map((i) => ({
     date: i.date,

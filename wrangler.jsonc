@@ -56,7 +56,10 @@
   "env": {
     "staging": {
       "name": "albe-booking-api-staging",
-      // 本番ドメイン(routes)は継承されない。workers.dev のURLだけで配信する。
+      // 【重要】routes は named environment に継承されるため、必ず空で上書きする。
+      // これを省くと本番ドメイン booking.space-albe.com をステージングが奪ってしまう。
+      // ステージングは workers.dev のURLだけで配信する。
+      "routes": [],
       "workers_dev": true,
       "observability": {
         "enabled": true

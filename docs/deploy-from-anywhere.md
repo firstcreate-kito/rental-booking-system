@@ -48,15 +48,28 @@
 
 ---
 
-## ふだんの使い方（デプロイのたび）
+## ふだんの使い方（デプロイのたび）｜★ステージング先行が鉄則
 
+**どんなに小さな修正でも、必ず「ステージング → 確認 → 本番」の順**で行います（環境差異の防止）。
+
+### ① まずステージングへ
 1. GitHubリポジトリ → 上部 **Actions** タブ
-2. 左の一覧から **「Deploy」** を選択
-3. 右の **「Run workflow」** をクリック
-4. **environment** で `staging`（テスト）または `production`（本番）を選ぶ
-5. 緑の **Run workflow** を押す → 数分で完了（画面でログも見られます）
+2. 左の一覧から **「Deploy」** を選択 → **「Run workflow」**
+3. **environment** = `staging` を選ぶ（`staging_verified` は staging では無視されるのでそのままでOK）
+4. 緑の **Run workflow** → 数分で完了
 
-これで自宅でも外出先でも、スマホからでもデプロイできます。
+### ② ステージングで動作確認
+- `https://albe-booking-api-staging.rental-space-albe.workers.dev` を開いて、修正箇所を実際に確認。
+
+### ③ 問題なければ本番へ
+1. 同じ **「Deploy」→「Run workflow」**
+2. **environment** = `production`、かつ **`staging_verified` = `yes`** を選ぶ
+3. **Run workflow**
+
+> 🔒 **ガード**：本番は `staging_verified=yes` を選ばないと**ワークフローが失敗**します（ステージング確認を飛ばして本番へ出す事故の防止）。
+> このルールは `CLAUDE.md` にも明記され、今後のAI作業でも「まずステージング→確認→本番」が徹底されます。
+
+これで自宅でも外出先でも、スマホからでも安全にデプロイできます。
 
 ---
 

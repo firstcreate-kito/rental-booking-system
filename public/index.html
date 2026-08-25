@@ -628,7 +628,8 @@ function updateLoginBadge() {
   const el = document.getElementById('loginBadge');
   const link = document.getElementById('hdrLoginLink');
   const loggedIn = !!(S.token && S.member);
-  if (link) link.classList.toggle('hidden', loggedIn); // ヘッダーのログインリンクは未ログイン時のみ
+  // .albe-mini は .hidden より詳細度が高く効かないため、インラインstyleで確実に出し分ける
+  if (link) link.style.display = loggedIn ? 'none' : '';
   if (!el) return;
   if (loggedIn) {
     const nm = (S.member.contactName || S.member.email || '').trim() || 'お客様';
@@ -650,9 +651,9 @@ function openLoginModal() {
 }
 function closeLoginModal() { const m = document.getElementById('loginModal'); if (m) m.classList.remove('show'); }
 async function afterHeaderLogin(body) {
-  await onMemberLoggedIn(body);   // 会員UI・チケット/お気に入り読込・再計算（既存処理を再利用）
-  updateTicketGuideNote();        // カレンダーの回数券案内に残量を反映
-  closeLoginModal();
+  try { await onMemberLoggedIn(body); } catch (e) {} // スペース未選択時などでも失敗させない
+  try { updateTicketGuideNote(); } catch (e) {}      // カレンダーの回数券案内に残量を反映
+  closeLoginModal();                                  // 必ずモーダルを閉じる（手応えを出す）
 }
 async function hdrLogin() {
   const email = document.getElementById('hlEmail').value.trim();
@@ -1773,6 +1774,8 @@ function onTicketChange() { if (document.getElementById('d_ticket').value) { doc
 async function loadUsableTickets() {
   const row = document.getElementById('ticketRow'), sel = document.getElementById('d_ticket');
   S.usableTickets = [];
+  // スペース未選択（ヘッダーからのログイン直後など）は何もしない（S.space.id 参照でのエラー防止）
+  if (!S.space) { if (row) row.classList.add('hidden'); const b0 = document.getElementById('ticketBalances'); if (b0) b0.innerHTML = ''; return; }
   // このスペースで販売中のチケット（追加購入案内用）を取得
   const prod = await api('/api/spaces/' + encodeURIComponent(S.space.id) + '/ticket-products');
   S.ticketProducts = (prod.ok && prod.body.products) ? prod.body.products : [];
@@ -1838,6 +1841,7 @@ function discountPayload() {
   return {};
 }
 async function recomputeSummary() {
+  if (!S.space) return; // スペース未選択（ヘッダーからのログイン直後など）は集計しない
   const { body } = await api('/api/bookings/quote', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
     body: JSON.stringify({ spaceId: S.space.id, items: S.cart, options: optionsPayload(), ...discountPayload() }) });
   // 季節料金の内訳（通常料金 ＋ 割増）

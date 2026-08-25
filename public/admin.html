@@ -53,8 +53,9 @@
   .hidden { display:none; }
   .msg { font-size:13px; margin-top:8px; }
   .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
-  .tabs { display:flex; gap:8px; margin-bottom:14px; }
-  .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; }
+  /* タブは横に詰め込まず、幅が足りなければ複数行に折り返す。各ボタンは縮まず文字を1行に保つ。 */
+  .tabs { display:flex; flex-wrap:wrap; gap:8px; row-gap:8px; margin-bottom:14px; }
+  .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; white-space:nowrap; flex:0 0 auto; }
   .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
   .crbadge { display:inline-block; min-width:16px; padding:0 5px; margin-left:5px; border-radius:999px; background:#dc2626; color:#fff; font-size:11px; line-height:16px; text-align:center; vertical-align:middle; }
   .crbadge.hidden { display:none; }

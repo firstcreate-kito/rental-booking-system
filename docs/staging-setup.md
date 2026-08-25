@@ -23,6 +23,41 @@ D1作成 → wrangler.jsoncへID注入 → マイグレーション → 初回�
 
 ---
 
+## ★ シークレット投入（推奨：GitHubから・PC不要）
+
+Stripeテストキー等の「鍵」も、GitHubの画面だけでステージングに投入できます（PowerShell不要）。
+
+### 手順（初回だけ登録 → あとはボタン実行）
+
+1. **GitHub → Settings → Secrets and variables → Actions → New repository secret**
+   で、入れたい鍵を **`◯◯_STAGING`** という名前で登録する（値はステージング＝テスト用）。
+   よく使うもの：
+
+   | GitHub Secret 名 | 値の例（テスト用） | 用途 |
+   |---|---|---|
+   | `STRIPE_SECRET_KEY_STAGING` | `sk_test_...` | Stripeカード/コンビニ決済（テスト） |
+   | `STRIPE_WEBHOOK_SECRET_STAGING` | `whsec_...` | Stripe Webhook（テスト用エンドポイント） |
+   | `PAYPAL_CLIENT_ID_STAGING` | `AY...`（sandbox） | PayPal（サンドボックス） |
+   | `PAYPAL_CLIENT_SECRET_STAGING` | `EL...`（sandbox） | 同上 |
+   | `PAYPAL_MODE_STAGING` | `sandbox` | PayPalモード（**live禁止**） |
+   | `RESEND_API_KEY_STAGING` | `re_...` | 確認メール送信（任意） |
+   | `MAIL_FROM_STAGING` | `noreply@…` | 送信元（任意） |
+   | `MAIL_ADMIN_STAGING` | 自分のメール | 管理者通知の宛先（任意） |
+   | `BASIC_AUTH_USER_STAGING` / `BASIC_AUTH_PASS_STAGING` | 任意 | テスト環境の閲覧制限（任意） |
+
+2. **GitHub → Actions → 「Staging secrets」→ Run workflow** を押す。
+   登録済みの鍵だけがステージングWorkerに投入され、最後に自動で再デプロイされます。
+3. ステージングURLの管理画面 →「システム状態」で、**Stripe = テスト(test)** /
+   **PayPal = サンドボックス** に変わっていることを確認。
+
+> ✅ **安全装置**：本番キー（`sk_live...`）や `PAYPAL_MODE=live` を誤って登録した場合は、
+> ワークフローがエラーで停止し、ステージングに本番鍵が入らないようになっています。
+> 鍵の値がActionsのログに出力されることもありません。
+>
+> 📌 事前に一度「Staging bootstrap」を実行してステージングD1が存在している必要があります。
+
+---
+
 ## 0. これは何？（30秒で理解）
 
 **「本番と同じ設備のミニチュア店舗」を1つ持つ、というだけの話です。**

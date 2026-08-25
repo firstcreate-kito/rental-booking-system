@@ -1,0 +1,101 @@
+name: Ticket migration (#82)
+
+# 既存チケット（付与待ち pending_tickets）を D1 に投入する（PC不要・GitHubから）。
+#   ① pending_tickets テーブルのマイグレーション適用（未適用なら）
+#   ② seeds/pending_tickets.sql の __VALID_UNTIL__ を valid_until に置換して投入
+#      （INSERT OR IGNORE・id固定なので再実行しても重複しない）
+#   ③ 件数・残時間合計を表示
+#
+# 運用ルール：まず environment=staging で投入・動作確認 → 本番は
+# environment=production かつ confirm=YES-PRODUCTION で実行（ステージング先行）。
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '投入先'
+        type: choice
+        required: true
+        default: staging
+        options: [staging, production]
+      valid_until:
+        description: '有効期限 YYYY-MM-DD（公開日+1年）'
+        type: string
+        required: true
+        default: '2027-08-30'
+      confirm:
+        description: '本番のみ必須：本番へ投入するなら YES-PRODUCTION'
+        type: choice
+        required: true
+        default: 'no'
+        options: ['no', 'YES-PRODUCTION']
+
+concurrency:
+  group: ticket-migration-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  migrate-tickets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VALID_UNTIL: ${{ github.event.inputs.valid_until }}
+    steps:
+      - name: Confirm gate (production)
+        if: ${{ github.event.inputs.environment == 'production' && github.event.inputs.confirm != 'YES-PRODUCTION' }}
+        run: |
+          echo "::error::本番投入には confirm=YES-PRODUCTION が必要です。まず environment=staging で投入・確認してから本番を実行してください。"
+          exit 1
+
+      - name: Validate valid_until
+        run: |
+          set -e
+          if ! printf '%s' "$VALID_UNTIL" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+            echo "::error::valid_until は YYYY-MM-DD 形式で指定してください（例 2027-08-30）。現在: $VALID_UNTIL"; exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ステージングは wrangler.jsonc の D1 がプレースホルダのため実IDを注入する
+      - name: Inject staging D1 id
+        if: ${{ github.event.inputs.environment == 'staging' }}
+        run: |
+          set -e
+          ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="albe_booking_staging") | (.uuid // .database_id)' | head -1)
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::error::ステージング用D1が見つかりません。先に「Staging bootstrap」を実行してください。"; exit 1
+          fi
+          sed -i "s/PLACEHOLDER_STAGING_D1_ID/$ID/g" wrangler.jsonc
+
+      - name: Prepare seed (replace __VALID_UNTIL__)
+        run: |
+          set -e
+          sed "s/__VALID_UNTIL__/${VALID_UNTIL}/g" seeds/pending_tickets.sql > /tmp/pending_tickets.sql
+          echo "valid_until=${VALID_UNTIL}"
+          grep -c "INSERT OR IGNORE" /tmp/pending_tickets.sql
+
+      - name: Apply migration & seed
+        run: |
+          set -e
+          if [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            DB=albe_booking; ENVFLAG=""
+          else
+            DB=albe_booking_staging; ENVFLAG="--env staging"
+          fi
+          echo "▶ $DB へ pending_tickets を投入します（valid_until=$VALID_UNTIL）"
+          npx wrangler d1 migrations apply "$DB" --remote $ENVFLAG
+          npx wrangler d1 execute "$DB" --remote $ENVFLAG --file=/tmp/pending_tickets.sql
+          echo "=== 投入後の件数・残時間合計 ==="
+          npx wrangler d1 execute "$DB" --remote $ENVFLAG \
+            --command "SELECT COUNT(*) AS rows, COALESCE(SUM(remaining_hours),0) AS hours, SUM(CASE WHEN claimed_at IS NULL THEN 1 ELSE 0 END) AS unclaimed FROM pending_tickets"

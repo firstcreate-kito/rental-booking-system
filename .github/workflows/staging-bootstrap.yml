@@ -42,10 +42,10 @@ jobs:
         run: |
           set -e
           # 既存なら再利用、無ければ作成（create はエラーでも無視）
-          npx wrangler d1 create albe_booking_staging || true
-          ID=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="albe_booking_staging") | (.uuid // .database_id)' | head -1)
+          npx wrangler d1 create albe_booking_staging 2>/dev/null || true
+          ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="albe_booking_staging") | (.uuid // .database_id)' | head -1)
           if [ -z "$ID" ] || [ "$ID" = "null" ]; then
-            echo "::error::staging D1 の作成/取得に失敗しました"; exit 1
+            echo "::error::staging D1 の作成/取得に失敗しました。CloudflareトークンにAccount→D1→Editの権限が必要です。"; exit 1
           fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           echo "staging D1 id: $ID"

@@ -81,6 +81,17 @@ export interface DayPriceResult {
   seasonalName: string | null; // 適用された季節料金の名称（非該当なら null）
   seasonalSurcharge: number; // 季節料金加算額
   price: number; // この日の最終スペース料金
+  /**
+   * 1日料金になった理由（billingMode==='day' のとき）。表示の出し分け用（#18）。
+   *  'block'     … 1日単位専用スペース
+   *  'weekend'   … 土日祝は1日料金のみ設定
+   *  'period'    … 指定期間は1日料金のみ（GW・谷間など。名称は dayRateName）
+   *  'residence' … 残置日
+   *  'fullspan'  … 営業時間ちょうど全部
+   *  null        … 時間料金（billingMode==='hourly'）
+   */
+  dayRateReason: 'block' | 'weekend' | 'period' | 'residence' | 'fullspan' | null;
+  dayRateName: string | null; // reason==='period' のときの期間名称（例：シルバーウィークのため終日料金のみ）
 }
 
 export class PricingError extends Error {
@@ -153,6 +164,8 @@ export function computeDayPrice(
 
   let billingMode: BillingMode;
   let billableHours: number;
+  let dayRateReason: DayPriceResult['dayRateReason'] = null;
+  let dayRateName: string | null = null;
 
   if (space.billingType === 'block') {
     // 1日単位専用スペース: 常に1日料金
@@ -161,6 +174,7 @@ export function computeDayPrice(
     }
     billingMode = 'day';
     billableHours = space.dayRateHours;
+    dayRateReason = 'block';
   } else if (dayRateOnly) {
     // #18: 土日祝 or 指定期間は入退時刻に関わらず1日料金
     if (space.dayRateHours == null) {
@@ -168,14 +182,23 @@ export function computeDayPrice(
     }
     billingMode = 'day';
     billableHours = space.dayRateHours;
+    // 期間指定（名称あり）を優先して理由表示に使う。無ければ土日祝設定。
+    if (periodForcesDay) {
+      dayRateReason = 'period';
+      dayRateName = seasonalMatch?.name ?? null;
+    } else {
+      dayRateReason = 'weekend';
+    }
   } else if (isResidence && space.dayRateHours != null) {
     // 残置日: 1日料金
     billingMode = 'day';
     billableHours = space.dayRateHours;
+    dayRateReason = 'residence';
   } else if (isFullSpan && space.dayRateHours != null) {
     // 営業時間ちょうど全部: 1日料金へ差し替え
     billingMode = 'day';
     billableHours = space.dayRateHours;
+    dayRateReason = 'fullspan';
   } else {
     // 通常の時間料金
     billingMode = 'hourly';
@@ -206,6 +229,8 @@ export function computeDayPrice(
     seasonalName,
     seasonalSurcharge,
     price,
+    dayRateReason,
+    dayRateName,
   };
 }
 

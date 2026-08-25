@@ -1023,7 +1023,7 @@ app.post('/quote', async (c) => {
     pointsEarned: totals.pointsEarned,
     isMember: !!member,
     discountError,
-    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, basePrice: d.basePrice, seasonalPct: d.seasonalPct, seasonalName: d.seasonalName, seasonalSurcharge: d.seasonalSurcharge, price: d.price, isResidence: d.isResidence })),
+    days: group.days.map((d) => ({ date: d.date, dayType: d.dayType, billingMode: d.billingMode, billableHours: d.billableHours, basePrice: d.basePrice, seasonalPct: d.seasonalPct, seasonalName: d.seasonalName, seasonalSurcharge: d.seasonalSurcharge, price: d.price, isResidence: d.isResidence, dayRateReason: d.dayRateReason, dayRateName: d.dayRateName })),
     optionLines,
     warnings,
   });

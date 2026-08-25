@@ -1440,7 +1440,18 @@ async function previewModal() {
     const d = body.days[0];
     const actual = (toMin(end) - toMin(start)) / 60;
     let note = '';
-    if (d.billingMode === 'day') note = '（営業時間まるごと＝1日料金が適用されます）';
+    if (d.billingMode === 'day') {
+      // #18: なぜ1日料金なのかを明示（お客様が「なぜ時間で選べないの？」と迷わないように）
+      if (d.dayRateReason === 'period') {
+        note = d.dayRateName ? ('（' + d.dayRateName + '）') : '（対象期間のため1日料金が適用されます）';
+      } else if (d.dayRateReason === 'weekend') {
+        note = '（土日祝のため1日料金が適用されます）';
+      } else if (d.dayRateReason === 'block') {
+        note = '（このスペースは1日料金制です）';
+      } else {
+        note = '（営業時間まるごと＝1日料金が適用されます）';
+      }
+    }
     else if (d.billableHours > actual) note = '（ご利用' + actual + '時間ですが、料金は' + d.billableHours + '時間分です。1時間単位の切り上げ／最低利用時間のため）';
     let seasonalNote = '';
     if (d.seasonalSurcharge > 0) {

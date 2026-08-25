@@ -170,6 +170,7 @@ describe('computeDayPrice - 1日料金のみ課金（#18）', () => {
     expect(r.billingMode).toBe('day');
     expect(r.billableHours).toBe(13);
     expect(r.price).toBe(13 * 10890); // 141570
+    expect(r.dayRateReason).toBe('weekend');
   });
 
   it('祝日(holiday)も土日祝扱いで1日料金', () => {
@@ -219,6 +220,8 @@ describe('computeDayPrice - 1日料金のみ課金（#18）', () => {
     expect(r.billingMode).toBe('day');
     expect(r.rate).toBe(7260); // 平日単価で日料金
     expect(r.price).toBe(13 * 7260); // 94380
+    expect(r.dayRateReason).toBe('period');
+    expect(r.dayRateName).toBe('GW');
   });
 
   it('期間指定「1日料金のみ」＋割増% は併用できる', () => {

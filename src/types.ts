@@ -15,6 +15,8 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** 送信元。例: "レンタルスペースALBE <noreply@albe.jp>" */
   MAIL_FROM?: string;
+  /** ステージングでも実メールを送りたいときだけ 'true'。既定（未設定）は送らない（安全装置）。 */
+  STAGING_ALLOW_EMAIL?: string;
   /** 新規予約の通知先（管理者メール）。未設定なら管理者通知は送らない */
   MAIL_ADMIN?: string;
   /** 返信先（任意）。送信元を noreply@… にする場合に、返信先を実在の受信箱へ向ける */

@@ -27,6 +27,24 @@ describe('email - sendEmail の有効化条件', () => {
     const r = await sendEmail({ RESEND_API_KEY: 'k' }, { to: 'x@y.jp', subject: 's', html: 'h', text: 't' });
     expect(r.skipped).toBe(true);
   });
+  it('ステージングでは鍵が揃っていても実送信しない（安全装置）', async () => {
+    const r = await sendEmail(
+      { APP_ENV: 'staging', RESEND_API_KEY: 'k', MAIL_FROM: 'a@b.jp' },
+      { to: 'x@y.jp', subject: 's', html: 'h', text: 't' },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.skipped).toBe(true);
+  });
+  it('ステージングでも STAGING_ALLOW_EMAIL=true ならガードを通過する（staging即skipにならない）', async () => {
+    // ネットワークを叩かないよう宛先を空にする。staging ガードを通過すると宛先チェックまで進み、
+    // 「no recipient」で返る＝「staging即skip」ではないことを確認できる。
+    const r = await sendEmail(
+      { APP_ENV: 'staging', STAGING_ALLOW_EMAIL: 'true', RESEND_API_KEY: 'k', MAIL_FROM: 'a@b.jp' },
+      { to: '', subject: 's', html: 'h', text: 't' },
+    );
+    expect(r.skipped).toBeUndefined();
+    expect(r.error).toBe('no recipient');
+  });
 });
 
 describe('email - escapeHtml', () => {

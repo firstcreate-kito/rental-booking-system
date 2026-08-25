@@ -13,6 +13,10 @@ export interface EmailEnv {
   MAIL_ADMIN?: string;
   /** 返信先。送信元を noreply@… にしてもお客様の返信がこの受信箱に届く（任意）。 */
   MAIL_REPLY_TO?: string;
+  /** 実行環境（development / staging / production）。staging では既定で実送信しない。 */
+  APP_ENV?: string;
+  /** ステージングでも実メールを送りたいときだけ 'true'。既定（未設定）は送らない。 */
+  STAGING_ALLOW_EMAIL?: string;
 }
 
 export interface EmailMessage {
@@ -31,6 +35,13 @@ export interface SendResult {
 
 /** Resend API で1通送信する。失敗しても例外は投げない。 */
 export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendResult> {
+  // 【安全装置】ステージング（テスト環境）からは実メールを送らない。
+  // 誤って本物のお客様宛に通知が飛ぶ事故を防ぐ。テスト目的で送りたいときのみ
+  // STAGING_ALLOW_EMAIL='true' を明示的にセットする（既定は送らない）。
+  if ((env.APP_ENV ?? '').trim() === 'staging' && env.STAGING_ALLOW_EMAIL !== 'true') {
+    console.log('[email] skipped on staging (safety guard)', { subject: msg.subject });
+    return { ok: false, skipped: true };
+  }
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) {
     // 送信基盤の設定漏れ（RESEND_API_KEY / MAIL_FROM）は「メールが飛ばない」直接原因になるため記録する。
     console.error('[email] skipped: RESEND_API_KEY or MAIL_FROM not set', {

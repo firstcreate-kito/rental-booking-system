@@ -1954,7 +1954,9 @@ async function loadSystemStatus() {
     ['Stripe決済', modePill(d.payments.stripe.mode, d.payments.stripe.configured),
       'コンビニ払い: ' + (d.payments.stripe.konbini ? '有効' : '無効')],
     ['PayPal決済', modePill(d.payments.paypal.mode, d.payments.paypal.configured), 'sandbox＝テスト用／live＝本番'],
-    ['メール送信（Resend）', yn(d.email.configured), '管理者宛先: ' + (d.email.adminRecipient ? '設定済み' : '未設定')],
+    ['メール送信（Resend）', isProd ? yn(d.email.configured) : pill('停止中（テスト環境）', 'muted'),
+      isProd ? ('管理者宛先: ' + (d.email.adminRecipient ? '設定済み' : '未設定'))
+             : 'ステージングでは誤送信防止のため実メールを送信しません'],
     ['Googleカレンダー連携', yn(d.calendar.configured), '予約のカレンダー書き込み'],
     ['Googleログイン', yn(d.logins.google), '会員のソーシャルログイン'],
     ['LINEログイン', yn(d.logins.line), '会員のソーシャルログイン'],

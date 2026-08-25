@@ -121,7 +121,8 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
   if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
   const bookings = await getBookingsByGroup(db, g.id);
   const quote = await quoteCancellation(db, g, bookings, nowJST());
-  return c.json(quote);
+  // 支払方法も返す（'invoice'＝自社口座への直接振込のみ、返金時に振込手数料の注記を表示）
+  return c.json({ ...quote, paymentMethod: g.payment_method });
 });
 
 /**

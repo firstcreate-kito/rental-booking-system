@@ -271,6 +271,7 @@ app.get('/system-status', requireRole('owner', 'manager'), (c) => {
   const paypalMode = env.PAYPAL_MODE?.trim() === 'live' ? 'live' : 'sandbox';
   return c.json({
     appEnv: env.APP_ENV ?? 'unknown',
+    commit: env.GIT_SHA?.trim() || null,
     publicBaseUrl: env.PUBLIC_BASE_URL ?? null,
     gate: { basicAuth: !!(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS) },
     payments: {

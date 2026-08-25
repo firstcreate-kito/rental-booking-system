@@ -51,6 +51,12 @@ export interface Env {
    */
   CF_ACCOUNT_ID?: string;
   CF_BROWSER_API_TOKEN?: string;
+  /**
+   * デプロイされたコミット（短縮SHA）。Deploy ワークフローが `--var GIT_SHA:...` で
+   * 注入する。ステージングと本番の「今動いているコード」を突き合わせるために使う（表示専用）。
+   * 未設定なら不明として扱う。
+   */
+  GIT_SHA?: string;
 }
 
 /** 認証済み顧客（コンテキストに載る最小情報） */

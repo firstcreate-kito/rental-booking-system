@@ -189,7 +189,9 @@ export async function assembleAvailability(
         : members.map((m) => m.nextOpen).filter((x): x is string => !!x).sort()[0] ?? null;
     // 予約可能期間より先の日付は「閲覧のみ」＝ネット予約リンクは出さずお問い合わせへ（#77）
     const viewOnly = daysBetween(today, dateYmd) > (rep.booking_horizon_days ?? 180);
-    const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly;
+    // 予約受付最終日（閉鎖日）を過ぎた日は予約リンクを出さない（閉鎖予定施設）
+    const beyondClosing = !!rep.closing_date && dateYmd > rep.closing_date;
+    const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly && !beyondClosing;
     const bookingHref = bookable ? `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}` : null;
     const row: AvailabilityRow = {
       id: rep.room_group ? `group:${rep.room_group}` : rep.id,

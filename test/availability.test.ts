@@ -133,6 +133,22 @@ describe('validateBookingItem', () => {
     expect(errs).toEqual([]);
   });
 
+  it('予約受付最終日（閉鎖日）以前は予約可・翌日以降は BEYOND_CLOSING', () => {
+    const closing = { ...space, closingDate: '2026-04-25' };
+    // 閉鎖日ちょうどはOK
+    expect(
+      validateBookingItem(closing, { date: '2026-04-25', startTime: '10:00', endTime: '12:00' }, ctx).map((e) => e.code),
+    ).not.toContain('BEYOND_CLOSING');
+    // 閉鎖日の翌日は不可
+    expect(
+      validateBookingItem(closing, { date: '2026-04-26', startTime: '10:00', endTime: '12:00' }, ctx).map((e) => e.code),
+    ).toContain('BEYOND_CLOSING');
+    // closingDate 未設定なら影響なし
+    expect(
+      validateBookingItem(space, { date: '2026-04-26', startTime: '10:00', endTime: '12:00' }, ctx).map((e) => e.code),
+    ).not.toContain('BEYOND_CLOSING');
+  });
+
   it('30分単位でない → NOT_ALIGNED', () => {
     const errs = validateBookingItem(space, { date: '2026-04-20', startTime: '10:15', endTime: '16:00' }, ctx);
     expect(errs.map((e) => e.code)).toContain('NOT_ALIGNED');

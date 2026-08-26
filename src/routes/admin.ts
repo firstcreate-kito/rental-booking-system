@@ -158,6 +158,7 @@ function toValidationSpace(s: SpaceRow): BookingValidationSpace {
     bookingDeadlineDays: s.booking_deadline_days,
     weekdayAvailable: !!s.weekday_available,
     weekendAvailable: !!s.weekend_available,
+    closingDate: s.closing_date,
   };
 }
 
@@ -1551,6 +1552,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     sameDayPriority: Number.isFinite(Number(body.sameDayPriority)) ? Math.floor(Number(body.sameDayPriority)) : 100,
     // #18: 土日祝は1日料金のみ（時間料金を出さない）。既定OFF。
     weekendDayRateOnly: !!body.weekendDayRateOnly,
+    // 予約受付最終日（閉鎖日）。空欄=なし。'YYYY-MM-DD' のみ許可。
+    closingDate: (() => {
+      const v = String(body.closingDate ?? '').trim();
+      if (!v) return null;
+      return DATE_RE.test(v) ? v : null;
+    })(),
   };
   return { input };
 }

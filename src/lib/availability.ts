@@ -202,6 +202,7 @@ export interface BookingValidationSpace {
   bookingDeadlineDays: number | null; // NULLなら defaultDeadlineDays
   weekdayAvailable: boolean;
   weekendAvailable: boolean;
+  closingDate?: string | null; // 予約受付最終日（この日まで予約可）。閉鎖予定施設用
 }
 
 export interface BookingItemInput {
@@ -271,6 +272,13 @@ export function validateBookingItem(
       errors.push({
         code: 'BEYOND_HORIZON',
         message: `予約可能期間（${space.bookingHorizonDays}日先まで）を超えています`,
+      });
+    }
+    // 予約受付最終日（閉鎖日）を過ぎた日付は不可（文字列比較でOK: 'YYYY-MM-DD'）
+    if (space.closingDate && item.date > space.closingDate) {
+      errors.push({
+        code: 'BEYOND_CLOSING',
+        message: `この施設は ${space.closingDate} をもって閉鎖のため、以降のご予約は承れません`,
       });
     }
     const deadline = space.bookingDeadlineDays ?? ctx.defaultDeadlineDays;

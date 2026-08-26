@@ -418,6 +418,10 @@
           <div><label>並び順</label><input id="sp_sort" type="number" value="0" /></div>
         </div>
         <p class="muted" style="margin:2px 0 0;font-size:12px">「予約可能期間」を過ぎ「閲覧可能期間」内の日は、カレンダーで空き状況のみ表示（クリック不可・お問い合わせ案内）。閲覧可能期間は予約可能期間以上に自動調整されます。</p>
+        <div class="grid" style="margin-top:8px">
+          <div><label>予約受付最終日（閉鎖日・空欄=なし）</label><input id="sp_closing" type="date" /></div>
+        </div>
+        <p class="muted" style="margin:2px 0 0;font-size:12px">閉鎖予定の施設用。<b>この日まで予約可・翌日以降は予約枠を出しません</b>（例：2026-12-28 を設定 → 12/28まで予約可）。設定するとお客様カレンダーに閉鎖告知を表示します。空欄なら制限なし。</p>
         <div class="row" style="gap:18px;margin-top:8px">
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wda" checked> 平日に予約可</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked> 土日祝に予約可</label>
@@ -1332,6 +1336,7 @@ function fillSpaceForm(s) {
   if (modeEl) modeEl.checked = true;
   document.getElementById('sp_manual_invoice').checked = s ? !!s.allow_manual_invoice : false;
   document.getElementById('sp_weekend_day_only').checked = s ? !!s.weekend_day_rate_only : false;
+  g('sp_closing', s?.closing_date || '');
   // キャンセルポリシー プリセット（#99）：新規は標準、既存は取得して反映
   document.getElementById('sp_cancel_policy').value = 'standard';
   if (s) loadSpaceCancelPolicy(s.id);
@@ -1377,6 +1382,7 @@ async function saveSpace() {
     paymentMode: (document.querySelector('input[name="sp_paymode"]:checked') || {}).value || 'card_bank',
     allowManualInvoice: document.getElementById('sp_manual_invoice').checked,
     weekendDayRateOnly: document.getElementById('sp_weekend_day_only').checked,
+    closingDate: v('sp_closing') || null,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing

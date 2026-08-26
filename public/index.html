@@ -217,6 +217,10 @@
       <a href="/ticket-guide" target="_blank" rel="noopener" style="font-weight:700;color:#0a7d33;white-space:nowrap">▶ ご利用ガイドを見る</a>
       <span id="ticketGuideLogin" class="hidden"><br><a href="javascript:void(0)" onclick="openLoginModal()" style="font-weight:700;color:#0a7d33">🔑 ログインして残り時間を見る</a></span>
     </div>
+    <!-- 閉鎖予定施設の告知（closing_date 設定時のみ表示） -->
+    <div id="closingNote" class="hidden" style="margin:0 0 12px;padding:12px 14px;border:1px solid #fca5a5;background:#fef2f2;border-radius:10px;font-size:14px;line-height:1.7;color:#991b1b">
+      <b>⚠️ 閉鎖のお知らせ</b><br>本施設は <b><span id="closingNoteDate"></span></b> をもって閉鎖いたします。ご予約は同日まで承ります。
+    </div>
     <div class="cal-head">
       <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
       <strong id="calRange"></strong>
@@ -1145,6 +1149,16 @@ async function loadCalendar() {
   S.today = body1.today;
   S.contactUrl = body1.contactUrl || '';
   S.viewHorizonDays = body1.viewHorizonDays ?? 180; // 閲覧可能期間（#77）
+  // 閉鎖予定施設の告知（closing_date 設定時のみ）
+  const closeEl = document.getElementById('closingNote');
+  if (closeEl) {
+    if (body1.closingDate) {
+      document.getElementById('closingNoteDate').textContent = body1.closingDate;
+      closeEl.classList.remove('hidden');
+    } else {
+      closeEl.classList.add('hidden');
+    }
+  }
   renderMonthPanel('calM1', 'dows1', 'grid1', m1, body1.days);
   renderMonthPanel('calM2', 'dows2', 'grid2', m2, body2.days);
   document.getElementById('calRange').textContent = monthLabel(m1) + ' 〜 ' + monthLabel(m2);

@@ -1680,17 +1680,33 @@ function renderPayment() {
   }
   document.getElementById('payMethods').innerHTML = html ||
     '<div class="muted">この施設のお支払い方法が設定されていません。店舗までお問い合わせください。</div>';
+  // 支払い注記は「見出し＋箇条書き」でHTML化し、改行して読みやすくする
+  const noteBlock = (title, lines) =>
+    '<div style="margin-top:8px">' +
+    '<div style="font-weight:600">' + title + '</div>' +
+    lines.map((l) => '<div style="padding-left:1em;text-indent:-1em;margin-top:2px">・' + l + '</div>').join('') +
+    '</div>';
   let note = '';
   if (sp.allowInvoice) {
-    note = '※銀行振込は、お申込み後に表示される振込専用口座へお振込みください（お客様ごとに発行）。ご入金確認後に予約が確定し、領収書を発行します。ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。期日までにご入金がない場合は自動的にキャンセルとなります。';
+    note += noteBlock('※銀行振込について', [
+      'お申込み後に表示される振込専用口座（お客様ごとに発行）へお振込みください。',
+      'ご入金確認後に予約が確定し、領収書を発行します。',
+      'ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。',
+      '期日までにご入金がない場合は自動的にキャンセルとなります。',
+    ]);
   }
   if (sp.allowManualInvoice) {
-    note += (note ? '\n' : '') + '※請求書払いは、後日こちらから請求書を発行し、記載のお振込先へお振込みください。ご入金確認後に領収書を発行します。ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。期日までにご入金がない場合は自動的にキャンセルとなります。';
+    note += noteBlock('※請求書払いについて', [
+      '後日こちらから請求書を発行し、記載のお振込先へお振込みください。',
+      'ご入金確認後に領収書を発行します。',
+      'ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。',
+      '期日までにご入金がない場合は自動的にキャンセルとなります。',
+    ]);
   }
   if ((sp.allowInvoice || sp.allowManualInvoice) && invoiceTooClose) {
-    note += (note ? '\n' : '') + '（ご利用日まで' + PAY_TRANSFER_LEAD_DAYS + '日を切っているため、銀行振込・請求書払いはお選びいただけません）';
+    note += '<div style="margin-top:8px;color:#b45309;font-weight:600">（ご利用日まで' + PAY_TRANSFER_LEAD_DAYS + '日を切っているため、銀行振込・請求書払いはお選びいただけません）</div>';
   }
-  document.getElementById('payNote').textContent = note;
+  document.getElementById('payNote').innerHTML = note;
   onPayMethodChange();
 }
 function onPayMethodChange() {

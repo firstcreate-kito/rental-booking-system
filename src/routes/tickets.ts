@@ -8,7 +8,7 @@ import {
   getPurchaseBySession,
   fulfillTicketPurchase,
 } from '../db/repository';
-import { stripeConfigured, createCheckoutSession } from '../lib/stripe';
+import { stripeConfigured, createCheckoutSession, retrieveCheckoutSession } from '../lib/stripe';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -98,8 +98,23 @@ app.post('/demo-purchase', requireAuth, async (c) => {
 app.get('/purchase-status', requireAuth, async (c) => {
   const sessionId = c.req.query('session');
   if (!sessionId) return c.json({ status: 'unknown' });
-  const p = await getPurchaseBySession(c.env.DB, sessionId);
+  let p = await getPurchaseBySession(c.env.DB, sessionId);
   if (!p || p.customer_id !== c.get('customer').id) return c.json({ status: 'unknown' });
+
+  // Webhook 未達・遅延のフォールバック（予約の payment-status と同じ考え方）。
+  // 未反映のあいだは Stripe セッションを直接照合し、支払い済みならこのポーリングで発行する（冪等）。
+  // これにより Webhook が届かない環境（ステージング等）でもチケットが反映される。
+  if (p.status !== 'paid' && !sessionId.startsWith('demo_') && stripeConfigured(c.env)) {
+    try {
+      const sess = await retrieveCheckoutSession(c.env.STRIPE_SECRET_KEY!, sessionId);
+      if (sess && sess.paymentStatus === 'paid') {
+        await fulfillTicketPurchase(c.env.DB, sessionId, nowJST(), todayJST(), addDaysJST);
+        p = (await getPurchaseBySession(c.env.DB, sessionId)) || p;
+      }
+    } catch {
+      /* フォールバック照合の失敗は致命的ではない（Webhook 側でも反映される） */
+    }
+  }
   return c.json({ status: p.status, ticketId: p.ticket_id });
 });
 

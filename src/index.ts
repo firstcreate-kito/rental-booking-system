@@ -94,6 +94,8 @@ app.use('*', async (c, next) => {
   // 見学申込ページ（公開・#81）とそのAPIも認証ゲートを通さない
   if (c.req.path === '/viewing' || c.req.path.startsWith('/viewing/') || c.req.path === '/viewing.html') return next();
   if (c.req.path.startsWith('/api/viewing')) return next();
+  // 英語ご予約ガイド（公開・#80 多言語化）。海外のお客様・公式サイトからのリンク先。
+  if (c.req.path === '/en' || c.req.path === '/en.html') return next();
 
   const expected = await gateToken(user, pass);
 

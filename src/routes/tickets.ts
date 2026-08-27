@@ -9,6 +9,7 @@ import {
   fulfillTicketPurchase,
 } from '../db/repository';
 import { stripeConfigured, createCheckoutSession, retrieveCheckoutSession } from '../lib/stripe';
+import { notifyTicketPurchased } from '../lib/notify';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -108,7 +109,19 @@ app.get('/purchase-status', requireAuth, async (c) => {
     try {
       const sess = await retrieveCheckoutSession(c.env.STRIPE_SECRET_KEY!, sessionId);
       if (sess && sess.paymentStatus === 'paid') {
-        await fulfillTicketPurchase(c.env.DB, sessionId, nowJST(), todayJST(), addDaysJST);
+        const result = await fulfillTicketPurchase(c.env.DB, sessionId, nowJST(), todayJST(), addDaysJST);
+        // このポーリングで新規に発行できたときだけ、お客様＋管理者へ購入完了メールを送る
+        // （Webhook 側と冪等：already のときは Webhook が既に送っているため送らない）
+        if (result.ok && !result.already && result.customerId && result.productName) {
+          const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+          c.executionCtx.waitUntil(
+            notifyTicketPurchased(
+              c.env,
+              { customerId: result.customerId, productName: result.productName, totalHours: result.totalHours, validUntil: result.validUntil, amount: result.amount },
+              origin,
+            ).catch(() => {}),
+          );
+        }
         p = (await getPurchaseBySession(c.env.DB, sessionId)) || p;
       }
     } catch {

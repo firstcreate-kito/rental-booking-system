@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { verifyStripeWebhook, stripeConfigured } from '../lib/stripe';
-import { fulfillTicketPurchase, getBookingPaymentBySession, getCustomerProfile } from '../db/repository';
-import { sendEmail, ticketPurchaseEmail } from '../lib/email';
+import { fulfillTicketPurchase, getBookingPaymentBySession } from '../db/repository';
 import { settlePaidBookingSession, handleKonbiniSlipIssued, releaseKonbiniHoldForSession } from '../lib/settle-booking';
+import { notifyTicketPurchased } from '../lib/notify';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -91,27 +91,16 @@ app.post('/stripe', async (c) => {
         // 発行失敗（商品欠落など）は 500 を返して Stripe に再送させる
         return c.json({ received: true, fulfilled: false, reason: result.reason }, 500);
       }
-      // チケット購入完了メール（#52）。再配信（already）や情報欠落時は送らない。
+      // チケット購入完了メール（お客様＋管理者・#52）。再配信（already）や情報欠落時は送らない。
       if (!result.already && result.customerId && result.productName) {
         const info = result;
+        const origin = c.env.PUBLIC_BASE_URL || '';
         c.executionCtx.waitUntil(
-          (async () => {
-            const prof = (await getCustomerProfile(c.env.DB, info.customerId!)) as { email?: string; contact_name?: string } | null;
-            const to = prof?.email ? String(prof.email) : '';
-            if (!to) return;
-            const origin = c.env.PUBLIC_BASE_URL || '';
-            await sendEmail(c.env, {
-              to,
-              ...ticketPurchaseEmail({
-                customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
-                productName: info.productName!,
-                totalHours: info.totalHours ?? 0,
-                validUntil: info.validUntil ?? '',
-                amount: info.amount ?? 0,
-                mypageUrl: origin ? `${origin}/mypage.html` : undefined,
-              }),
-            });
-          })().catch(() => {}),
+          notifyTicketPurchased(
+            c.env,
+            { customerId: info.customerId!, productName: info.productName!, totalHours: info.totalHours, validUntil: info.validUntil, amount: info.amount },
+            origin,
+          ).catch(() => {}),
         );
       }
       return c.json({ received: true, fulfilled: true, ticketId: result.ticketId });

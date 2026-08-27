@@ -1006,6 +1006,39 @@ ${btn}
   return withSignature({ subject, html, text });
 }
 
+/** チケット（回数券）購入 管理者通知メール #52 */
+export function adminTicketPurchaseEmail(d: {
+  customerName: string;
+  customerEmail?: string;
+  productName: string;
+  totalHours: number;
+  validUntil: string;
+  amount: number;
+}): { subject: string; html: string; text: string } {
+  const subject = `【回数券 購入】${d.productName}｜${d.customerName} 様`;
+  const text = `回数券が購入されました。
+
+お客様: ${d.customerName} 様${d.customerEmail ? `（${d.customerEmail}）` : ''}
+商品名: ${d.productName}
+利用可能時間: ${d.totalHours}時間
+有効期限: ${d.validUntil}
+ご購入金額（税込）: ${yen(d.amount)}
+
+※本メールは管理者向けの通知です。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>回数券が購入されました。</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td><strong>${escapeHtml(d.customerName)}</strong> 様${d.customerEmail ? `<br><span style="color:#6b7280">${escapeHtml(d.customerEmail)}</span>` : ''}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">商品名</td><td><strong>${escapeHtml(d.productName)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">利用可能時間</td><td>${d.totalHours}時間</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">有効期限</td><td>${escapeHtml(d.validUntil)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご購入金額（税込）</td><td>${yen(d.amount)}</td></tr>
+</table>
+<p style="color:#6b7280;font-size:13px">※本メールは管理者向けの通知です。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 利用前リマインダー（お客様宛）#45 */
 export function bookingReminderEmail(d: {
   customerName: string;

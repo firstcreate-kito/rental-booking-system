@@ -13,6 +13,8 @@ import {
   bookingFailedEmail,
   adminBookingFailedEmail,
   adminLatePaymentOnReleasedEmail,
+  ticketPurchaseEmail,
+  adminTicketPurchaseEmail,
 } from './email';
 
 /**
@@ -29,6 +31,40 @@ export async function adminRecipients(env: Env, spaceId?: string | null): Promis
     if (row?.notify_email) set.add(String(row.notify_email).trim());
   }
   return [...set].filter(Boolean);
+}
+
+/**
+ * チケット（回数券）購入完了の通知（お客様＋管理者）#52。
+ * Webhook（確実）とポーリング確定（Webhook不達時のフォールバック）の両方から呼ぶ。
+ * fulfillTicketPurchase は冪等で、新規発行時のみ already=false を返すため、
+ * 呼び出し側で「新規発行時だけ」本関数を呼べば二重送信しない。
+ */
+export async function notifyTicketPurchased(
+  env: Env,
+  info: { customerId: string; productName: string; totalHours?: number; validUntil?: string; amount?: number },
+  origin?: string,
+): Promise<void> {
+  const prof = (await getCustomerProfile(env.DB, info.customerId)) as { email?: string; contact_name?: string } | null;
+  const customerName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
+  const customerEmail = prof?.email ? String(prof.email) : '';
+  const base = {
+    productName: info.productName,
+    totalHours: info.totalHours ?? 0,
+    validUntil: info.validUntil ?? '',
+    amount: info.amount ?? 0,
+  };
+  // お客様宛（メール登録がある場合のみ）
+  if (customerEmail) {
+    await sendEmail(env, {
+      to: customerEmail,
+      ...ticketPurchaseEmail({ customerName, ...base, mypageUrl: origin ? `${origin}/mypage.html` : undefined }),
+    });
+  }
+  // 管理者宛（本部＝MAIL_ADMIN。チケットは複数スペース対象のため本部のみに送る）
+  const admins = await adminRecipients(env);
+  if (admins.length) {
+    await sendEmail(env, { to: admins, ...adminTicketPurchaseEmail({ customerName, customerEmail, ...base }) });
+  }
 }
 
 /** グループのスペースIDを取得（通知先の解決用）#72 */

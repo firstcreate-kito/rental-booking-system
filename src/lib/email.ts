@@ -1039,6 +1039,158 @@ export function adminTicketPurchaseEmail(d: {
   return withSignature({ subject, html, text });
 }
 
+// お問い合わせフォーム（公式サイト /contact/）— ご用件ラベル（日本語／英語）
+const CONTACT_TYPE_JA: Record<string, string> = {
+  reserve: 'ご予約について',
+  quote: 'お見積り',
+  multi: '複数施設のご相談',
+  long: '長期利用のご相談',
+  equipment: '設備・備品について',
+  invoice: 'お支払い・請求書について',
+  partner: '提携・法人契約について',
+  other: 'その他',
+};
+const CONTACT_TYPE_EN: Record<string, string> = {
+  reserve: 'Reservation',
+  quote: 'Quote / Estimate',
+  multi: 'Multiple spaces',
+  long: 'Long-term use',
+  equipment: 'Equipment / Facilities',
+  invoice: 'Payment / Invoice',
+  partner: 'Partnership / Corporate',
+  other: 'Other',
+};
+
+export interface ContactPayload {
+  type: string;
+  spaceId?: string;
+  spaceName?: string;
+  date?: string;
+  days?: string;
+  name: string;
+  company?: string;
+  mail: string;
+  tel?: string;
+  body: string;
+  lang: 'ja' | 'en';
+  page?: string;
+}
+
+/** お問い合わせ お客様への控えメール（lang=en なら英語）#（公式サイト連携） */
+export function contactReceivedEmail(d: ContactPayload): { subject: string; html: string; text: string } {
+  if (d.lang === 'en') {
+    const typeLabel = CONTACT_TYPE_EN[d.type] ?? CONTACT_TYPE_EN.other;
+    const subject = `[Rental Space ALBE] We have received your inquiry`;
+    const rows: Array<[string, string]> = [['Subject', typeLabel]];
+    if (d.spaceName) rows.push(['Space', d.spaceName]);
+    if (d.date) rows.push(['Preferred date', d.date]);
+    if (d.days) rows.push(['Number of days', d.days]);
+    if (d.company) rows.push(['Company', d.company]);
+    if (d.tel) rows.push(['Phone', d.tel]);
+    const text = `Dear ${d.name},
+
+Thank you for contacting Rental Space ALBE. We have received your inquiry and will reply as soon as possible.
+
+${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+Your message:
+${d.body}
+
+* This is an automated confirmation. Please do not reply to this email.
+
+Rental Space ALBE
+FirstCreate Inc.
+rental@space-albe.com`;
+    const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>Dear ${escapeHtml(d.name)},</p>
+<p>Thank you for contacting <strong>Rental Space ALBE</strong>. We have received your inquiry and will reply as soon as possible.</p>
+<table style="border-collapse:collapse;margin:12px 0">
+${rows.map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
+</table>
+<p style="color:#6b7280;margin:4px 0">Your message:</p>
+<p style="white-space:pre-wrap;background:#f7f8fc;border-radius:8px;padding:12px">${escapeHtml(d.body)}</p>
+<p style="color:#6b7280;font-size:13px">* This is an automated confirmation. Please do not reply to this email.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
+<p style="color:#6b7280;font-size:13px">Rental Space ALBE / FirstCreate Inc.<br>rental@space-albe.com</p>
+</div>`;
+    return { subject, html, text };
+  }
+  // 日本語
+  const typeLabel = CONTACT_TYPE_JA[d.type] ?? CONTACT_TYPE_JA.other;
+  const subject = `【レンタルスペースALBE】お問い合わせを受け付けました`;
+  const rows: Array<[string, string]> = [['ご用件', typeLabel]];
+  if (d.spaceName) rows.push(['ご希望の施設', d.spaceName]);
+  if (d.date) rows.push(['ご利用予定日', d.date]);
+  if (d.days) rows.push(['利用日数', d.days]);
+  if (d.company) rows.push(['会社名・団体名', d.company]);
+  if (d.tel) rows.push(['お電話番号', d.tel]);
+  const text = `${d.name} 様
+
+このたびはレンタルスペースALBEへお問い合わせいただき、ありがとうございます。
+以下の内容で受け付けました。担当者よりできるだけ早くご連絡いたします。
+
+${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+お問い合わせ内容:
+${d.body}
+
+※本メールは自動送信です。ご返信いただいてもお答えできない場合がございます。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.name)} 様</p>
+<p>このたびはレンタルスペースALBEへお問い合わせいただき、ありがとうございます。<br>以下の内容で受け付けました。担当者よりできるだけ早くご連絡いたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+${rows.map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
+</table>
+<p style="color:#6b7280;margin:4px 0">お問い合わせ内容</p>
+<p style="white-space:pre-wrap;background:#f7f8fc;border-radius:8px;padding:12px">${escapeHtml(d.body)}</p>
+<p style="color:#6b7280;font-size:13px">※本メールは自動送信です。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** お問い合わせ 担当者向け通知メール（日本語）#（公式サイト連携） */
+export function adminContactEmail(d: ContactPayload & { adminUrl?: string }): { subject: string; html: string; text: string } {
+  const typeLabel = CONTACT_TYPE_JA[d.type] ?? CONTACT_TYPE_JA.other;
+  const subject = `【お問い合わせ】${typeLabel}｜${d.name} 様`;
+  const rows: Array<[string, string]> = [['ご用件', typeLabel]];
+  if (d.spaceName) rows.push(['ご希望の施設', d.spaceName]);
+  if (d.date) rows.push(['ご利用予定日', d.date]);
+  if (d.days) rows.push(['利用日数', d.days]);
+  rows.push(['お名前', d.name]);
+  if (d.company) rows.push(['会社名・団体名', d.company]);
+  rows.push(['メール', d.mail]);
+  if (d.tel) rows.push(['電話番号', d.tel]);
+  if (d.lang === 'en') rows.push(['言語', 'English（英語のお客様）']);
+  if (d.page) rows.push(['送信元ページ', d.page]);
+  const text = `公式サイトのお問い合わせフォームから送信がありました。
+
+${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+お問い合わせ内容:
+${d.body}
+${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}
+
+※お客様への返信は ${d.mail} 宛にお願いします。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>公式サイトのお問い合わせフォームから送信がありました。</strong></p>
+<table style="border-collapse:collapse;margin:12px 0">
+${rows
+  .map(
+    ([k, v]) =>
+      `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">${escapeHtml(k)}</td><td>${
+        k === 'メール' ? `<a href="mailto:${escapeHtml(v)}">${escapeHtml(v)}</a>` : escapeHtml(v)
+      }</td></tr>`,
+  )
+  .join('')}
+</table>
+<p style="color:#6b7280;margin:4px 0">お問い合わせ内容</p>
+<p style="white-space:pre-wrap;background:#f7f8fc;border-radius:8px;padding:12px">${escapeHtml(d.body)}</p>
+${d.adminUrl ? `<p style="margin:12px 0"><a href="${escapeHtml(d.adminUrl)}" style="color:#1d4ed8">管理画面を開く</a></p>` : ''}
+<p style="color:#6b7280;font-size:13px">※お客様への返信は <a href="mailto:${escapeHtml(d.mail)}">${escapeHtml(d.mail)}</a> 宛にお願いします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 利用前リマインダー（お客様宛）#45 */
 export function bookingReminderEmail(d: {
   customerName: string;

@@ -13,6 +13,8 @@ import {
   adminBookingFailedEmail,
   paymentPendingBookingEmail,
   adminLatePaymentOnReleasedEmail,
+  contactReceivedEmail,
+  adminContactEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -393,5 +395,48 @@ describe('email - 解放後の着金 管理者アラート（#39）', () => {
     expect(m.text).toContain('自動での予約確定は行っていません');
     expect(m.text).toContain('y@z.jp');
     expect(m.html).toContain('返金または');
+  });
+});
+
+describe('email - お問い合わせ（公式サイト /contact/）テンプレート', () => {
+  const base = {
+    type: 'quote',
+    spaceName: '栄チャペル',
+    date: '2026-12-24',
+    days: '2',
+    name: '山田 太郎',
+    company: '株式会社○○',
+    mail: 'taro@example.com',
+    tel: '0521234567',
+    body: '12月に30名で利用したいです。',
+    page: 'https://space-albe.com',
+  } as const;
+
+  it('お客様控え（日本語）：用件ラベル・内容・件名', () => {
+    const m = contactReceivedEmail({ ...base, lang: 'ja' });
+    expect(m.subject).toContain('お問い合わせを受け付けました');
+    expect(m.html).toContain('お見積り'); // type=quote の日本語ラベル
+    expect(m.html).toContain('山田 太郎');
+    expect(m.text).toContain('12月に30名で利用したいです。');
+  });
+
+  it('お客様控え（英語）：lang=en なら英語で送る', () => {
+    const m = contactReceivedEmail({ ...base, lang: 'en' });
+    expect(m.subject).toContain('received your inquiry');
+    expect(m.html).toContain('Quote / Estimate');
+    expect(m.text).toContain('Dear 山田 太郎');
+  });
+
+  it('担当者宛：件名に用件と氏名・本文にメールが入る', () => {
+    const m = adminContactEmail({ ...base, lang: 'ja', adminUrl: 'https://booking.space-albe.com/admin.html' });
+    expect(m.subject).toContain('【お問い合わせ】');
+    expect(m.subject).toContain('山田 太郎');
+    expect(m.html).toContain('taro@example.com');
+    expect(m.html).toContain('管理画面を開く');
+  });
+
+  it('未知の用件は「その他」に丸める', () => {
+    const m = contactReceivedEmail({ ...base, type: 'unknown-xyz', lang: 'ja' });
+    expect(m.html).toContain('その他');
   });
 });

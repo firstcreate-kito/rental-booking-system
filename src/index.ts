@@ -15,6 +15,7 @@ import documents from './routes/documents';
 import { availabilityApi, availabilityPage, sitemapXml } from './routes/availability';
 import guestChange from './routes/guest-change';
 import viewing from './routes/viewing';
+import contact from './routes/contact';
 import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
@@ -94,6 +95,8 @@ app.use('*', async (c, next) => {
   // 見学申込ページ（公開・#81）とそのAPIも認証ゲートを通さない
   if (c.req.path === '/viewing' || c.req.path.startsWith('/viewing/') || c.req.path === '/viewing.html') return next();
   if (c.req.path.startsWith('/api/viewing')) return next();
+  // 公式サイトのお問い合わせフォーム（公開・別ドメインから POST）も認証ゲートを通さない
+  if (c.req.path.startsWith('/api/contact')) return next();
   // 英語ご予約ガイド（公開・#80 多言語化）。海外のお客様・公式サイトからのリンク先。
   if (c.req.path === '/en' || c.req.path === '/en.html') return next();
 
@@ -170,6 +173,7 @@ app.route('/api/documents', documents);
 app.route('/api/availability', availabilityApi);
 app.route('/api/guest-change', guestChange);
 app.route('/api/viewing', viewing);
+app.route('/api/contact', contact);
 
 // 空き状況ページ（SSR）と sitemap（静的アセットより先に登録）#74
 app.get('/availability', availabilityPage);

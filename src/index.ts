@@ -97,6 +97,9 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api/viewing')) return next();
   // 公式サイトのお問い合わせフォーム（公開・別ドメインから POST）も認証ゲートを通さない
   if (c.req.path.startsWith('/api/contact')) return next();
+  // スペース一覧・料金・空き取得API（公開・読み取り専用。公式サイトの料金/施設一覧・
+  // お問い合わせフォームの施設セレクト生成に使用）。GETのみ・toPublicSpace の公開射影。
+  if (c.req.path.startsWith('/api/spaces')) return next();
   // 英語ご予約ガイド（公開・#80 多言語化）。海外のお客様・公式サイトからのリンク先。
   if (c.req.path === '/en' || c.req.path === '/en.html') return next();
 

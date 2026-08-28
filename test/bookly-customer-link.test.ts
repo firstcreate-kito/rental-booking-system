@@ -53,7 +53,8 @@ if (sqliteOk) beforeAll(async () => {
       contact_name TEXT, phone TEXT, status_id TEXT DEFAULT 'general', created_at TEXT);
     CREATE TABLE booking_groups (id TEXT PRIMARY KEY, booking_number TEXT UNIQUE, customer_id TEXT, space_id TEXT,
       event_name TEXT, purpose TEXT, headcount INTEGER, total_amount INTEGER, original_total_amount INTEGER,
-      original_date TEXT, status TEXT, source TEXT, note TEXT, created_at TEXT);
+      original_date TEXT, status TEXT, source TEXT, note TEXT, created_at TEXT,
+      reminder_3d_sent_at TEXT, reminder_1d_sent_at TEXT, unpaid_reminder_sent_at TEXT, thanks_sent_at TEXT, points_awarded_at TEXT);
     CREATE TABLE bookings (id TEXT PRIMARY KEY, group_id TEXT, space_id TEXT, date TEXT, start_time TEXT, end_time TEXT,
       billable_hours INTEGER, billing_mode TEXT, is_residence INTEGER, rate INTEGER, price INTEGER, status TEXT,
       source TEXT, google_event_id TEXT);
@@ -102,6 +103,14 @@ d('移行顧客の会員化＋紐付け（案A）', () => {
     expect(r.customersExisting).toBe(EXPECT_CUSTOMERS);
     expect(r.groupsLinked).toBe(0);
     expect(r.groupsAlreadyLinked).toBe(143);
+  });
+
+  it('移行予約は自動処理の対象外（ポイント付与・お礼・リマインダー・未入金の印が入っている）', () => {
+    const n = db.db.prepare(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly'
+      AND points_awarded_at IS NOT NULL AND thanks_sent_at IS NOT NULL
+      AND reminder_3d_sent_at IS NOT NULL AND reminder_1d_sent_at IS NOT NULL AND unpaid_reminder_sent_at IS NOT NULL`).get().c;
+    const total = db.db.prepare(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly'`).get().c;
+    expect(n).toBe(total); // 全308枠が cron 対象外
   });
 
   it('紐付けした会員はメールでログイン可能な形（is_registered=1・パスワードなし）', () => {

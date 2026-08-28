@@ -106,7 +106,8 @@ if (sqliteOk) beforeAll(() => {
     CREATE TABLE calendar_holidays (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, name TEXT, type TEXT);
     CREATE TABLE booking_groups (id TEXT PRIMARY KEY, booking_number TEXT UNIQUE, customer_id TEXT, space_id TEXT,
       event_name TEXT, purpose TEXT, headcount INTEGER, total_amount INTEGER, original_total_amount INTEGER,
-      original_date TEXT, status TEXT, source TEXT, note TEXT, created_at TEXT);
+      original_date TEXT, status TEXT, source TEXT, note TEXT, created_at TEXT,
+      reminder_3d_sent_at TEXT, reminder_1d_sent_at TEXT, unpaid_reminder_sent_at TEXT, thanks_sent_at TEXT, points_awarded_at TEXT);
     CREATE TABLE bookings (id TEXT PRIMARY KEY, group_id TEXT, space_id TEXT, date TEXT, start_time TEXT, end_time TEXT,
       billable_hours INTEGER, billing_mode TEXT, is_residence INTEGER, rate INTEGER, price INTEGER, status TEXT,
       source TEXT, google_event_id TEXT);

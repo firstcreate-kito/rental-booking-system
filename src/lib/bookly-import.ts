@@ -173,10 +173,14 @@ export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Prom
       try {
         await db.batch([
           db.prepare(
+            // 移行予約は新システムの自動処理（リマインダー3日/1日前・未入金・お礼・ポイント付与）の対象外にする。
+            // 旧Booklyで精算済み＝新システムのポイント付与や自動メールを走らせないため、各 *_sent_at / points_awarded_at を
+            // 取り込み時点で「処理済み」にしておく（各cronは IS NULL のみ対象なので確実にスキップされる）。
             `INSERT INTO booking_groups
-             (id, booking_number, customer_id, space_id, event_name, purpose, headcount, total_amount, original_total_amount, original_date, status, source, note, created_at)
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'bookly', ?, ?)`,
-          ).bind(groupId, bookingNumber, slot.spaceId, eventName, slot.purpose ?? null, slot.headcount ?? null, amount, amount, slot.date, `Bookly移行 (${slot.category})`, now),
+             (id, booking_number, customer_id, space_id, event_name, purpose, headcount, total_amount, original_total_amount, original_date, status, source, note, created_at,
+              reminder_3d_sent_at, reminder_1d_sent_at, unpaid_reminder_sent_at, thanks_sent_at, points_awarded_at)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'bookly', ?, ?, ?, ?, ?, ?, ?)`,
+          ).bind(groupId, bookingNumber, slot.spaceId, eventName, slot.purpose ?? null, slot.headcount ?? null, amount, amount, slot.date, `Bookly移行 (${slot.category})`, now, now, now, now, now, now),
           db.prepare(
             `INSERT INTO bookings
              (id, group_id, space_id, date, start_time, end_time, billable_hours, billing_mode, is_residence, rate, price, status, source)

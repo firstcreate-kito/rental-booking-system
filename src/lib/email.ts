@@ -968,6 +968,57 @@ ${btn}
   return withSignature({ subject, html, text });
 }
 
+/**
+ * 移行のご案内（Booklyから新予約システムへの切替）。
+ * 既存のご予約を新システムに引き継いだお客様へ、マイページでの確認方法と、変更・キャンセルは
+ * 申請制（担当が確認）である旨を案内する。ログインはパスワード不要（メールでログイン＝マジックリンク）。
+ */
+export function booklyMigrationNoticeEmail(d: {
+  customerName: string;
+  bookings: Array<{ spaceName: string; date: string; startTime: string; endTime: string }>;
+  mypageUrl: string;
+  contactUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】予約システム移行のご案内（ご予約はそのまま引き継がれています）';
+  const name = d.customerName && d.customerName.trim() ? d.customerName : 'お客様';
+  const listText = d.bookings.map((b) => `・${b.date} ${b.startTime}–${b.endTime}　${b.spaceName}`).join('\n');
+  const text = `${name} 様
+
+いつもレンタルスペースALBEをご利用いただきありがとうございます。
+このたび予約システムを新しくいたしました。${name} 様の今後のご予約は、新システムにそのまま引き継いでおりますのでご安心ください。
+
+【引き継ぎ済みのご予約】
+${listText || '（対象のご予約）'}
+
+■ マイページでご確認いただけます
+${d.mypageUrl}
+ログインはパスワード不要です。ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをお送りします。
+
+■ 変更・キャンセルについて
+マイページの「変更・キャンセルのお申し込み」からお送りください（担当が内容を確認してご連絡します）。
+お問い合わせはこちら: ${d.contactUrl}
+
+今後ともよろしくお願いいたします。`;
+  const rows = d.bookings
+    .map((b) => `<li>${escapeHtml(b.date)} ${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}　${escapeHtml(b.spaceName)}</li>`)
+    .join('');
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(name)} 様</p>
+<p>いつもレンタルスペースALBEをご利用いただきありがとうございます。<br>
+このたび予約システムを新しくいたしました。<strong>${escapeHtml(name)} 様の今後のご予約は、新システムにそのまま引き継いでおります</strong>のでご安心ください。</p>
+<p style="margin:6px 0 2px;font-weight:bold">引き継ぎ済みのご予約</p>
+<ul style="margin:2px 0 14px">${rows || '<li>（対象のご予約）</li>'}</ul>
+<p style="margin:14px 0 4px;font-weight:bold">マイページでご確認いただけます</p>
+<p style="margin:2px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページを開く</a></p>
+<p style="color:#6b7280;font-size:13px;margin:4px 0">ログインはパスワード不要です。ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをお送りします。</p>
+<p style="margin:14px 0 4px;font-weight:bold">変更・キャンセルについて</p>
+<p style="margin:2px 0">マイページの「変更・キャンセルのお申し込み」からお送りください（担当が内容を確認してご連絡します）。<br>
+お問い合わせ: <a href="${escapeHtml(d.contactUrl)}">${escapeHtml(d.contactUrl)}</a></p>
+<p style="color:#6b7280;font-size:13px">今後ともよろしくお願いいたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** チケット（回数券）購入完了メール #52 */
 export function ticketPurchaseEmail(d: {
   customerName: string;

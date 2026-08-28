@@ -75,6 +75,7 @@ import {
   peekNextBookingSeq,
   setSystemSetting,
   getSystemSettings,
+  getSystemSetting,
   createDocumentForGroup,
   listDocumentsForAdmin,
   getSpaceOptions,
@@ -112,12 +113,13 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { runBooklyImport, rollbackBooklyImport } from '../lib/bookly-import';
+import { runCustomerLink, unlinkBooklyCustomers } from '../lib/bookly-customer-link';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -277,6 +279,66 @@ app.post('/bookly-import', requireRole('owner', 'manager'), async (c) => {
     return c.json(result);
   } catch (err) {
     return c.json({ error: `取り込み失敗: ${(err as Error).message}` }, 500);
+  }
+});
+
+/**
+ * POST /api/admin/bookly-customers 公開切替：移行したBooklyのお客様を会員に紐付ける（案A）。
+ * body.action:
+ *   'preview'（既定）… ドライラン。会員化・紐付けの件数だけ返す（書き込まない）
+ *   'link'            … 会員化＋ customer_id 付与を実行（冪等）
+ *   'unlink'          … 紐付けのみ取り消し（会員は残す）
+ *   'notify'          … 案内メール送信。body.confirm===true のときだけ実送信（既定は宛先件数のみ）
+ */
+app.post('/bookly-customers', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; confirm?: unknown };
+  const action = String(body.action ?? 'preview');
+  try {
+    if (action === 'unlink') {
+      const r = await unlinkBooklyCustomers(c.env);
+      return c.json({ action, ...r });
+    }
+    if (action === 'notify') {
+      const send = body.confirm === true;
+      const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+      const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
+      const mypageUrl = `${origin}/mypage.html`;
+      const { results } = await c.env.DB.prepare(
+        `SELECT c.email AS email, c.contact_name AS contact_name, b.date AS date, b.start_time AS start_time,
+                b.end_time AS end_time, s.name AS space_name
+           FROM booking_groups g
+           JOIN customers c ON c.id = g.customer_id
+           JOIN bookings b ON b.group_id = g.id
+           JOIN spaces s ON s.id = b.space_id
+          WHERE g.source = 'bookly' AND g.status = 'confirmed' AND g.customer_id IS NOT NULL
+          ORDER BY c.email, b.date, b.start_time`,
+      ).all<{ email: string; contact_name: string | null; date: string; start_time: string; end_time: string; space_name: string }>();
+      const byEmail = new Map<string, { name: string; bookings: Array<{ spaceName: string; date: string; startTime: string; endTime: string }> }>();
+      for (const r of results ?? []) {
+        if (!byEmail.has(r.email)) byEmail.set(r.email, { name: r.contact_name || 'お客様', bookings: [] });
+        byEmail.get(r.email)!.bookings.push({ spaceName: r.space_name, date: r.date, startTime: r.start_time, endTime: r.end_time });
+      }
+      const recipients = [...byEmail.entries()];
+      if (!send) {
+        return c.json({
+          action, dryRun: true, recipients: recipients.length,
+          sample: recipients.slice(0, 5).map(([email, v]) => ({ email, name: v.name, bookings: v.bookings.length })),
+        });
+      }
+      const outcomes = await Promise.allSettled(
+        recipients.map(([email, v]) =>
+          sendEmail(c.env, { to: email, ...booklyMigrationNoticeEmail({ customerName: v.name, bookings: v.bookings, mypageUrl, contactUrl }) }),
+        ),
+      );
+      const sent = outcomes.filter((o) => o.status === 'fulfilled').length;
+      return c.json({ action, dryRun: false, recipients: recipients.length, sent, failed: outcomes.length - sent });
+    }
+    // preview（ドライラン）/ link（本実行）
+    const dryRun = action !== 'link';
+    const r = await runCustomerLink(c.env, { dryRun });
+    return c.json({ action: dryRun ? 'preview' : 'link', ...r });
+  } catch (err) {
+    return c.json({ error: `移行顧客処理に失敗: ${(err as Error).message}` }, 500);
   }
 });
 

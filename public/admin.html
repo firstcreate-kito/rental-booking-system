@@ -548,6 +548,27 @@
         <table class="resp"><thead><tr><th>スペース</th><th>未取り込み</th><th>今回取込</th></tr></thead><tbody id="blBody"></tbody></table>
       </div>
       <div class="msg" id="blMsg"></div>
+
+      <hr style="margin:22px 0;border:none;border-top:1px solid var(--line)" />
+      <h2>移行顧客の会員化・案内（案A）</h2>
+      <div class="muted">
+        取り込んだ予約のうち<b>2026-08-30以降の“顧客予約”を持つお客様（45人・メール100%一致）を会員化</b>し、その予約に紐付けます。
+        お客様は<b>マイページで自分の予約を確認</b>でき、<b>変更・キャンセルは申請（担当者承認）</b>で受け付けます（移行分は自動返金しません）。
+        <b>回数券の残数（#82）も同じメールで同一会員に自動連携</b>します。
+        手順：① プレビュー → ② 会員化＆紐付け → ③ 案内メール（宛先確認 → 送信）。<b>取り込み実行の“後”に</b>行ってください。
+      </div>
+      <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn ghost sm" onclick="blcPreview()">① プレビュー（試算のみ）</button>
+        <button class="btn sm" id="blcLinkBtn" onclick="blcLink()" disabled>② 会員化＆紐付け実行</button>
+        <button class="btn ghost sm" onclick="blcNotify(false)">③ 案内メール（宛先確認）</button>
+        <button class="btn sm" id="blcSendBtn" onclick="blcNotify(true)" disabled>③ 案内メール送信</button>
+        <button class="btn danger sm" onclick="blcUnlink()">紐付け取り消し</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px">「案内メール送信」は紐付け済みの全会員に移行案内を送ります（ステージングはメール停止のため実送信されません）。ログインはパスワード不要（メールでログイン）です。</div>
+      <div class="tablewrap" style="margin-top:8px">
+        <table class="resp"><tbody id="blcBody"></tbody></table>
+      </div>
+      <div class="msg" id="blcMsg"></div>
     </section>
 
     <!-- カレンダー管理 -->
@@ -2106,6 +2127,63 @@ async function booklyRollback() {
     + (body.warnings && body.warnings.length ? ' 警告 ' + body.warnings.length + ' 件（詳細はログ）。' : '');
   if (body.warnings && body.warnings.length) console.warn('bookly-rollback warnings:', body.warnings);
   await booklyPreview();
+}
+// --- 移行顧客の会員化・案内（案A） ---
+function blcRender(b) {
+  const tb = document.getElementById('blcBody');
+  const rows = [
+    ['対象（会員化ロースター）', b.rosterSize],
+    ['新規に会員化', b.customersCreated],
+    ['既存会員だった', b.customersExisting],
+    ['予約に紐付け', b.groupsLinked],
+    ['既に紐付け済み', b.groupsAlreadyLinked],
+    ['うち回数券も持つ（2軸）', b.customersWithPendingTickets],
+  ];
+  if (typeof b.ticketsGranted === 'number' && !b.dryRun) rows.push(['今回付与した回数券', b.ticketsGranted]);
+  tb.innerHTML = rows.map(r => '<tr><td data-label="項目">' + esc(r[0]) + '</td><td data-label="件数"><b>' + r[1] + '</b></td></tr>').join('');
+}
+async function blcPreview() {
+  const msg = document.getElementById('blcMsg'); msg.className = 'msg'; msg.textContent = '試算中…';
+  const { ok, body } = await api('/api/admin/bookly-customers', jsonBody({ action: 'preview' }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '取得に失敗しました'; return; }
+  blcRender(body);
+  msg.className = 'msg';
+  msg.textContent = 'プレビュー：' + body.customersCreated + '人を会員化し、' + body.groupsLinked + '件の予約を紐付けます。';
+  document.getElementById('blcLinkBtn').disabled = (body.customersCreated + body.groupsLinked) === 0;
+  if ((body.warnings || []).length) console.warn('bookly-customers warnings:', body.warnings);
+}
+async function blcLink() {
+  if (!confirm('8/30以降の予約を持つお客様を会員化し、予約を紐付けます。\n（回数券の残数も同じメールで連携されます）\nよろしいですか？')) return;
+  const btn = document.getElementById('blcLinkBtn'); btn.disabled = true;
+  const msg = document.getElementById('blcMsg'); msg.className = 'msg'; msg.textContent = '実行中…';
+  const { ok, body } = await api('/api/admin/bookly-customers', jsonBody({ action: 'link' }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '実行に失敗しました'; return; }
+  blcRender(body);
+  msg.className = 'msg ok';
+  msg.textContent = '完了：会員化 ' + body.customersCreated + '人／紐付け ' + body.groupsLinked + '件'
+    + (body.ticketsGranted ? '／回数券付与 ' + body.ticketsGranted + '枚' : '') + '。案内メールは「宛先確認」→「送信」で送れます。';
+  document.getElementById('blcSendBtn').disabled = false;
+  if ((body.warnings || []).length) console.warn('bookly-customers warnings:', body.warnings);
+}
+async function blcNotify(send) {
+  const msg = document.getElementById('blcMsg'); msg.className = 'msg';
+  if (send && !confirm('紐付け済みの全会員へ「移行のご案内」メールを送信します。\n（ステージングは実送信されません）\n送信しますか？')) return;
+  msg.textContent = send ? '送信中…' : '宛先を確認中…';
+  const { ok, body } = await api('/api/admin/bookly-customers', jsonBody({ action: 'notify', confirm: send === true }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '処理に失敗しました'; return; }
+  if (send) { msg.className = 'msg ok'; msg.textContent = '送信完了：' + body.sent + '/' + body.recipients + '件（失敗 ' + body.failed + '）。'; }
+  else {
+    msg.className = 'msg';
+    msg.textContent = '宛先 ' + body.recipients + '件。例：' + (body.sample || []).map(s => s.name + '（' + s.bookings + '件）').join('、');
+    document.getElementById('blcSendBtn').disabled = body.recipients === 0;
+  }
+}
+async function blcUnlink() {
+  if (!confirm('移行分の予約から会員紐付け（customer_id）を外します。会員アカウントは残ります。\n実行しますか？')) return;
+  const msg = document.getElementById('blcMsg'); msg.className = 'msg'; msg.textContent = '取り消し中…';
+  const { ok, body } = await api('/api/admin/bookly-customers', jsonBody({ action: 'unlink' }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '取り消しに失敗しました'; return; }
+  msg.className = 'msg ok'; msg.textContent = '紐付けを ' + body.groupsUnlinked + '件 取り消しました（会員は残しています）。';
 }
 async function saveContactUrl() {
   const msg = document.getElementById('cfgMsg');

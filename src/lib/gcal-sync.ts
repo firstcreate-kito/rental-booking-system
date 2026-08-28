@@ -4,8 +4,9 @@
  */
 import type { Env } from '../types';
 import type { MissingCalendarBookingRow, BookingCalendarData } from '../db/repository';
-import { getBookingCalendarData } from '../db/repository';
+import { getBookingCalendarData, getHolidays } from '../db/repository';
 import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, patchEventContent, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
+import { getDayType } from './calendar';
 import { toMinutes } from './time';
 
 const TENTATIVE_PREFIX = '【商談中】';
@@ -221,56 +222,62 @@ function totalHoursLabel(rows: ReadonlyArray<{ start_time: string; end_time: str
   return (Number.isInteger(h) ? String(h) : h.toFixed(1)) + '時間';
 }
 
-/** 支払い方法の表示（カード/コンビニは Stripe に集約されるため併記） */
-function paymentMethodText(paymentMethod: string | null): string {
-  const map: Record<string, string> = {
-    stripe: 'クレジットカード／コンビニ払い',
-    paypal: 'PayPal',
-    bank_transfer: '銀行振込',
-    invoice: '請求書払い',
-  };
-  return map[paymentMethod || ''] || '—';
-}
-
-/** 支払いステータスの表示（完了／入金待ち） */
-function paymentStatusText(paymentStatus: string, total: number): string {
-  if (total <= 0) return '支払不要（¥0）';
-  if (paymentStatus === 'paid') return '完了';
-  if (paymentStatus === 'invoice') return '請求書払い（未入金）';
-  return '入金待ち';
+/**
+ * オプションの表示（Bookly互換：数量>1は「N x 名前」、それ以外は名前のみ、カンマ区切り）。
+ * 例: 「8 x 椅子, テーブル 180㎝×60㎝, ホワイトボード, ラグ」
+ */
+function optionsText(options: ReadonlyArray<{ name: string; quantity: number }>): string {
+  return options.map((o) => (o.quantity > 1 ? `${o.quantity} x ${o.name}` : o.name)).join(', ');
 }
 
 /**
- * タイトル：「【予約完了】 お客様名｜ スペース名／N時間」（例：【予約完了】 山田 太郎｜ 名駅フリースペース／9時間）
- * 外部サイネージがこの表記（全角の｜・／、半角スペース）を解釈するため、書式は変更しないこと。
+ * タイトル：「【予約完了】 お客様名｜ スペース名（平日/土日祝）／N時間」
+ * 外部サイネージがこの表記（全角の｜・／、半角スペース）を厳密に解釈するため、書式は変更しないこと。
+ * spaceLabel を渡すとスペース名の代わりに使う（平日/土日祝サフィックス付き）。
  */
-export function buildCalendarTitle(data: BookingCalendarData, tentative: boolean): string {
+export function buildCalendarTitle(data: BookingCalendarData, tentative: boolean, spaceLabel?: string): string {
   const badge = tentative ? '【商談中】' : '【予約完了】';
-  const sp = data.spaceName ? `｜ ${data.spaceName}` : '';
+  const space = spaceLabel ?? data.spaceName;
+  const sp = space ? `｜ ${space}` : '';
   return `${badge} ${data.customerName}${sp}／${totalHoursLabel(data.rows)}`;
 }
 
-/** 説明欄：予約の基本情報を出力 */
-export function buildCalendarDescription(data: BookingCalendarData, origin: string): string {
-  const optLabel = data.options.length ? data.options.map((o) => `${o.name}×${o.quantity}`).join('／') : 'なし';
+/**
+ * 説明欄：外部サイネージが読み取る書式（Bookly互換）で出力する。
+ * 上段の「[キー]：値」ブロック（サイネージが解釈・イベント名優先）＋下段の詳細＋最下部に管理画面リンク。
+ * 半角/全角コロンは Bookly の出力に合わせている（お名前/Eメール/電話番号のみ半角「: 」）。
+ */
+export function buildCalendarDescription(data: BookingCalendarData, origin: string, spaceLabel?: string): string {
+  const space = spaceLabel ?? data.spaceName;
+  const opt = optionsText(data.options);
+  const plan = `${space}／${totalHoursLabel(data.rows)}`;
+  const purpose = data.purpose || '';
+  const eventName = data.eventName || '';
+  const head = data.headcount != null ? String(data.headcount) : '';
   const adminUrl = origin ? `${origin}/admin.html?booking=${encodeURIComponent(data.bookingNumber)}` : '';
   const lines = [
-    `予約番号：${data.bookingNumber}`,
-    `イベント名：${data.eventName || '—'}`,
-    `利用目的：${data.purpose || '—'}`,
-    `ご利用人数：${data.headcount != null ? data.headcount + '名' : '—'}`,
-    `過去のご利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
-    `オプション：${optLabel}`,
-    `メールアドレス：${data.email || '—'}`,
-    `電話番号：${data.phone || '—'}`,
-    `会社名：${data.company || '—'}`,
-    `支払い方法：${paymentMethodText(data.paymentMethod)}`,
-    `支払いステータス：${paymentStatusText(data.paymentStatus, data.total)}`,
-    `ご利用金額（税込）：${yenFmt(data.total)}`,
-    adminUrl ? `管理画面リンク：${adminUrl}` : '',
+    // 上段：サイネージが読み取る [キー]：値 ブロック（全角コロン）
+    `[スペース名]：${space}`,
+    `[利用目的]：${purpose}`,
+    `[利用形態]：`,
+    `[イベント名]：${eventName}`,
+    `[人数]：${head}`,
+    `[プラン]：${plan}`,
+    `[オプション]：${opt}`,
     '',
-    CHANGE_NOTE,
-  ].filter((l) => l !== '');
+    // 下段：詳細（お名前/Eメール/電話番号は半角「: 」、以降は全角「：」＝Bookly互換）
+    `お名前: ${data.customerName}`,
+    `Eメール: ${data.email || ''}`,
+    `電話番号: ${data.phone || ''}`,
+    `予約確認番号：${data.bookingNumber}`,
+    `イベント名：${eventName}`,
+    `利用目的：${purpose}`,
+    `利用人数：${head}`,
+    `オプション：${opt}`,
+    `ご利用金額：${yenFmt(data.total)}`,
+    `利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
+  ];
+  if (adminUrl) lines.push('', `管理画面リンク：${adminUrl}`);
   return lines.join('\n');
 }
 
@@ -284,11 +291,22 @@ export async function syncBookingCalendarEvents(env: Env, groupId: string, origi
   const data = await getBookingCalendarData(env.DB, groupId);
   if (!data || !data.calendarId || data.status === 'cancelled') return {};
   const tentative = data.status === 'tentative';
-  const summary = buildCalendarTitle(data, tentative);
-  const description = buildCalendarDescription(data, origin);
+  if (data.rows.length === 0) return {};
   try {
+    // 各予定は1日分。日ごとに 平日/土日祝 と時間を反映する（サイネージ書式）。
+    const dates = data.rows.map((r) => r.date).sort();
+    const holidays = await getHolidays(env.DB, dates[0], dates[dates.length - 1]);
+    const spaceLabelFor = (date: string): string => {
+      if (!data.spaceName) return '';
+      const suffix = getDayType(date, holidays) === 'weekend' ? '土日祝' : '平日';
+      return `${data.spaceName}（${suffix}）`;
+    };
     const updates: D1PreparedStatement[] = [];
     for (const r of data.rows) {
+      const label = spaceLabelFor(r.date);
+      const perRow = { ...data, rows: [r] }; // 当日分の時間だけを表示に使う
+      const summary = buildCalendarTitle(perRow, tentative, label);
+      const description = buildCalendarDescription(perRow, origin, label);
       if (r.google_event_id) {
         await patchEventContent(env, data.calendarId, r.google_event_id, { summary, description });
       } else {

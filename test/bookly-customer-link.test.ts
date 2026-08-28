@@ -13,7 +13,11 @@ import { createRequire } from 'node:module';
 import { runBooklyImport, BOOKLY_TARGET_SPACES } from '../src/lib/bookly-import';
 import { runCustomerLink, unlinkBooklyCustomers, loadBooklyCustomers } from '../src/lib/bookly-customer-link';
 
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+// node:sqlite は Node 22+ のみ。無い環境（CIのNode20等）は describe.skip で丸ごとスキップ。
+let DatabaseSync;
+let sqliteOk = true;
+try { ({ DatabaseSync } = createRequire(import.meta.url)('node:sqlite')); } catch { sqliteOk = false; }
+const d = sqliteOk ? describe : describe.skip;
 
 // prepared statement をSQLごとにキャッシュ（node:sqlite の未finalize蓄積を避ける＝大量取り込みでも安定）
 class Stmt {
@@ -39,7 +43,7 @@ class D1 {
 let db, env;
 const EXPECT_CUSTOMERS = loadBooklyCustomers().length; // 45
 
-beforeAll(async () => {
+if (sqliteOk) beforeAll(async () => {
   db = new D1();
   env = { DB: db }; // GOOGLE_SA_* 無し → gcalConfigured=false → カレンダー処理はスキップ
   db.db.exec(`
@@ -70,7 +74,7 @@ beforeAll(async () => {
 
 const cnt = (sql) => db.db.prepare(sql).get().c;
 
-describe('移行顧客の会員化＋紐付け（案A）', () => {
+d('移行顧客の会員化＋紐付け（案A）', () => {
   it('プレビュー（ドライラン）：45人・143グループが対象と分かる（書き込まない）', async () => {
     const before = cnt(`SELECT COUNT(*) c FROM customers`);
     const p = await runCustomerLink(env, { dryRun: true });

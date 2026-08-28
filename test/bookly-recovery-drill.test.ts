@@ -19,8 +19,12 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { createRequire } from 'node:module';
 import { loadBooklySlots } from '../src/lib/bookly-import';
 
-// node:sqlite は Vite の解決を避けて実行時に require（実SQLエンジン）
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+// node:sqlite は Vite の解決を避けて実行時に require（実SQLエンジン）。
+// Node 22+ でのみ利用可能なので、無い環境（CIのNode20等）では describe.skip で丸ごとスキップする。
+let DatabaseSync: any;
+let sqliteOk = true;
+try { ({ DatabaseSync } = createRequire(import.meta.url)('node:sqlite')); } catch { sqliteOk = false; }
+const d = sqliteOk ? describe : describe.skip;
 
 // フェイクGoogleカレンダー（切断で「全消し」を再現するため、テスト本体から clear できるよう hoist）
 const gcal = vi.hoisted(() => ({ cal: new Map<string, unknown>(), seq: { n: 0 } }));
@@ -94,7 +98,7 @@ function counts() {
   return { groups: g, bookings: b, bookingsWithEvent: bWithEvt, imports: imp, gcalEvents: gcal.cal.size };
 }
 
-beforeAll(() => {
+if (sqliteOk) beforeAll(() => {
   db = new D1();
   env = { DB: db };
   db.db.exec(`
@@ -114,7 +118,7 @@ beforeAll(() => {
     .run(SPACE, '名駅フリースペース', `testcal-${SPACE}`);
 });
 
-describe('ステージング復旧リハーサル：切断で全消し→ロールバック→再取り込みで完全復元', () => {
+d('ステージング復旧リハーサル：切断で全消し→ロールバック→再取り込みで完全復元', () => {
   it(`0) 前提：対象スロットが存在する（${SPACE}）`, () => {
     expect(expectedSlots.length).toBeGreaterThan(0);
     console.log(`\n[リハーサル] 対象スペース=${SPACE} / 移行スロット=${expectedSlots.length}件`);

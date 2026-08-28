@@ -1588,6 +1588,7 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       if (!v) return null;
       return DATE_RE.test(v) ? v : null;
     })(),
+    inquiryOnly: !!body.inquiryOnly,
   };
   return { input };
 }

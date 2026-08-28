@@ -221,6 +221,9 @@
     <div id="closingNote" class="hidden" style="margin:0 0 12px;padding:12px 14px;border:1px solid #fca5a5;background:#fef2f2;border-radius:10px;font-size:14px;line-height:1.7;color:#991b1b">
       <b>⚠️ 閉鎖のお知らせ</b><br>本施設は <b><span id="closingNoteDate"></span></b> をもって閉鎖いたします。ご予約は同日まで承ります。
     </div>
+    <div id="inquiryNote" class="hidden" style="margin:0 0 12px;padding:12px 14px;border:1px solid #fcd34d;background:#fffbeb;border-radius:10px;font-size:14px;line-height:1.7;color:#92400e">
+      <b>ご予約はお問い合わせから承ります</b><br>本施設はネットでの直接予約を受け付けておりません。空き状況（◯△✕）はカレンダーでご確認いただけます。ご希望の日程が決まりましたら <a id="inquiryNoteLink" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせフォーム</a> よりご連絡ください。
+    </div>
     <div class="cal-head">
       <button class="btn ghost sm" id="prevMonthBtn" onclick="changeMonth(-2)">◀ 前へ</button>
       <strong id="calRange"></strong>
@@ -554,6 +557,11 @@
 <div id="viewPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #93c5fd;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6">
   <div style="color:#1e3a8a">この期間はネット予約の対象外です。空き状況の確認のみ可能です。<br>複数日・長期でのご利用は承れる場合がございますので、お問い合わせください。</div>
   <div style="margin-top:8px"><a id="viewPopupBtn" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>
+</div>
+<!-- 申込はお問い合わせのみの施設：日程クリック時の案内 -->
+<div id="inquiryPopup" style="display:none;position:absolute;z-index:2000;max-width:280px;background:#fff;border:1px solid #fcd34d;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:12px;font-size:13px;line-height:1.6">
+  <div style="color:#92400e">このスペースはネットでの直接予約を承っておりません。空き状況の確認のみ可能です。<br>ご予約・ご相談はお問い合わせフォームよりお願いいたします。</div>
+  <div style="margin-top:8px"><a id="inquiryPopupBtn" href="#" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;font-weight:600">お問い合わせ</a></div>
 </div>
 
 <script>
@@ -1120,6 +1128,12 @@ function dayCellHtml(d) {
   } else {
     cls.push('na'); // 過去・受付期間外は日付のみ
   }
+  // 申込はお問い合わせのみの施設：○△×は今までどおり表示するが、クリックはすべてお問い合わせ誘導に差し替え
+  if (S.space && S.space.inquiryOnly && !(d.closed || d.status === 'closed') && (d.bookable || d.viewOnly || d.status === 'full')) {
+    onclick = ' onclick="showInquiryOnlyInfo(this, event)"';
+    hover = '';
+    if (!cls.includes('clickable')) cls.push('clickable');
+  }
   const flags = [];
   if (d.isSeasonal) flags.push('<span class="f2 f-season">季節料金</span>');
   if (d.hasTentative) flags.push('<span class="f2 f-talk">商談中</span>');
@@ -1157,6 +1171,17 @@ async function loadCalendar() {
       closeEl.classList.remove('hidden');
     } else {
       closeEl.classList.add('hidden');
+    }
+  }
+  // 申込はお問い合わせのみの施設の告知
+  const inqEl = document.getElementById('inquiryNote');
+  if (inqEl) {
+    if (S.space && S.space.inquiryOnly) {
+      const lk = document.getElementById('inquiryNoteLink');
+      if (lk) { if (S.contactUrl) { lk.href = S.contactUrl; lk.style.display = 'inline'; } else { lk.removeAttribute('href'); } }
+      inqEl.classList.remove('hidden');
+    } else {
+      inqEl.classList.add('hidden');
     }
   }
   renderMonthPanel('calM1', 'dows1', 'grid1', m1, body1.days);
@@ -1233,6 +1258,29 @@ document.addEventListener('click', function (e) {
   const pop = document.getElementById('viewPopup');
   if (!pop || pop.style.display === 'none') return;
   if (pop.contains(e.target) || (e.target.closest && e.target.closest('.day.viewonly'))) return;
+  pop.style.display = 'none';
+});
+
+// --- 申込はお問い合わせのみの施設：日程タップ時の案内 ---
+function showInquiryOnlyInfo(cell, ev) {
+  if (ev) ev.stopPropagation();
+  const pop = document.getElementById('inquiryPopup');
+  const btn = document.getElementById('inquiryPopupBtn');
+  if (S.contactUrl) { btn.style.display = 'inline-block'; btn.href = S.contactUrl; }
+  else { btn.style.display = 'none'; }
+  pop.style.display = 'block';
+  const r = cell.getBoundingClientRect();
+  const pw = pop.offsetWidth;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - pw - 8;
+  if (left > maxLeft) left = maxLeft;
+  pop.style.top = (r.bottom + window.scrollY + 6) + 'px';
+  pop.style.left = Math.max(8, left) + 'px';
+}
+document.addEventListener('click', function (e) {
+  const pop = document.getElementById('inquiryPopup');
+  if (!pop || pop.style.display === 'none') return;
+  if (pop.contains(e.target) || (e.target.closest && e.target.closest('.day.clickable'))) return;
   pop.style.display = 'none';
 });
 

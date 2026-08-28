@@ -41,6 +41,7 @@ export interface SpaceRow {
   same_day_priority: number; // 「今日」タブの並び（#74）
   weekend_day_rate_only: number; // 土日祝は1日料金のみ（#18）
   closing_date: string | null; // 予約受付最終日（この日まで予約可・NULL=なし）
+  inquiry_only: number; // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）#移行
 }
 
 /** 支払いモード（#67） */
@@ -85,6 +86,8 @@ export interface SpaceInput {
   weekendDayRateOnly?: boolean;
   /** 予約受付最終日（'YYYY-MM-DD'・この日まで予約可）。閉鎖予定施設用。NULL=なし */
   closingDate?: string | null;
+  /** 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）。既定OFF */
+  inquiryOnly?: boolean;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -138,6 +141,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.allowManualInvoice ? 1 : 0,
     s.weekendDayRateOnly ? 1 : 0,
     s.closingDate ?? null,
+    s.inquiryOnly ? 1 : 0,
   ];
 }
 
@@ -149,8 +153,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -164,7 +168,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)

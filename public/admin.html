@@ -435,6 +435,7 @@
         </div>
         <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行します（コンビニは利用5日前まで、銀行振込は利用7日前までの受付）。</div>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
+        <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_inquiry_only" style="margin-top:3px"> <span>申込は「お問い合わせのみ」にする（ネット直接予約を停止）<br><span class="muted" style="font-size:12px">ONにすると、予約カレンダーは空き状況（◯△✕）を今までどおり表示しますが、どの日程をクリックしても時間選択に進まず<b>お問い合わせフォームへ誘導</b>します。空き状況だけ見せて申込は問い合わせで受ける施設向け。</span></span></label>
         <label style="margin-top:12px">キャンセルポリシー（このスペース）</label>
         <select id="sp_cancel_policy">
           <option value="standard">標準（共通：31日前まで無料／30〜15日前50%／14日前〜前日80%／当日100%）</option>
@@ -1366,6 +1367,7 @@ function fillSpaceForm(s) {
   const modeEl = document.querySelector('input[name="sp_paymode"][value="' + mode + '"]');
   if (modeEl) modeEl.checked = true;
   document.getElementById('sp_manual_invoice').checked = s ? !!s.allow_manual_invoice : false;
+  document.getElementById('sp_inquiry_only').checked = s ? !!s.inquiry_only : false;
   document.getElementById('sp_weekend_day_only').checked = s ? !!s.weekend_day_rate_only : false;
   g('sp_closing', s?.closing_date || '');
   // キャンセルポリシー プリセット（#99）：新規は標準、既存は取得して反映
@@ -1412,6 +1414,7 @@ async function saveSpace() {
     isActive: document.getElementById('sp_active').checked,
     paymentMode: (document.querySelector('input[name="sp_paymode"]:checked') || {}).value || 'card_bank',
     allowManualInvoice: document.getElementById('sp_manual_invoice').checked,
+    inquiryOnly: document.getElementById('sp_inquiry_only').checked,
     weekendDayRateOnly: document.getElementById('sp_weekend_day_only').checked,
     closingDate: v('sp_closing') || null,
     hasMinimum: true, slotMinutes: 30,

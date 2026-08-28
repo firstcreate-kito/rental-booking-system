@@ -26,6 +26,9 @@
 - [ ] **決済（Stripe/PayPal 本番キー）**：GitHub → Actions → **「Production secrets」** → `confirm=YES-PRODUCTION` で実行。
   - 投入対象：`STRIPE_SECRET_KEY`（sk_live）/ `STRIPE_WEBHOOK_SECRET` / `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_MODE=live`。
   - ガード：テストキー（sk_test / PAYPAL_MODE≠live）は自動で拒否される。
+- [ ] **メール送信（Resend）の本番設定**：`RESEND_API_KEY` / `MAIL_FROM`（任意 `MAIL_REPLY_TO`）を本番Workerに投入し、**Resendで送信ドメイン（space-albe.com 等）を認証**する。
+  - ⚠️ **これが唯一のDNS作業**：Resendが指示する **SPF（TXT）・DKIM（CNAME/TXT）**（必要なら return-path）を `space-albe.com` ゾーン（Cloudflare側）に追加。未認証だと案内・通知メールが送信拒否/迷惑メール化する。
+  - ドメイン/DNSはこれ以外に操作不要：`booking.space-albe.com` は Cloudflare カスタムドメインで設定済み、公式サイトは同一ConoHa上の `.htaccess` 差し替えのみ（A/CNAME変更なし）。
 - [ ] **Googleカレンダー用サービスアカウント鍵が本番Workerに入っているか確認**：`GOOGLE_SA_EMAIL` / `GOOGLE_SA_PRIVATE_KEY`。
   - 未投入なら本番Workerに設定（サービスアカウントは環境非依存＝ステージングと同じ値でよい）。
   - 確認：本番管理画面「システム状態」で **Google連携=有効** になっていること。

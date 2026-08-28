@@ -117,7 +117,7 @@ import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
-import { runBooklyImport } from '../lib/bookly-import';
+import { runBooklyImport, rollbackBooklyImport } from '../lib/bookly-import';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -259,10 +259,19 @@ app.post('/bookly-import', requireRole('owner', 'manager'), async (c) => {
     limit?: unknown;
     spaceIds?: unknown;
   };
-  const dryRun = body.dryRun !== false; // 明示的に false のときだけ本実行（安全側）
-  const limit = Number.isFinite(Number(body.limit)) ? Number(body.limit) : 60;
   const spaceIds = Array.isArray(body.spaceIds) ? body.spaceIds.map(String) : undefined;
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  // ロールバック（取り消し）：source='bookly' の枠とGoogle予定・記録を削除
+  if ((body as { rollback?: unknown }).rollback === true) {
+    try {
+      const r = await rollbackBooklyImport(c.env, { spaceIds });
+      return c.json({ rollback: true, ...r });
+    } catch (err) {
+      return c.json({ error: `取り消し失敗: ${(err as Error).message}` }, 500);
+    }
+  }
+  const dryRun = body.dryRun !== false; // 明示的に false のときだけ本実行（安全側）
+  const limit = Number.isFinite(Number(body.limit)) ? Number(body.limit) : 60;
   try {
     const result = await runBooklyImport(c.env, { dryRun, limit, spaceIds, origin });
     return c.json(result);

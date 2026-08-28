@@ -540,7 +540,9 @@
         </label>
         <button class="btn ghost sm" onclick="booklyPreview()">① プレビュー（試算のみ）</button>
         <button class="btn sm" id="blRunBtn" onclick="booklyRun()" disabled>② 取り込み実行</button>
+        <button class="btn danger sm" onclick="booklyRollback()">取り消し（ロールバック）</button>
       </div>
+      <div class="muted" style="font-size:12px;margin-top:4px">「取り消し」は選択スペースの取り込み枠（source=bookly）とそのGoogle予定・記録を削除します（何度でも再取り込み可）。全スペース選択時は全件が対象です。</div>
       <div id="blProgress" class="muted" style="margin-top:8px"></div>
       <div class="tablewrap" style="margin-top:8px">
         <table class="resp"><thead><tr><th>スペース</th><th>未取り込み</th><th>今回取込</th></tr></thead><tbody id="blBody"></tbody></table>
@@ -2088,6 +2090,21 @@ async function booklyRun() {
   msg.textContent = '完了：' + processed + ' 枠を取り込みました（Google予定 ' + created + ' 件）。' +
     (warnings.length ? ' 警告 ' + warnings.length + ' 件（詳細はログ）。' : '');
   if (warnings.length) console.warn('bookly-import warnings:', warnings);
+  await booklyPreview();
+}
+async function booklyRollback() {
+  const scope = document.getElementById('blSpace').value || '全スペース';
+  if (!confirm('「' + scope + '」の取り込み枠（source=bookly）とそのGoogle予定・記録を削除します。\nこの操作は元に戻せません（再取り込みは可能）。実行しますか？')) return;
+  const msg = document.getElementById('blMsg');
+  const prog = document.getElementById('blProgress');
+  msg.className = 'msg'; msg.textContent = ''; prog.textContent = '取り消し中…';
+  const { ok, body } = await api('/api/admin/bookly-import', jsonBody({ ...booklyBody(), rollback: true }));
+  if (!ok) { prog.textContent = ''; msg.className = 'msg bad'; msg.textContent = (body && body.error) || '取り消しに失敗しました'; return; }
+  prog.textContent = '';
+  msg.className = 'msg ok';
+  msg.textContent = '取り消し完了：' + body.deleted + ' 枠を削除しました（Google予定 ' + body.calendarDeleted + ' 件削除）。'
+    + (body.warnings && body.warnings.length ? ' 警告 ' + body.warnings.length + ' 件（詳細はログ）。' : '');
+  if (body.warnings && body.warnings.length) console.warn('bookly-rollback warnings:', body.warnings);
   await booklyPreview();
 }
 async function saveContactUrl() {

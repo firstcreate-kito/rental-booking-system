@@ -20,7 +20,7 @@
 import type { Env } from '../types';
 import { getSpaceById } from '../db/repository';
 import { gcalConfigured } from './gcal';
-import { syncBookingCalendarEvents } from './gcal-sync';
+import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
 import { nowJST, todayYmdJST } from './clock';
 import slotsData from '../data/bookly-slots.json';
 
@@ -216,4 +216,73 @@ async function peekSeq(db: D1Database, ymd: string): Promise<number> {
     .first<{ booking_number: string }>();
   if (!row) return 1;
   return Number(row.booking_number.split('-')[1] ?? '0') + 1;
+}
+
+export interface BooklyRollbackResult {
+  deleted: number;            // 削除した枠数
+  calendarDeleted: number;    // 削除したGoogle予定数
+  perSpace: Record<string, number>;
+  warnings: string[];
+}
+
+/**
+ * 取り込みの取り消し（ロールバック）。source='bookly' の予約グループと、そのGoogle予定、
+ * bookly_imports の記録を削除する。spaceIds 指定でスペースを絞れる（未指定は全部）。
+ * 取り消し後は再取り込み可能（bookly_imports が消えるため）。
+ */
+export async function rollbackBooklyImport(
+  env: Env,
+  opts: { spaceIds?: string[] },
+): Promise<BooklyRollbackResult> {
+  const db = env.DB;
+  const filter = opts.spaceIds && opts.spaceIds.length > 0 ? opts.spaceIds : null;
+
+  // bookly由来のグループを列挙（source='bookly' の二重確認込み）
+  const sql = filter
+    ? `SELECT bi.group_id AS group_id, bi.space_id AS space_id
+         FROM bookly_imports bi JOIN booking_groups g ON g.id = bi.group_id
+        WHERE g.source = 'bookly' AND bi.space_id IN (${filter.map(() => '?').join(',')})`
+    : `SELECT bi.group_id AS group_id, bi.space_id AS space_id
+         FROM bookly_imports bi JOIN booking_groups g ON g.id = bi.group_id
+        WHERE g.source = 'bookly'`;
+  const stmt = filter ? db.prepare(sql).bind(...filter) : db.prepare(sql);
+  const { results } = await stmt.all<{ group_id: string; space_id: string }>();
+  const groups = results ?? [];
+
+  const result: BooklyRollbackResult = { deleted: 0, calendarDeleted: 0, perSpace: {}, warnings: [] };
+  const calBySpace = new Map<string, string | null>();
+
+  for (const g of groups) {
+    // スペースのカレンダーID（キャッシュ）
+    if (!calBySpace.has(g.space_id)) {
+      const sp = await getSpaceById(db, g.space_id);
+      calBySpace.set(g.space_id, sp?.google_calendar_id ?? null);
+    }
+    const calendarId = calBySpace.get(g.space_id) ?? null;
+
+    // このグループの Google予定を削除
+    const { results: brows } = await db
+      .prepare(`SELECT google_event_id FROM bookings WHERE group_id = ? AND google_event_id IS NOT NULL`)
+      .bind(g.group_id)
+      .all<{ google_event_id: string }>();
+    const eventIds = (brows ?? []).map((r) => r.google_event_id).filter(Boolean);
+    if (calendarId && gcalConfigured(env) && eventIds.length) {
+      try {
+        await deleteBookingFromCalendar(env, calendarId, eventIds);
+        result.calendarDeleted += eventIds.length;
+      } catch (err) {
+        result.warnings.push(`Google予定の削除に失敗（枠は削除します）group=${g.group_id}: ${(err as Error).message}`);
+      }
+    }
+
+    // D1から削除（bookings → booking_groups → bookly_imports）
+    await db.batch([
+      db.prepare(`DELETE FROM bookings WHERE group_id = ?`).bind(g.group_id),
+      db.prepare(`DELETE FROM booking_groups WHERE id = ? AND source = 'bookly'`).bind(g.group_id),
+      db.prepare(`DELETE FROM bookly_imports WHERE group_id = ?`).bind(g.group_id),
+    ]);
+    result.deleted++;
+    result.perSpace[g.space_id] = (result.perSpace[g.space_id] ?? 0) + 1;
+  }
+  return result;
 }

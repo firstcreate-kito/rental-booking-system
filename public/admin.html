@@ -514,6 +514,37 @@
       <div class="tablewrap" style="margin-top:6px">
         <table class="resp"><thead><tr><th>氏名</th><th>メール</th><th>対象</th><th>残時間</th><th>有効期限</th><th>状態</th></tr></thead><tbody id="ptBody"></tbody></table>
       </div>
+
+      <hr style="margin:22px 0;border:none;border-top:1px solid var(--line)" />
+      <h2>Bookly予約の移行（公開切替）</h2>
+      <div class="muted">
+        Booklyから引き継ぐ既存予約を、<b>「新システム所有のGoogle予定＋本予約枠」</b>として先に取り込みます。
+        Booklyを外した後もこの予定が残るので、枠が空きに戻らず二重予約を防げます。
+        <b>まず「プレビュー」で件数を確認</b>してから「取り込み実行」を押してください（何度押しても取り込み済みは重複しません）。
+        <b>必ずステージングで先に試してから本番</b>で行ってください。
+      </div>
+      <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
+        <label>対象スペース：
+          <select id="blSpace">
+            <option value="">全スペース（8施設）</option>
+            <option value="meieki-free">名駅フリースペース（ステージング予行演習用）</option>
+            <option value="albe-hall-nagoya">アルベホール名古屋</option>
+            <option value="meieki-exercise">名駅エクササイズスペース</option>
+            <option value="meieki-washitsu">名駅和室スペース</option>
+            <option value="higashibetsuin-piano-24h">東別院防音室24h</option>
+            <option value="meieki-piano-a">名駅防音室A</option>
+            <option value="meieki-piano-b">名駅防音室B</option>
+            <option value="kitaokazaki-warehouse">北岡崎倉庫スペース</option>
+          </select>
+        </label>
+        <button class="btn ghost sm" onclick="booklyPreview()">① プレビュー（試算のみ）</button>
+        <button class="btn sm" id="blRunBtn" onclick="booklyRun()" disabled>② 取り込み実行</button>
+      </div>
+      <div id="blProgress" class="muted" style="margin-top:8px"></div>
+      <div class="tablewrap" style="margin-top:8px">
+        <table class="resp"><thead><tr><th>スペース</th><th>未取り込み</th><th>今回取込</th></tr></thead><tbody id="blBody"></tbody></table>
+      </div>
+      <div class="msg" id="blMsg"></div>
     </section>
 
     <!-- カレンダー管理 -->
@@ -2001,6 +2032,60 @@ async function loadPendingTickets() {
     return '<tr><td data-label="氏名">' + esc(it.name) + '</td><td data-label="メール">' + esc(it.email) + '</td><td data-label="対象">' + scopeLabel(it.scope) +
       '</td><td data-label="残時間">' + it.remaining_hours + 'h</td><td data-label="有効期限">' + esc(it.valid_until) + '</td><td data-label="状態">' + badge + '</td></tr>';
   }).join('');
+}
+// --- Bookly予約の移行（公開切替） ---
+function booklyBody() {
+  const sp = document.getElementById('blSpace').value;
+  const b = { dryRun: true };
+  if (sp) b.spaceIds = [sp];
+  return b;
+}
+function booklyRenderRows(pendingMap, processedMap) {
+  const keys = Array.from(new Set([...Object.keys(pendingMap || {}), ...Object.keys(processedMap || {})])).sort();
+  const tb = document.getElementById('blBody');
+  if (keys.length === 0) { tb.innerHTML = '<tr><td colspan="3" class="muted">対象なし</td></tr>'; return; }
+  tb.innerHTML = keys.map(k =>
+    '<tr><td data-label="スペース">' + k + '</td><td data-label="未取り込み">' + (pendingMap[k] || 0) +
+    '</td><td data-label="今回取込">' + (processedMap[k] || 0) + '</td></tr>').join('');
+}
+async function booklyPreview() {
+  const msg = document.getElementById('blMsg');
+  const prog = document.getElementById('blProgress');
+  msg.className = 'msg'; msg.textContent = ''; prog.textContent = '試算中…';
+  const { ok, body } = await api('/api/admin/bookly-import', jsonBody({ ...booklyBody(), dryRun: true }));
+  if (!ok) { prog.textContent = ''; msg.className = 'msg bad'; msg.textContent = (body && body.error) || '取得に失敗しました'; return; }
+  booklyRenderRows(body.perSpacePending, {});
+  const gcal = body.gcalConfigured ? 'Google連携: 有効（予定を作成します）' : 'Google連携: 無効（枠のみ作成・予定は作られません）';
+  prog.innerHTML = '対象 <b>' + body.total + '</b> 枠 ／ 取り込み済み <b>' + body.alreadyImported +
+    '</b> ／ <b>未取り込み ' + body.pending + '</b>。' + gcal;
+  document.getElementById('blRunBtn').disabled = body.pending === 0;
+  if (body.pending === 0) { msg.className = 'msg ok'; msg.textContent = 'すべて取り込み済みです。'; }
+}
+async function booklyRun() {
+  const btn = document.getElementById('blRunBtn');
+  const msg = document.getElementById('blMsg');
+  const prog = document.getElementById('blProgress');
+  const scope = document.getElementById('blSpace').value || '全スペース';
+  if (!confirm('「' + scope + '」の未取り込み枠を、本予約として取り込みます。\n（Googleカレンダーに予定が作成されます）\nよろしいですか？')) return;
+  btn.disabled = true;
+  msg.className = 'msg'; msg.textContent = '';
+  const totalProcessed = {};
+  let created = 0, processed = 0, warnings = [];
+  for (let i = 0; i < 50; i++) { // 最大 50バッチ×60 = 3000枠まで（十分）
+    const { ok, body } = await api('/api/admin/bookly-import', jsonBody({ ...booklyBody(), dryRun: false, limit: 60 }));
+    if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '取り込みに失敗しました'; btn.disabled = false; return; }
+    processed += body.processed; created += body.calendarCreated;
+    for (const k in (body.perSpaceProcessed || {})) totalProcessed[k] = (totalProcessed[k] || 0) + body.perSpaceProcessed[k];
+    if (Array.isArray(body.warnings)) warnings = warnings.concat(body.warnings);
+    prog.innerHTML = '取り込み中… 累計 <b>' + processed + '</b> 枠（Google予定 ' + created + '）／ 残り <b>' + body.remaining + '</b>';
+    booklyRenderRows(body.perSpacePending, totalProcessed);
+    if (body.remaining <= 0 || body.processed === 0) break;
+  }
+  msg.className = 'msg ok';
+  msg.textContent = '完了：' + processed + ' 枠を取り込みました（Google予定 ' + created + ' 件）。' +
+    (warnings.length ? ' 警告 ' + warnings.length + ' 件（詳細はログ）。' : '');
+  if (warnings.length) console.warn('bookly-import warnings:', warnings);
+  await booklyPreview();
 }
 async function saveContactUrl() {
   const msg = document.getElementById('cfgMsg');

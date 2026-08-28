@@ -117,6 +117,7 @@ import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
+import { runBooklyImport } from '../lib/bookly-import';
 import {
   computeGroupSpacePrice,
   type SpacePricingConfig,
@@ -238,6 +239,35 @@ app.post('/calendar-test', requireRole('owner', 'manager'), async (c) => {
     return c.json({ configured: true, ok: true, calendarId, busyCount: busy.length, saEmail: c.env.GOOGLE_SA_EMAIL ?? null });
   } catch (err) {
     return c.json({ configured: true, ok: false, calendarId, error: (err as Error).message, saEmail: c.env.GOOGLE_SA_EMAIL ?? null });
+  }
+});
+
+/**
+ * POST /api/admin/bookly-import  公開切替：Bookly既存予約の枠インポート（#移行）
+ *
+ * body: { dryRun:boolean, limit?:number, spaceIds?:string[] }
+ *   - dryRun=true … 書き込まず、対象/取り込み済み/残数の内訳だけ返す（プレビュー）。
+ *   - dryRun=false … limit件ずつ本取り込み。remaining>0 の間、UI側が繰り返し呼ぶ。
+ *   - spaceIds … 特定スペースだけに絞る（例 ["meieki-free"]＝ステージングのテストカレンダー予行演習）。
+ *
+ * すべて status='confirmed' / source='bookly' の「枠のみ」。競合チェックはスキップ（設計どおり）。
+ * 冪等：bookly_imports で取り込み済みをスキップ。owner/manager 限定。
+ */
+app.post('/bookly-import', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    dryRun?: unknown;
+    limit?: unknown;
+    spaceIds?: unknown;
+  };
+  const dryRun = body.dryRun !== false; // 明示的に false のときだけ本実行（安全側）
+  const limit = Number.isFinite(Number(body.limit)) ? Number(body.limit) : 60;
+  const spaceIds = Array.isArray(body.spaceIds) ? body.spaceIds.map(String) : undefined;
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  try {
+    const result = await runBooklyImport(c.env, { dryRun, limit, spaceIds, origin });
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: `取り込み失敗: ${(err as Error).message}` }, 500);
   }
 });
 

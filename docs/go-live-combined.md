@@ -44,7 +44,7 @@
 ### 2-A. 予約システム 🎟（`go-live-checklist.md` A章）
 - [ ] 本番決済鍵（「Production secrets」`YES-PRODUCTION`）／Stripe本番Webhook／`GOOGLE_SA_*`（管理画面で Google連携=有効）
 - [ ] 事業者情報・振込口座（#92）・8スペース設定の最終確認
-- [ ] 最新CSVで `bookly-slots.json` 再生成 → staging→production デプロイ／DBマイグレーション本番適用
+- [ ] **★2026-08-30：Bookly最新フルデータ（予約CSV＋顧客Customers.csv）を受領**し、`bookly-slots.json`（`bookly-parse.mjs`）と `bookly-customers.json`（`bookly-customers.mjs … 2026-08-30`）を**両方再生成**→ 件数・`missingInCsv`空を確認 → staging→production デプロイ／DBマイグレーション本番適用（件数は最新データで変動＝正）
 - [ ] 🤖 復旧リハーサル緑：`npx vitest run test/bookly-recovery-drill.test.ts`
 - [ ] ステージング予行（名駅フリー・テストカレンダー）／**OTA両方向テスト（GO/NO-GO）**
 

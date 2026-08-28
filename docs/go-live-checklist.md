@@ -42,9 +42,14 @@
 - [ ] 8スペースの内容（名称・料金・営業時間・支払い方法プリセット・追加質問・閉鎖日など）を最終レビュー。
 - [ ] スペース表示順（#103は任意・未対応でも公開可）。
 
-### A-4. 移行データの準備 🤖🧑‍💻
-- [ ] **Bookly最新CSVをエクスポート**（全期間）。
-- [ ] 🤖 `node scripts/bookly-parse.mjs <csvディレクトリ> src/data/bookly-slots.json` で再生成 → 件数・スペース別をレビュー → コミット → **staging→production デプロイ**。
+### A-4. 移行データの準備（★2026-08-30 に最新データで再生成）🤖🧑‍💻
+> **重要**：現在同梱の `bookly-slots.json`（308枠）／`bookly-customers.json`（45人）は、8/30より前のエクスポート基準です。
+> **公開直前（2026-08-30）に、Booklyの最新フルデータ（予約CSV＋顧客CSV）を改めて受領し、下記2ファイルを必ず再生成**します。
+> 8/30までに入る新規予約・変更・キャンセルを取り込むためで、**件数（枠数・45人・143件・2軸6人）は最新データで変動します**（それが正）。
+- [ ] 🧑‍💻 **8/30：Booklyの最新CSVを2種エクスポート**（①予約＝全期間 ②顧客名簿 Customers.csv）。
+- [ ] 🤖 **予約を再生成**：`node scripts/bookly-parse.mjs <予約csvディレクトリ> src/data/bookly-slots.json` → 件数・スペース別をレビュー。
+- [ ] 🤖 **顧客ロースターを再生成**：`node scripts/bookly-customers.mjs <Customers.csv> src/data/bookly-customers.json 2026-08-30` → 人数・`missingInCsv` が空（=メール100%一致）を確認。
+- [ ] 🤖 2ファイルをコミット → **staging→production デプロイ**（両JSONがWorkerに同梱される）。
 - [ ] **DBマイグレーションが本番適用済み**であること（`bookly_imports` 表 ほか）。未適用なら「DB migrate」ワークフロー staging→production（`staging_verified=yes`）。
 - [ ] 🤖 **復旧リハーサル緑**：`npx vitest run test/bookly-recovery-drill.test.ts`（切断で全消し→復元が成立することの担保）。
 

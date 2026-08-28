@@ -123,7 +123,9 @@
 | ファイル | 役割 |
 |---|---|
 | `scripts/bookly-parse.mjs` | Bookly CSV群 → 正規化スロットJSON（8スペース抽出・OTA除外・重複排除・Staff→ID集約） |
-| `src/data/bookly-slots.json` | 生成済みの取り込みデータ（308枠）。Workerにバンドル。**本番前に全期間の正規CSVで再生成推奨** |
+| `src/data/bookly-slots.json` | 生成済みの取り込みデータ（308枠）。Workerにバンドル。**公開直前 2026-08-30 の最新フルCSVで必ず再生成** |
+| `scripts/bookly-customers.mjs` | 顧客CSV＋スロットJSON → 会員化ロースター（8/30以降の予約を持つ45人・メール一致）を生成（案A） |
+| `src/data/bookly-customers.json` | 生成済みの会員化ロースター（45人）。**8/30に顧客CSVで slots と同時に再生成** |
 | `src/lib/bookly-import.ts` | 取り込みエンジン。競合チェック**スキップ**・冪等・バッチ・dry-run |
 | `migrations/0040_bookly_imports.sql` | 冪等トラッキング表 `bookly_imports(bookly_key)` |
 | `POST /api/admin/bookly-import` | 管理API（owner/manager限定）。`{dryRun,limit,spaceIds}` |
@@ -165,7 +167,7 @@ CSV→JSON再生成: `node scripts/bookly-parse.mjs <csvディレクトリ> src/
 
 ### 7-5. 本番前チェックリスト
 
-- [ ] 全期間の正規CSVで `bookly-slots.json` を再生成し、件数・スペース別を確認（現データは提供済み11ファイル基準の308枠）。
+- [ ] **★2026-08-30：Bookly最新フルデータ（予約CSV＋顧客Customers.csv）で `bookly-slots.json` と `bookly-customers.json` を両方再生成**し、件数・スペース別・`missingInCsv`空 を確認（件数は最新データで変動＝正）。
 - [ ] 8スペースの本番GoogleカレンダーIDを管理画面に設定・接続テスト。
 - [ ] ステージング（名駅フリー・テストカレンダー）で予行演習し、予定作成と空き反映を確認。
 - [ ] 復旧リハーサル `npx vitest run test/bookly-recovery-drill.test.ts` が緑（全消し→復元が成立）。
@@ -197,7 +199,7 @@ Bookly切断が **(A) 自分が作った予定だけ消す** のか **(B) OTA以
 1. **【保険】バックアップ取得（最優先）**
    - 各スペースのGoogleカレンダーを **.ics エクスポート**。
    - Bookly予約一覧を **最新CSVでエクスポート**（＝この後の取り込み元）。
-2. **CSV再生成**：最新CSVで `node scripts/bookly-parse.mjs <csvディレクトリ> src/data/bookly-slots.json` → 件数・スペース別をレビュー → コミット＆**staging→production デプロイ**（ステージング先行厳守）。
+2. **CSV再生成（★2026-08-30の最新フルデータ）**：`node scripts/bookly-parse.mjs <予約csvディレクトリ> src/data/bookly-slots.json` と `node scripts/bookly-customers.mjs <Customers.csv> src/data/bookly-customers.json 2026-08-30` を実行 → 件数・スペース別・`missingInCsv`空 をレビュー → コミット＆**staging→production デプロイ**（ステージング先行厳守）。
 3. **本番カレンダー接続**：8スペースの `google_calendar_id` に**既存の本番カレンダー**を設定→接続テスト（**新規カレンダーは作らない**／第0章）。
 4. **Bookly新規受付を停止**（申込フォーム撤去 or メンテ）。以降Booklyは書き込まない。
 5. **Bookly切断**を実行。直後に**何が残った/消えたかを確認**：

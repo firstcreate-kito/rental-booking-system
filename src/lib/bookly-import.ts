@@ -18,9 +18,11 @@
  * ロールバック：source='bookly' の予約のGoogle予定を削除→行削除→bookly_imports を掃除（別途手順）。
  */
 import type { Env } from '../types';
-import { getSpaceById } from '../db/repository';
-import { gcalConfigured } from './gcal';
-import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
+import type { BookingCalendarData } from '../db/repository';
+import { getSpaceById, getHolidays } from '../db/repository';
+import { gcalConfigured, insertEvent, toJstRfc3339 } from './gcal';
+import { deleteBookingFromCalendar, buildCalendarTitle, buildCalendarDescription } from './gcal-sync';
+import { getDayType } from './calendar';
 import { nowJST, todayYmdJST } from './clock';
 import slotsData from '../data/bookly-slots.json';
 
@@ -35,6 +37,16 @@ export interface BooklySlot {
   label: string;
   booklyId: string;
   booklyStaff: string;
+  // サイネージ用の詳細（案X）
+  eventName?: string;
+  purpose?: string | null;
+  headcount?: number | null;
+  options?: Array<{ name: string; quantity: number }>;
+  customerName?: string;
+  email?: string;
+  phone?: string;
+  amount?: number;
+  repeatCustomer?: boolean;
 }
 
 interface SlotsFile {
@@ -136,6 +148,9 @@ export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Prom
   // 連番はローカルカウンタで進める（UNIQUE衝突時のみ再取得）
   let seq = await peekSeq(db, ymd);
   const noCal = new Set<string>();
+  // 平日/土日祝の判定用に、対象日の祝日をまとめて取得
+  const batchDates = batch.map((s) => s.date).sort();
+  const holidays = batchDates.length ? await getHolidays(db, batchDates[0], batchDates[batchDates.length - 1]) : new Map();
 
   for (const slot of batch) {
     const space = await getSpaceById(db, slot.spaceId);
@@ -146,25 +161,27 @@ export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Prom
 
     const groupId = crypto.randomUUID();
     const bookingId = crypto.randomUUID();
-    const eventName = slot.label || 'Bookly移行枠';
+    const eventName = slot.eventName || slot.label || 'Bookly移行枠';
+    const amount = Math.max(0, Math.round(slot.amount ?? 0));
     const bh = billableHours(slot.durationMin);
 
     // group + booking + bookly_imports を1バッチで（原子的）。booking_number はUNIQUE衝突で再試行。
     let ok = false;
+    let bookingNumber = '';
     for (let attempt = 0; attempt < 6; attempt++) {
-      const bookingNumber = `${ymd}-${String(seq).padStart(3, '0')}`;
+      bookingNumber = `${ymd}-${String(seq).padStart(3, '0')}`;
       try {
         await db.batch([
           db.prepare(
             `INSERT INTO booking_groups
-             (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, status, source, note, created_at)
-             VALUES (?, ?, NULL, ?, ?, 0, 0, ?, 'confirmed', 'bookly', ?, ?)`,
-          ).bind(groupId, bookingNumber, slot.spaceId, eventName, slot.date, `Bookly移行 (${slot.category})`, now),
+             (id, booking_number, customer_id, space_id, event_name, purpose, headcount, total_amount, original_total_amount, original_date, status, source, note, created_at)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'bookly', ?, ?)`,
+          ).bind(groupId, bookingNumber, slot.spaceId, eventName, slot.purpose ?? null, slot.headcount ?? null, amount, amount, slot.date, `Bookly移行 (${slot.category})`, now),
           db.prepare(
             `INSERT INTO bookings
              (id, group_id, space_id, date, start_time, end_time, billable_hours, billing_mode, is_residence, rate, price, status, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, 'confirmed', 'bookly')`,
-          ).bind(bookingId, groupId, slot.spaceId, slot.date, slot.startTime, slot.endTime, bh, BILLING_MODE),
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, 'confirmed', 'bookly')`,
+          ).bind(bookingId, groupId, slot.spaceId, slot.date, slot.startTime, slot.endTime, bh, BILLING_MODE, amount),
           db.prepare(
             `INSERT INTO bookly_imports (bookly_key, group_id, space_id, date, start_time, category, bookly_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -195,12 +212,45 @@ export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Prom
     result.perSpaceProcessed[slot.spaceId] = (result.perSpaceProcessed[slot.spaceId] ?? 0) + 1;
 
     // Google予定を作成（カレンダーID未設定なら no-op）。失敗しても枠は成立。
+    // サイネージ用にBookly由来の詳細（イベント名・利用目的・人数・オプション・お名前・金額）を本文へ反映（案X）。
     if (!space.google_calendar_id) {
       noCal.add(slot.spaceId);
     } else if (result.gcalConfigured) {
-      const res = await syncBookingCalendarEvents(env, groupId, opts.origin);
-      if (res.warning) result.warnings.push(`${slot.booklyKey}: ${res.warning}`);
-      else result.calendarCreated++;
+      try {
+        const suffix = getDayType(slot.date, holidays as ReadonlyMap<string, 'holiday' | 'custom' | 'closed'>) === 'weekend' ? '土日祝' : '平日';
+        const spaceLabel = space.name ? `${space.name}（${suffix}）` : '';
+        const calData: BookingCalendarData = {
+          calendarId: space.google_calendar_id,
+          bookingNumber,
+          status: 'confirmed',
+          spaceName: space.name,
+          customerName: slot.customerName || slot.eventName || slot.label || 'お客様',
+          phone: slot.phone || null,
+          email: slot.email || null,
+          company: null,
+          eventName: slot.eventName || slot.label,
+          purpose: slot.purpose ?? null,
+          headcount: slot.headcount ?? null,
+          total: amount,
+          paymentStatus: 'paid',
+          paymentMethod: null,
+          repeatCustomer: !!slot.repeatCustomer,
+          options: slot.options ?? [],
+          rows: [{ id: bookingId, date: slot.date, start_time: slot.startTime, end_time: slot.endTime, google_event_id: null }],
+        };
+        const summary = buildCalendarTitle(calData, false, spaceLabel);
+        const description = buildCalendarDescription(calData, opts.origin, spaceLabel);
+        const ev = await insertEvent(env, space.google_calendar_id, {
+          summary,
+          description,
+          startISO: toJstRfc3339(slot.date, slot.startTime),
+          endISO: toJstRfc3339(slot.date, slot.endTime),
+        });
+        await db.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, bookingId).run();
+        result.calendarCreated++;
+      } catch (err) {
+        result.warnings.push(`${slot.booklyKey}: Googleカレンダー作成失敗（枠は成立）: ${(err as Error).message}`);
+      }
     }
   }
 

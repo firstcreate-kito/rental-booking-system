@@ -85,6 +85,33 @@ function categorize(email, service) {
   return 'block';
 }
 
+// Service末尾の半角括弧 "(...)" からオプションを配列 [{name, quantity}] で抽出。
+//   例) "…／3時間 (8 × 椅子, テーブル 180㎝×60㎝, ホワイトボード , ラグ)"
+//     → [{name:'椅子',quantity:8},{name:'テーブル 180㎝×60㎝',quantity:1},{name:'ホワイトボード',quantity:1},{name:'ラグ',quantity:1}]
+function parseOptions(service) {
+  const m = String(service || '').match(/\(([^()]*)\)\s*$/); // 末尾の半角(...)。（平日）等の全角は対象外
+  if (!m) return [];
+  return m[1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const q = item.match(/^(\d+)\s*[×xX]\s*(.+)$/); // 「8 × 椅子」→ 数量8・名前椅子
+      return q ? { name: q[2].trim(), quantity: Number(q[1]) } : { name: item, quantity: 1 };
+    });
+}
+
+// Payment欄から合計金額（円）を取り出す。 "¥14,520 Stripe Completed" / "¥0 of ¥33,000 Local Pending" 等。
+function parseAmount(payment, priceCol) {
+  const p = String(payment || '');
+  const ofm = p.match(/of\s*¥\s*([\d,]+)/); // 「¥0 of ¥33,000」→ 合計は 33,000
+  if (ofm) return Number(ofm[1].replace(/,/g, ''));
+  const m = p.match(/¥\s*([\d,]+)/);
+  if (m) return Number(m[1].replace(/,/g, ''));
+  const pc = String(priceCol || '').match(/¥\s*([\d,]+)/);
+  return pc ? Number(pc[1].replace(/,/g, '')) : 0;
+}
+
 // カレンダー表示用ラベル（明細ではなく短い見出し）
 function makeLabel(cat, name, service) {
   const svc = (service || '').replace(/^【予約完了】\s*/, '').trim();
@@ -114,13 +141,21 @@ function main() {
     if (lines.length === 0) continue;
     const header = parseCsvLine(lines[0]);
     const col = (name) => header.indexOf(name);
+    const colPrefix = (prefix) => header.findIndex((h) => h.startsWith(prefix)); // 「（必須）」付き列名対策
     const iDate = col('Appointment date');
     const iStaff = col('Staff');
     const iName = col('Customer name');
+    const iPhone = col('Customer phone');
     const iEmail = col('Customer email');
     const iSvc = col('Service');
     const iDur = col('Duration');
     const iId = col('ID');
+    const iPay = col('Payment');
+    const iPrice = col('Price');
+    const iEvent = col('イベント名');
+    const iPurpose = colPrefix('ご利用目的');
+    const iHead = colPrefix('ご利用人数');
+    const iRepeat = col('過去のご利用実績');
     for (let li = 1; li < lines.length; li++) {
       const row = parseCsvLine(lines[li]);
       if (!row[iId] || !row[iId].trim()) continue;
@@ -138,6 +173,9 @@ function main() {
       if (crossesDay) warnings.push(`日跨ぎ: id=${row[iId]} ${spaceId} ${dt.date} ${dt.start}+${dur}分`);
       const cat = categorize(email, service);
       const key = `${spaceId}|${dt.date}|${dt.start}`;
+      const at = (i) => (i >= 0 ? (row[i] || '').trim() : '');
+      const csvEvent = at(iEvent);
+      const headStr = at(iHead);
       const slot = {
         booklyKey: key,
         spaceId,
@@ -149,6 +187,16 @@ function main() {
         label: makeLabel(cat, row[iName], service),
         booklyId: row[iId].trim(),
         booklyStaff: staff,
+        // サイネージ用の詳細（案X）: イベント名が空なら見出しラベルを使う
+        eventName: csvEvent || makeLabel(cat, row[iName], service),
+        purpose: at(iPurpose) || null,
+        headcount: headStr && /^\d+$/.test(headStr) ? Number(headStr) : null,
+        options: parseOptions(service),
+        customerName: at(iName) === 'N/A' ? '' : at(iName),
+        email: at(iEmail),
+        phone: at(iPhone),
+        amount: parseAmount(at(iPay), at(iPrice)),
+        repeatCustomer: at(iRepeat) === '利用経験あり',
       };
       const prev = bySlot.get(key);
       if (!prev) { bySlot.set(key, slot); continue; }

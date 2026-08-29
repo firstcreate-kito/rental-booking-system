@@ -473,23 +473,26 @@ export function passwordResetEmail(d: {
   customerName: string;
   resetUrl: string;
   expiresLabel: string; // 例: 1時間
+  initial?: boolean; // パスワード未設定の会員が「初めて設定」する場合は文面を「設定」に切替
 }): { subject: string; html: string; text: string } {
-  const subject = '【レンタルスペースALBE】パスワード再設定のご案内';
+  const word = d.initial ? '設定' : '再設定'; // 移行会員などパスワード未設定の初回設定に対応
+  const subject = `【レンタルスペースALBE】パスワード${word}のご案内`;
+  const tail = d.initial ? '' : 'パスワードは変更されません。';
   const text = `${d.customerName} 様
 
-パスワード再設定のご依頼を受け付けました。
+パスワード${word}のご依頼を受け付けました。
 下記のURLを開き、新しいパスワードを設定してください。
 
 ${d.resetUrl}
 
 ※このリンクの有効期限は${d.expiresLabel}です。期限を過ぎた場合はお手数ですが再度お手続きください。
-※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。`;
+※お心当たりがない場合は、このメールは破棄してください。${tail}`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
-<p>パスワード再設定のご依頼を受け付けました。<br>下記のボタンから新しいパスワードを設定してください。</p>
+<p>パスワード${word}のご依頼を受け付けました。<br>下記のボタンから新しいパスワードを設定してください。</p>
 <p style="margin:20px 0"><a href="${escapeHtml(d.resetUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">新しいパスワードを設定する</a></p>
 <p style="font-size:12px;color:#6b7280">ボタンが開けない場合は、次のURLをブラウザに貼り付けてください：<br>${escapeHtml(d.resetUrl)}</p>
-<p style="font-size:13px;color:#6b7280">※このリンクの有効期限は${escapeHtml(d.expiresLabel)}です。<br>※お心当たりがない場合は、このメールは破棄してください。パスワードは変更されません。</p>
+<p style="font-size:13px;color:#6b7280">※このリンクの有効期限は${escapeHtml(d.expiresLabel)}です。<br>※お心当たりがない場合は、このメールは破棄してください。${escapeHtml(tail)}</p>
 </div>`;
   return withSignature({ subject, html, text });
 }
@@ -990,9 +993,10 @@ export function booklyMigrationNoticeEmail(d: {
 【引き継ぎ済みのご予約】
 ${listText || '（対象のご予約）'}
 
-■ マイページでご確認いただけます
+■ マイページへのログイン方法（パスワード不要）
 ${d.mypageUrl}
-ログインはパスワード不要です。ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをお送りします。
+ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをすぐにお送りします。次回以降も同じ手順（パスワード不要）でご利用いただけます。
+パスワードを設定して使いたい場合は、ログイン画面の「パスワードをお忘れの方はこちら」からこのメールアドレスをご入力ください。設定用リンクをお送りします。
 
 ■ 変更・キャンセルについて
 マイページの「変更・キャンセルのお申し込み」からお送りください（担当が内容を確認してご連絡します）。
@@ -1008,9 +1012,10 @@ ${d.mypageUrl}
 このたび予約システムを新しくいたしました。<strong>${escapeHtml(name)} 様の今後のご予約は、新システムにそのまま引き継いでおります</strong>のでご安心ください。</p>
 <p style="margin:6px 0 2px;font-weight:bold">引き継ぎ済みのご予約</p>
 <ul style="margin:2px 0 14px">${rows || '<li>（対象のご予約）</li>'}</ul>
-<p style="margin:14px 0 4px;font-weight:bold">マイページでご確認いただけます</p>
+<p style="margin:14px 0 4px;font-weight:bold">マイページへのログイン方法（パスワード不要）</p>
 <p style="margin:2px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページを開く</a></p>
-<p style="color:#6b7280;font-size:13px;margin:4px 0">ログインはパスワード不要です。ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをお送りします。</p>
+<p style="color:#6b7280;font-size:13px;margin:4px 0">ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをすぐにお送りします。<strong>次回以降も同じ手順（パスワード不要）</strong>でご利用いただけます。</p>
+<p style="color:#6b7280;font-size:13px;margin:4px 0">パスワードを設定して使いたい場合は、ログイン画面の「パスワードをお忘れの方はこちら」から、このメールアドレスをご入力ください。設定用リンクをお送りします。</p>
 <p style="margin:14px 0 4px;font-weight:bold">変更・キャンセルについて</p>
 <p style="margin:2px 0">マイページの「変更・キャンセルのお申し込み」からお送りください（担当が内容を確認してご連絡します）。<br>
 お問い合わせ: <a href="${escapeHtml(d.contactUrl)}">${escapeHtml(d.contactUrl)}</a></p>

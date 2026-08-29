@@ -155,7 +155,9 @@ app.post('/password-reset/request', async (c) => {
   if (!email || !isValidEmail(email)) return c.json({ error: '有効なメールアドレスを入力してください' }, 400);
 
   const cust = await getCustomerAuthByEmail(db, email);
-  if (cust && cust.password_hash && !cust.is_blocked) {
+  // パスワード設定済み＝「再設定」、未設定（移行会員・ソーシャル会員等）＝「初回設定」。
+  // どちらも登録メール宛にリンクを送る（メール＝本人確認の前提はマジックリンクと同じ）。
+  if (cust && !cust.is_blocked) {
     const now = nowJST();
     const token = generateToken();
     const expiresAt = nowJST(Date.now() + 60 * 60 * 1000); // 1時間後
@@ -166,6 +168,7 @@ app.post('/password-reset/request', async (c) => {
       customerName: cust.contact_name ? String(cust.contact_name) : 'お客様',
       resetUrl,
       expiresLabel: '1時間',
+      initial: !cust.password_hash,
     });
     c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
   }

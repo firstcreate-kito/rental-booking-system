@@ -106,8 +106,7 @@ export function escapeHtml(s: string): string {
 // 全メール共通の署名（フッター）#46
 const SIGNATURE_TEXT = `
 ----------------------------------------
-レンタルスペースALBE
-（運営会社：株式会社ファーストクリエイト）
+レンタルスペースアルペ（運営会社：株式会社ファーストクリエイト）
 名古屋市中村区名駅南1-3-14 石原ビル4F
 rental@space-albe.com
 お問い合わせ：https://space-albe.com/contact/
@@ -115,7 +114,7 @@ https://space-albe.com/`;
 
 const SIGNATURE_HTML = `<hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0">
 <div style="font-family:sans-serif;font-size:12px;color:#6b7280;line-height:1.7">
-<strong>レンタルスペースALBE</strong>（運営会社：株式会社ファーストクリエイト）<br>
+<strong>レンタルスペースアルペ</strong>（運営会社：株式会社ファーストクリエイト）<br>
 名古屋市中村区名駅南1-3-14 石原ビル4F<br>
 <a href="mailto:rental@space-albe.com" style="color:#6b7280">rental@space-albe.com</a><br>
 お問い合わせ：<a href="https://space-albe.com/contact/" style="color:#1d4ed8">https://space-albe.com/contact/</a><br>

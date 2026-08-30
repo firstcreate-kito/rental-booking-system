@@ -257,6 +257,8 @@ export async function deleteEvent(env: GcalEnv, calendarId: string, eventId: str
 export interface CalendarEvent {
   id: string;
   summary?: string;
+  description?: string;
+  creatorEmail?: string; // 作成者（サービスアカウント判定・孤児掃除用）
   start: string; // RFC3339
   end: string;
   created?: string;
@@ -268,6 +270,7 @@ export async function listEvents(
   calendarId: string,
   timeMinISO: string,
   timeMaxISO: string,
+  maxResults?: number,
 ): Promise<CalendarEvent[]> {
   const token = await getAccessToken(env);
   const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`);
@@ -276,13 +279,14 @@ export async function listEvents(
   url.searchParams.set('singleEvents', 'true');
   url.searchParams.set('orderBy', 'startTime');
   url.searchParams.set('showDeleted', 'false');
+  if (maxResults && maxResults > 0) url.searchParams.set('maxResults', String(Math.min(maxResults, 2500)));
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
   const j = (await res.json().catch(() => ({}))) as {
-    items?: Array<{ id: string; status?: string; summary?: string; created?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }>;
+    items?: Array<{ id: string; status?: string; summary?: string; description?: string; creator?: { email?: string }; created?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }>;
     error?: unknown;
   };
   if (!res.ok) throw new Error(`listEvents error: ${res.status} ${JSON.stringify(j.error ?? j)}`);
   return (j.items ?? [])
     .filter((e) => e.status !== 'cancelled' && e.start?.dateTime && e.end?.dateTime)
-    .map((e) => ({ id: e.id, summary: e.summary, start: e.start!.dateTime!, end: e.end!.dateTime!, created: e.created }));
+    .map((e) => ({ id: e.id, summary: e.summary, description: e.description, creatorEmail: e.creator?.email, start: e.start!.dateTime!, end: e.end!.dateTime!, created: e.created }));
 }

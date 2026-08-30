@@ -118,7 +118,7 @@ import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
-import { runBooklyImport, rollbackBooklyImport } from '../lib/bookly-import';
+import { runBooklyImport, rollbackBooklyImport, cleanupOrphanCalendarEvents } from '../lib/bookly-import';
 import { runCustomerLink, unlinkBooklyCustomers } from '../lib/bookly-customer-link';
 import {
   computeGroupSpacePrice,
@@ -263,6 +263,16 @@ app.post('/bookly-import', requireRole('owner', 'manager'), async (c) => {
   };
   const spaceIds = Array.isArray(body.spaceIds) ? body.spaceIds.map(String) : undefined;
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  // 孤児掃除：当システム(SA)作成の予定のうち、管理リンクの予約番号がD1に無い＝親が消えた孤児を掃除
+  if ((body as { orphanCleanup?: unknown }).orphanCleanup === true) {
+    const dryRun = (body as { dryRun?: unknown }).dryRun !== false; // 既定はドライラン（安全側）
+    try {
+      const r = await cleanupOrphanCalendarEvents(c.env, { dryRun, spaceIds });
+      return c.json({ orphanCleanup: true, dryRun, ...r });
+    } catch (err) {
+      return c.json({ error: `孤児掃除失敗: ${(err as Error).message}` }, 500);
+    }
+  }
   // ロールバック（取り消し）：source='bookly' の枠とGoogle予定・記録を削除
   if ((body as { rollback?: unknown }).rollback === true) {
     try {

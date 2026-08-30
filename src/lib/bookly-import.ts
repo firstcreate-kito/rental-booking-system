@@ -20,7 +20,7 @@
 import type { Env } from '../types';
 import type { BookingCalendarData } from '../db/repository';
 import { getSpaceById, getHolidays } from '../db/repository';
-import { gcalConfigured, insertEvent, toJstRfc3339 } from './gcal';
+import { gcalConfigured, insertEvent, toJstRfc3339, listEvents, deleteEvent } from './gcal';
 import { deleteBookingFromCalendar, buildCalendarTitle, buildCalendarDescription } from './gcal-sync';
 import { getDayType } from './calendar';
 import { nowJST, todayYmdJST } from './clock';
@@ -108,7 +108,10 @@ export const BOOKLY_TARGET_SPACES = [
  */
 export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Promise<BooklyImportResult> {
   const db = env.DB;
-  const limit = Math.max(1, Math.min(opts.limit ?? 60, 300));
+  // 1回の処理件数は控えめに上限（各Google予定作成＝1サブリクエスト＋D1書込。Worker実行時間/
+  // サブリクエスト上限に触れて「作成できたのに google_event_id 記録漏れ＝孤児化」するのを防ぐ）。
+  // UI は remaining=0 まで自動ループするため、小さめでも取り込みは完了する。
+  const limit = Math.max(1, Math.min(opts.limit ?? 30, 40));
   const spaceFilter = opts.spaceIds && opts.spaceIds.length > 0 ? new Set(opts.spaceIds) : null;
 
   let slots = loadBooklySlots();
@@ -337,6 +340,82 @@ export async function rollbackBooklyImport(
     ]);
     result.deleted++;
     result.perSpace[g.space_id] = (result.perSpace[g.space_id] ?? 0) + 1;
+  }
+  return result;
+}
+
+export interface OrphanCleanupResult {
+  scanned: number;   // 走査した「当システム(SA)作成」イベント数
+  orphans: number;   // 孤児と判定した数
+  deleted: number;   // 実削除数（dryRun は 0）
+  perSpace: Record<string, number>;
+  samples: Array<{ spaceId: string; bookingNumber: string; summary: string; date: string }>;
+  warnings: string[];
+}
+
+/**
+ * 孤児Google予定の掃除。取り込み等で当システムが作成した予定（作成者＝GOOGLE_SA_EMAIL）のうち、
+ * 説明文の管理リンク（booking=YYYYMMDD-連番）の予約番号が D1(booking_groups) に存在しない
+ * ＝ロールバック等で親レコードが消えたのに残った“孤児”だけを、一覧（dryRun）／削除する。
+ *   - 作成者がSA以外（OTA・旧Bookly＝オーナー作成）の予定は一切触らない（誤削除防止）。
+ *   - 予約番号を特定できない予定も触らない（安全側）。
+ *   - 走査は本日以降のみ（過去は対象外）。
+ */
+export async function cleanupOrphanCalendarEvents(
+  env: Env,
+  opts: { dryRun: boolean; spaceIds?: string[] },
+): Promise<OrphanCleanupResult> {
+  const db = env.DB;
+  const result: OrphanCleanupResult = { scanned: 0, orphans: 0, deleted: 0, perSpace: {}, samples: [], warnings: [] };
+  if (!gcalConfigured(env)) { result.warnings.push('Google連携が未設定のためスキップ'); return result; }
+  const saEmail = (env.GOOGLE_SA_EMAIL ?? '').trim().toLowerCase();
+  if (!saEmail) { result.warnings.push('GOOGLE_SA_EMAIL 未設定のため判定不可（安全のため中止）'); return result; }
+
+  const targets = opts.spaceIds && opts.spaceIds.length > 0
+    ? opts.spaceIds.filter((s) => (BOOKLY_TARGET_SPACES as readonly string[]).includes(s))
+    : [...BOOKLY_TARGET_SPACES];
+
+  const now = Date.now();
+  const timeMin = new Date(now - 24 * 3600 * 1000).toISOString();
+  const timeMax = new Date(now + 400 * 24 * 3600 * 1000).toISOString();
+  const reBooking = /booking=(\d{8}-\d+)/;
+
+  for (const spaceId of targets) {
+    const sp = await getSpaceById(db, spaceId);
+    const calendarId = sp?.google_calendar_id ?? null;
+    if (!calendarId) continue;
+    let events;
+    try {
+      events = await listEvents(env, calendarId, timeMin, timeMax, 2500);
+    } catch (err) {
+      result.warnings.push(`一覧取得失敗 ${spaceId}: ${(err as Error).message}`);
+      continue;
+    }
+    for (const ev of events) {
+      if ((ev.creatorEmail ?? '').trim().toLowerCase() !== saEmail) continue; // 当システム(SA)作成のみ
+      result.scanned++;
+      const m = (ev.description ?? '').match(reBooking);
+      if (!m) continue; // 予約番号を特定できない＝触らない
+      const bookingNumber = m[1];
+      const row = await db
+        .prepare(`SELECT 1 AS ok FROM booking_groups WHERE booking_number = ? LIMIT 1`)
+        .bind(bookingNumber)
+        .first<{ ok: number }>();
+      if (row) continue; // D1に存在＝稼働中。保持
+      result.orphans++;
+      result.perSpace[spaceId] = (result.perSpace[spaceId] ?? 0) + 1;
+      if (result.samples.length < 20) {
+        result.samples.push({ spaceId, bookingNumber, summary: ev.summary ?? '', date: (ev.start ?? '').slice(0, 10) });
+      }
+      if (!opts.dryRun) {
+        try {
+          await deleteEvent(env, calendarId, ev.id);
+          result.deleted++;
+        } catch (err) {
+          result.warnings.push(`削除失敗 ${spaceId} ${bookingNumber}: ${(err as Error).message}`);
+        }
+      }
+    }
   }
   return result;
 }

@@ -541,8 +541,11 @@
         <button class="btn ghost sm" onclick="booklyPreview()">① プレビュー（試算のみ）</button>
         <button class="btn sm" id="blRunBtn" onclick="booklyRun()" disabled>② 取り込み実行</button>
         <button class="btn danger sm" onclick="booklyRollback()">取り消し（ロールバック）</button>
+        <button class="btn ghost sm" onclick="booklyOrphanScan()">孤児の確認（ドライラン）</button>
+        <button class="btn danger sm" onclick="booklyOrphanClean()">孤児を削除</button>
       </div>
       <div class="muted" style="font-size:12px;margin-top:4px">「取り消し」は選択スペースの取り込み枠（source=bookly）とそのGoogle予定・記録を削除します（何度でも再取り込み可）。全スペース選択時は全件が対象です。</div>
+      <div class="muted" style="font-size:12px;margin-top:2px">「孤児の確認/削除」は、当システム（サービスアカウント）が作成したGoogle予定のうち<b>管理リンクの予約番号がシステムに存在しない“孤児”</b>だけを対象にします（OTA・旧Bookly・稼働中の予約は対象外＝誤削除しません）。まず「確認（ドライラン）」で件数を見てから「削除」してください。</div>
       <div id="blProgress" class="muted" style="margin-top:8px"></div>
       <div class="tablewrap" style="margin-top:8px">
         <table class="resp"><thead><tr><th>スペース</th><th>未取り込み</th><th>今回取込</th></tr></thead><tbody id="blBody"></tbody></table>
@@ -2127,6 +2130,42 @@ async function booklyRollback() {
     + (body.warnings && body.warnings.length ? ' 警告 ' + body.warnings.length + ' 件（詳細はログ）。' : '');
   if (body.warnings && body.warnings.length) console.warn('bookly-rollback warnings:', body.warnings);
   await booklyPreview();
+}
+function orphanSummary(body) {
+  let t = '走査(SA作成) ' + body.scanned + ' 件 / 孤児 ' + body.orphans + ' 件';
+  if (body.deleted) t += ' / 削除 ' + body.deleted + ' 件';
+  const per = body.perSpace ? Object.entries(body.perSpace).map(function (e) { return e[0] + ':' + e[1]; }).join(', ') : '';
+  if (per) t += '（' + per + '）';
+  if (body.samples && body.samples.length) {
+    t += '\n例: ' + body.samples.slice(0, 10).map(function (s) { return s.spaceId + ' ' + s.date + ' ' + s.bookingNumber + ' ' + (s.summary || ''); }).join(' / ');
+  }
+  if (body.warnings && body.warnings.length) t += '\n警告 ' + body.warnings.length + ' 件（詳細はログ）';
+  return t;
+}
+async function booklyOrphanScan() {
+  const scope = document.getElementById('blSpace').value || '全スペース';
+  const msg = document.getElementById('blMsg');
+  const prog = document.getElementById('blProgress');
+  msg.className = 'msg'; msg.textContent = ''; prog.textContent = '孤児を確認中（ドライラン）…';
+  const { ok, body } = await api('/api/admin/bookly-import', jsonBody({ ...booklyBody(), orphanCleanup: true, dryRun: true }));
+  if (!ok) { prog.textContent = ''; msg.className = 'msg bad'; msg.textContent = (body && body.error) || '確認に失敗しました'; return; }
+  prog.textContent = '';
+  msg.className = body.orphans ? 'msg' : 'msg ok';
+  msg.textContent = '【ドライラン・未削除】' + orphanSummary(body);
+  if (body.warnings && body.warnings.length) console.warn('orphan-scan warnings:', body.warnings);
+}
+async function booklyOrphanClean() {
+  const scope = document.getElementById('blSpace').value || '全スペース';
+  if (!confirm('「' + scope + '」で、当システム作成の孤児Google予定（管理リンクの予約番号がシステムに無いもの）を削除します。\nOTA・旧Bookly・稼働中の予約は対象外です。\nまずドライランで件数を確認済みですか？ 実行しますか？')) return;
+  const msg = document.getElementById('blMsg');
+  const prog = document.getElementById('blProgress');
+  msg.className = 'msg'; msg.textContent = ''; prog.textContent = '孤児を削除中…';
+  const { ok, body } = await api('/api/admin/bookly-import', jsonBody({ ...booklyBody(), orphanCleanup: true, dryRun: false }));
+  if (!ok) { prog.textContent = ''; msg.className = 'msg bad'; msg.textContent = (body && body.error) || '削除に失敗しました'; return; }
+  prog.textContent = '';
+  msg.className = 'msg ok';
+  msg.textContent = '孤児削除 完了：' + orphanSummary(body);
+  if (body.warnings && body.warnings.length) console.warn('orphan-clean warnings:', body.warnings);
 }
 // --- 移行顧客の会員化・案内（案A） ---
 function blcRender(b) {

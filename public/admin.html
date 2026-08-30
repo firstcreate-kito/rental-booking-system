@@ -67,6 +67,13 @@
     /* 横スクロールする表はスワイプで見えるよう最低限の高さ確保（つぶれ防止） */
     .tablewrap { -webkit-overflow-scrolling: touch; }
   }
+  /* 顧客・特典：選択した顧客行の直下に展開する操作パネルの行 */
+  tr.cs-detail-row > td { padding:0; background:#fafbff; }
+  @media (max-width: 640px) {
+    table.resp tr.cs-detail-row { display:block; border:none; padding:0; margin:0 0 12px; background:transparent; }
+    table.resp tr.cs-detail-row td { display:block; padding:0; text-align:left; }
+    table.resp tr.cs-detail-row td::before { content:""; display:none; }
+  }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
   .pill.confirmed { background:#dcfce7; color:#166534; }
   .pill.tentative { background:#fef3c7; color:#92400e; }
@@ -877,7 +884,7 @@
       <div id="csDetail" class="card hidden" style="margin-top:16px;background:#fafbff">
         <div class="row" style="justify-content:space-between">
           <h2 id="csName" style="margin:0"></h2>
-          <button class="btn ghost sm" onclick="document.getElementById('csDetail').classList.add('hidden')">閉じる</button>
+          <button class="btn ghost sm" onclick="closeCustomerDetail()">閉じる</button>
         </div>
         <div class="muted" id="csInfo"></div>
 
@@ -1649,8 +1656,10 @@ async function searchCustomers() {
   const { body } = await api('/api/admin/customers?q=' + encodeURIComponent(q));
   const rows = body.customers || [];
   document.getElementById('csEmpty').textContent = rows.length ? '' : '該当する顧客がいません';
+  // 一覧を作り直す前に操作パネルをセクション直下へ退避（innerHTML更新で消えるのを防ぐ）
+  { const sec = document.getElementById('csBody').closest('section'); const d = document.getElementById('csDetail'); d.classList.add('hidden'); sec.appendChild(d); }
   document.getElementById('csBody').innerHTML = rows.map(c =>
-    '<tr><td>' + (c.contact_name||'') + (c.is_blocked ? ' <span class="pill bad" style="font-size:11px">ブラックリスト</span>' : '') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
+    '<tr data-cust="' + c.id + '"><td>' + (c.contact_name||'') + (c.is_blocked ? ' <span class="pill bad" style="font-size:11px">ブラックリスト</span>' : '') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
     (c.is_registered ? '会員' : 'ゲスト') + '</td><td><button class="btn ghost sm" onclick="selectCustomer(\'' + c.id + '\')">特典操作</button></td></tr>').join('');
 }
 function toggleNewCustomer(show) {
@@ -1703,7 +1712,31 @@ async function selectCustomer(id) {
   // チケット手動発行の有効終了日は既定で1年後を入れておく
   const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1);
   document.getElementById('tk_until').value = oneYear.toISOString().slice(0, 10);
-  document.getElementById('csDetail').classList.remove('hidden');
+  // 操作パネルを「クリックした顧客行の直下」に展開する（最下部ではなく該当行の下）
+  const detail = document.getElementById('csDetail');
+  const sec = document.getElementById('csBody').closest('section');
+  sec.appendChild(detail); // まず旧位置（前回の展開行など）から切り離す
+  document.querySelectorAll('#csBody tr.cs-detail-row').forEach(r => r.remove());
+  const rowEl = document.querySelector('#csBody tr[data-cust="' + id + '"]');
+  if (rowEl) {
+    const holder = document.createElement('tr');
+    holder.className = 'cs-detail-row';
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    holder.appendChild(td);
+    rowEl.parentNode.insertBefore(holder, rowEl.nextSibling);
+    td.appendChild(detail);
+  }
+  detail.classList.remove('hidden');
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+// 操作パネルを閉じる：非表示にしてセクション直下へ退避し、展開行を除去する
+function closeCustomerDetail() {
+  const detail = document.getElementById('csDetail');
+  detail.classList.add('hidden');
+  const sec = document.getElementById('csBody').closest('section');
+  sec.appendChild(detail);
+  document.querySelectorAll('#csBody tr.cs-detail-row').forEach(r => r.remove());
 }
 async function toggleBlocked() {
   const cb = document.getElementById('cs_blocked');

@@ -28,10 +28,16 @@
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
   th { color:var(--muted); font-weight:600; font-size:12px; }
-  .tablewrap { overflow-x:auto; }
+  .tablewrap { overflow-x:auto; position:relative; }
   /* 操作ボタン列（予約一覧など）は1行に詰め込まず折り返して、右側が見切れないようにする（2段OK） */
   td.act { white-space:normal; }
   td.act .btn { display:inline-flex; margin:2px 4px 2px 0; }
+  /* 移行データで表が横に長くなっても操作ボタンが右へ見切れないよう、操作列を右端に固定する（PC幅のみ）。 */
+  @media (min-width: 641px) {
+    table.resp th:last-child, table.resp td.act { position:sticky; right:0; z-index:1; }
+    table.resp th:last-child { background:#fff; }
+    table.resp td.act { background:#fff; box-shadow:-8px 0 8px -8px rgba(0,0,0,.18); min-width:220px; }
+  }
   /* スマホでは横に長い表を「1件＝1カード」の縦組みに切り替える（table.resp のみ対象） */
   @media (max-width: 640px) {
     .tabs { flex-wrap:wrap; }

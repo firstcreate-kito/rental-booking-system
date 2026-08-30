@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gcalConfigured, toJstRfc3339, rangesOverlap, conflictsWithBusy, rfc3339ToJst, busyToDayInterval } from '../src/lib/gcal';
+import { gcalConfigured, toJstRfc3339, rangesOverlap, conflictsWithBusy, rfc3339ToJst, busyToDayInterval, calendarWritesSuppressed } from '../src/lib/gcal';
 
 describe('gcal - 設定判定', () => {
   it('両方セットで有効', () => {
@@ -9,6 +9,20 @@ describe('gcal - 設定判定', () => {
     expect(gcalConfigured({ GOOGLE_SA_EMAIL: 'a@b' })).toBe(false);
     expect(gcalConfigured({ GOOGLE_SA_PRIVATE_KEY: 'k' })).toBe(false);
     expect(gcalConfigured({})).toBe(false);
+  });
+});
+
+describe('gcal - ステージング書き込み抑止', () => {
+  it('staging は既定で書き込み抑止（本番カレンダー汚染防止）', () => {
+    expect(calendarWritesSuppressed({ APP_ENV: 'staging' })).toBe(true);
+  });
+  it('staging でも STAGING_ALLOW_CALENDAR=true なら書き込み許可', () => {
+    expect(calendarWritesSuppressed({ APP_ENV: 'staging', STAGING_ALLOW_CALENDAR: 'true' })).toBe(false);
+  });
+  it('production / development は抑止しない', () => {
+    expect(calendarWritesSuppressed({ APP_ENV: 'production' })).toBe(false);
+    expect(calendarWritesSuppressed({ APP_ENV: 'development' })).toBe(false);
+    expect(calendarWritesSuppressed({})).toBe(false);
   });
 });
 

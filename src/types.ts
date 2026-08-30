@@ -17,6 +17,12 @@ export interface Env {
   MAIL_FROM?: string;
   /** ステージングでも実メールを送りたいときだけ 'true'。既定（未設定）は送らない（安全装置）。 */
   STAGING_ALLOW_EMAIL?: string;
+  /**
+   * ステージングでも実カレンダーへ書き込みたいときだけ 'true'。既定（未設定）は書き込まない（安全装置）。
+   * ステージングは本番と同じ実カレンダーIDを参照するため、既定では insert/patch/delete を抑止して
+   * 本番カレンダーの汚染（孤児予定・二重表示）を防ぐ。空き照会（freeBusy/listEvents=読み取り）は常に有効。
+   */
+  STAGING_ALLOW_CALENDAR?: string;
   /** 新規予約の通知先（管理者メール）。未設定なら管理者通知は送らない */
   MAIL_ADMIN?: string;
   /** 返信先（任意）。送信元を noreply@… にする場合に、返信先を実在の受信箱へ向ける */

@@ -14,12 +14,29 @@
 export interface GcalEnv {
   GOOGLE_SA_EMAIL?: string;
   GOOGLE_SA_PRIVATE_KEY?: string;
+  /** 実行環境（development / staging / production）。書き込み抑止判定に使う */
+  APP_ENV?: string;
+  /** ステージングでも実カレンダーへ書き込むときだけ 'true'（既定は抑止） */
+  STAGING_ALLOW_CALENDAR?: string;
 }
 
 /** 連携が設定済みか（両方セット時のみ有効） */
 export function gcalConfigured(env: GcalEnv): boolean {
   return !!(env.GOOGLE_SA_EMAIL && env.GOOGLE_SA_PRIVATE_KEY);
 }
+
+/**
+ * カレンダー「書き込み」（insert/patch/delete）を抑止すべきか。
+ * ステージングは本番と同じ実カレンダーIDを参照するため、既定で書き込みを止めて
+ * 本番カレンダーの汚染（孤児予定・二重表示）を防ぐ。STAGING_ALLOW_CALENDAR='true' で解除。
+ * 読み取り（freeBusy/listEvents）は抑止しない（空き照会は本番と同じ挙動が必要）。
+ */
+export function calendarWritesSuppressed(env: GcalEnv): boolean {
+  return (env.APP_ENV ?? '').trim() === 'staging' && env.STAGING_ALLOW_CALENDAR !== 'true';
+}
+
+/** ステージング抑止時に insertEvent が返すダミーID（本物のGoogle IDと区別できる接頭辞） */
+export const SUPPRESSED_EVENT_ID = 'staging-suppressed';
 
 export interface BusyInterval {
   start: string; // RFC3339
@@ -184,6 +201,8 @@ export async function insertEvent(
   calendarId: string,
   ev: CalendarEventInput,
 ): Promise<CalendarEventResult> {
+  // ステージングは実カレンダーを汚染しないよう書き込みを抑止（ダミーIDを返して呼び出し側は継続）
+  if (calendarWritesSuppressed(env)) return { id: SUPPRESSED_EVENT_ID };
   const token = await getAccessToken(env);
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -210,6 +229,7 @@ export async function patchEventSummary(
   eventId: string,
   summary: string,
 ): Promise<void> {
+  if (calendarWritesSuppressed(env)) return;
   const token = await getAccessToken(env);
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
@@ -229,6 +249,7 @@ export async function patchEventContent(
   eventId: string,
   fields: { summary: string; description: string },
 ): Promise<void> {
+  if (calendarWritesSuppressed(env)) return;
   const token = await getAccessToken(env);
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
@@ -243,6 +264,8 @@ export async function patchEventContent(
 
 /** イベントを削除（ロールバック・キャンセル用） */
 export async function deleteEvent(env: GcalEnv, calendarId: string, eventId: string): Promise<void> {
+  // ステージング抑止時は実カレンダーに触れない（ダミーID/実カレンダーの誤削除防止）
+  if (calendarWritesSuppressed(env)) return;
   const token = await getAccessToken(env);
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,

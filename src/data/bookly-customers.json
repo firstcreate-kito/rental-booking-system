@@ -1,9 +1,9 @@
 {
   "meta": {
-    "generatedAt": "2026-08-30T06:37:10.499Z",
+    "generatedAt": "2026-08-30T08:30:57.402Z",
     "cutoff": "2026-08-30",
-    "inScopeEmails": 52,
-    "rosterSize": 52,
+    "inScopeEmails": 53,
+    "rosterSize": 53,
     "missingInCsv": []
   },
   "customers": [
@@ -76,6 +76,11 @@
       "email": "carillon-jun@outlook.jp",
       "contactName": "ほんだ じゅんこ",
       "phone": "+819018319480"
+    },
+    {
+      "email": "carpediemnagoya@pure-brides.com",
+      "contactName": "加藤 勉",
+      "phone": "+810526845478"
     },
     {
       "email": "firko.keiko@gmail.com",

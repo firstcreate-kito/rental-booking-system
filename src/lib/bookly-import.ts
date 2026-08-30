@@ -90,7 +90,7 @@ export function billableHours(min: number): number {
   return Math.max(1, Math.round((Number(min) || 0) / 60));
 }
 
-/** 取り込み対象の8スペース（新システムに登録済み＝現在Booklyを使っている施設） */
+/** 取り込み対象スペース（新システムに登録済み＝Booklyで予約を受けていた施設） */
 export const BOOKLY_TARGET_SPACES = [
   'albe-hall-nagoya',
   'meieki-exercise',
@@ -100,6 +100,9 @@ export const BOOKLY_TARGET_SPACES = [
   'meieki-piano-a',
   'meieki-piano-b',
   'kitaokazaki-warehouse',
+  // 追加移行（当初は対象外にしていたが Bookly で予約を受けていた）。本番D1の実スペースID。
+  '0ccfadae-4f59-427d-b5b6-4bdfd3fcd470', // 栄チャペルスペース
+  '6962febb-0538-4b8c-b04c-7e93285e4386', // 栄神殿スペース
 ] as const;
 
 /**

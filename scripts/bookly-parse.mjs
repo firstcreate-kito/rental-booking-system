@@ -31,6 +31,10 @@ const STAFF_MAP = [
   [/^名駅防音室A/, 'meieki-piano-a'],
   [/^名駅防音室B/, 'meieki-piano-b'],
   [/^北岡崎倉庫スペース/, 'kitaokazaki-warehouse'],
+  // 追加移行（当初は対象外にしていたが Bookly で予約を受けていたため取り込む）。
+  // spaceId は本番D1の実スペースID（/api/spaces で確認済み）。
+  [/^栄チャペルスペース/, '0ccfadae-4f59-427d-b5b6-4bdfd3fcd470'],
+  [/^栄神殿スペース/, '6962febb-0538-4b8c-b04c-7e93285e4386'],
 ];
 
 function mapSpace(staff) {

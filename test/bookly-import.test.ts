@@ -20,7 +20,7 @@ describe('bookly-slots.json（取り込みデータの健全性）', () => {
     expect(slots.length).toBeGreaterThan(0);
   });
 
-  it('全スロットが対象8スペースのいずれか', () => {
+  it('全スロットが取り込み対象スペースのいずれか', () => {
     const bad = slots.filter((s) => !target.has(s.spaceId));
     expect(bad.map((b) => b.spaceId)).toEqual([]);
   });

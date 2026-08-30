@@ -1,9 +1,9 @@
 // @ts-nocheck 実SQLエンジン（node:sqlite）で本番の runBooklyImport→runCustomerLink を動かす検証。
 // 本プロジェクトは types:["@cloudflare/workers-types"] で node 型を持たないため当ファイルのみ型チェック対象外。
 /**
- * 移行顧客の会員化＋紐付け（案A）の実証。
- *   1) 全308枠を取り込む（gcal鍵なし＝Google連携は自動でスキップ、D1のみ）
- *   2) 会員化＋紐付けを実行 → 45人作成・143グループに customer_id 付与
+ * 移行顧客の会員化＋紐付け（案A）の実証。件数は同梱データから動的に算出（データ再生成でも壊れない）。
+ *   1) 全枠を取り込む（gcal鍵なし＝Google連携は自動でスキップ、D1のみ）
+ *   2) 会員化＋紐付けを実行 → ロースター人数を作成・顧客/チケット枠に customer_id 付与
  *   3) 冪等（再実行で作成0・紐付け0）
  *   4) 紐付け取り消し（unlink）で customer_id が外れ、会員は残る
  * これによりマイページで移行予約が見える＝案Aが成立することを担保する。
@@ -41,7 +41,16 @@ class D1 {
 }
 
 let db, env;
-const EXPECT_CUSTOMERS = loadBooklyCustomers().length; // 45
+// 期待値は同梱データから動的に算出（データ再生成でも壊れない）。
+const EXPECT_CUSTOMERS = loadBooklyCustomers().length; // ロースター人数（例:52）
+const _slotsData = createRequire(import.meta.url)('../src/data/bookly-slots.json');
+const _allSlots = _slotsData.slots || _slotsData;
+const _roster = new Set(loadBooklyCustomers().map((c) => String(c.email || '').toLowerCase()));
+const EXPECT_TOTAL = _allSlots.length; // 取り込み総枠数（例:325）
+// 会員化で customer_id が付くグループ＝顧客/チケット枠のうちロースターにメール一致するもの（例:158）
+const EXPECT_GROUPS_LINKED = _allSlots.filter(
+  (s) => (s.category === 'customer' || s.category === 'customer_ticket') && s.email && _roster.has(String(s.email).toLowerCase()),
+).length;
 
 if (sqliteOk) beforeAll(async () => {
   db = new D1();
@@ -70,39 +79,39 @@ if (sqliteOk) beforeAll(async () => {
     total += r.processed;
     if (r.remaining <= 0) break;
   }
-  expect(total).toBe(308);
+  expect(total).toBe(EXPECT_TOTAL);
 });
 
 const cnt = (sql) => db.db.prepare(sql).get().c;
 
 d('移行顧客の会員化＋紐付け（案A）', () => {
-  it('プレビュー（ドライラン）：45人・143グループが対象と分かる（書き込まない）', async () => {
+  it('プレビュー（ドライラン）：ロースター人数・対象グループが分かる（書き込まない）', async () => {
     const before = cnt(`SELECT COUNT(*) c FROM customers`);
     const p = await runCustomerLink(env, { dryRun: true });
     console.log('[preview]', JSON.stringify({ roster: p.rosterSize, create: p.customersCreated, link: p.groupsLinked }));
     expect(p.rosterSize).toBe(EXPECT_CUSTOMERS);
     expect(p.customersCreated).toBe(EXPECT_CUSTOMERS);
-    expect(p.groupsLinked).toBe(143);
+    expect(p.groupsLinked).toBe(EXPECT_GROUPS_LINKED);
     expect(cnt(`SELECT COUNT(*) c FROM customers`)).toBe(before); // 未書き込み
   });
 
-  it('本実行：45人を会員化し、143の移行グループに customer_id を付与', async () => {
+  it('本実行：会員化し、移行グループに customer_id を付与', async () => {
     const r = await runCustomerLink(env, { dryRun: false });
     console.log('[link]', JSON.stringify({ created: r.customersCreated, linked: r.groupsLinked }));
     expect(r.customersCreated).toBe(EXPECT_CUSTOMERS);
-    expect(r.groupsLinked).toBe(143);
+    expect(r.groupsLinked).toBe(EXPECT_GROUPS_LINKED);
     expect(cnt(`SELECT COUNT(*) c FROM customers`)).toBe(EXPECT_CUSTOMERS);
-    expect(cnt(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly' AND customer_id IS NOT NULL`)).toBe(143);
+    expect(cnt(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly' AND customer_id IS NOT NULL`)).toBe(EXPECT_GROUPS_LINKED);
     // ブロック等（顧客不在）には customer_id が付かない
-    expect(cnt(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly' AND customer_id IS NULL`)).toBe(308 - 143);
+    expect(cnt(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly' AND customer_id IS NULL`)).toBe(EXPECT_TOTAL - EXPECT_GROUPS_LINKED);
   });
 
-  it('冪等：再実行しても新規作成0・紐付け0（既存45・紐付済143）', async () => {
+  it('冪等：再実行しても新規作成0・紐付け0（既存・紐付済は維持）', async () => {
     const r = await runCustomerLink(env, { dryRun: false });
     expect(r.customersCreated).toBe(0);
     expect(r.customersExisting).toBe(EXPECT_CUSTOMERS);
     expect(r.groupsLinked).toBe(0);
-    expect(r.groupsAlreadyLinked).toBe(143);
+    expect(r.groupsAlreadyLinked).toBe(EXPECT_GROUPS_LINKED);
   });
 
   it('移行予約は自動処理の対象外（ポイント付与・お礼・リマインダー・未入金の印が入っている）', () => {
@@ -110,7 +119,7 @@ d('移行顧客の会員化＋紐付け（案A）', () => {
       AND points_awarded_at IS NOT NULL AND thanks_sent_at IS NOT NULL
       AND reminder_3d_sent_at IS NOT NULL AND reminder_1d_sent_at IS NOT NULL AND unpaid_reminder_sent_at IS NOT NULL`).get().c;
     const total = db.db.prepare(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly'`).get().c;
-    expect(n).toBe(total); // 全308枠が cron 対象外
+    expect(n).toBe(total); // 全枠が cron 対象外
   });
 
   it('紐付けした会員はメールでログイン可能な形（is_registered=1・パスワードなし）', () => {
@@ -120,7 +129,7 @@ d('移行顧客の会員化＋紐付け（案A）', () => {
 
   it('unlink：紐付けだけ外れて会員は残る（再取り込みや作り直しに使える）', async () => {
     const u = await unlinkBooklyCustomers(env);
-    expect(u.groupsUnlinked).toBe(143);
+    expect(u.groupsUnlinked).toBe(EXPECT_GROUPS_LINKED);
     expect(cnt(`SELECT COUNT(*) c FROM booking_groups WHERE source='bookly' AND customer_id IS NOT NULL`)).toBe(0);
     expect(cnt(`SELECT COUNT(*) c FROM customers`)).toBe(EXPECT_CUSTOMERS); // 会員は残る
   });

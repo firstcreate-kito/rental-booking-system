@@ -1,9 +1,9 @@
 {
   "meta": {
-    "generatedAt": "2026-08-28T09:57:50.261Z",
+    "generatedAt": "2026-08-30T01:53:20.023Z",
     "cutoff": "2026-08-30",
-    "inScopeEmails": 45,
-    "rosterSize": 45,
+    "inScopeEmails": 52,
+    "rosterSize": 52,
     "missingInCsv": []
   },
   "customers": [
@@ -108,6 +108,16 @@
       "phone": "+819017482556"
     },
     {
+      "email": "hiro.orih0526@gmail.com",
+      "contactName": "猿渡 宏子",
+      "phone": "+819060208083"
+    },
+    {
+      "email": "i.ibusuki@gmail.com",
+      "contactName": "指宿 生",
+      "phone": "+818062035465"
+    },
+    {
       "email": "kaho.anmp12711@gmail.com",
       "contactName": "一柳　 佳歩",
       "phone": "+819063677064"
@@ -158,9 +168,24 @@
       "phone": "+819099355005"
     },
     {
+      "email": "matuda@mcpao.com",
+      "contactName": "松田 茂樹",
+      "phone": "+819083378859"
+    },
+    {
+      "email": "miiitaaanaaa@gmail.com",
+      "contactName": "金栗 駿介",
+      "phone": "+818069236478"
+    },
+    {
       "email": "mikaling1107@yahoo.co.jp",
       "contactName": "森　 美香",
       "phone": "+819060901180"
+    },
+    {
+      "email": "mt100ht-k@docomo.ne.jp",
+      "contactName": "日野 共絵",
+      "phone": "+819088631664"
     },
     {
       "email": "oohara@telepack.co.jp",
@@ -171,6 +196,11 @@
       "email": "piatoto4568@gmail.com",
       "contactName": "鷹取 智萌香",
       "phone": "+819049315594"
+    },
+    {
+      "email": "pressike88@yahoo.co.jp",
+      "contactName": "池井戸 聰",
+      "phone": "+819022324490"
     },
     {
       "email": "reiduval@gmail.com",
@@ -191,6 +221,11 @@
       "email": "saki.hosoda27@gmail.com",
       "contactName": "細田 紗希",
       "phone": "+818052941862"
+    },
+    {
+      "email": "shichiai@gmail.com",
+      "contactName": "志知 愛",
+      "phone": "+819048644646"
     },
     {
       "email": "snipehead2005@yahoo.co.jp",

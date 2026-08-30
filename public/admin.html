@@ -2181,7 +2181,7 @@ function blcRender(b) {
     ['うち回数券も持つ（2軸）', b.customersWithPendingTickets],
   ];
   if (typeof b.ticketsGranted === 'number' && !b.dryRun) rows.push(['今回付与した回数券', b.ticketsGranted]);
-  tb.innerHTML = rows.map(r => '<tr><td data-label="項目">' + esc(r[0]) + '</td><td data-label="件数"><b>' + r[1] + '</b></td></tr>').join('');
+  tb.innerHTML = rows.map(r => '<tr><td data-label="項目">' + r[0] + '</td><td data-label="件数"><b>' + r[1] + '</b></td></tr>').join('');
 }
 async function blcPreview() {
   const msg = document.getElementById('blcMsg'); msg.className = 'msg'; msg.textContent = '試算中…';

@@ -98,6 +98,28 @@ export async function runCustomerLink(env: Env, opts: { dryRun: boolean }): Prom
   const emailToGroups = await buildEmailToGroups(env);
   const pendingTickets = await pendingTicketEmails(env);
 
+  // 本番D1の逐次往復（会員数×予約数の SELECT）で Worker 実行上限に触れないよう、事前に一括ロードする。
+  // ① ロースターのメールに一致する既存会員を IN 句でまとめて取得
+  const rosterEmails = [...new Set(roster.map((c) => norm(c.email)).filter(Boolean))];
+  const existingByEmail = new Map<string, { id: string; contact_name: string | null; phone: string | null }>();
+  for (let i = 0; i < rosterEmails.length; i += 100) {
+    const batch = rosterEmails.slice(i, i + 100);
+    const ph = batch.map(() => '?').join(',');
+    const { results } = await db
+      .prepare(`SELECT id, email, contact_name, phone FROM customers WHERE email IN (${ph})`)
+      .bind(...batch)
+      .all<{ id: string; email: string; contact_name: string | null; phone: string | null }>();
+    for (const r of results ?? []) existingByEmail.set(norm(r.email), { id: r.id, contact_name: r.contact_name, phone: r.phone });
+  }
+  // ② 移行グループ（source='bookly'）の id→customer_id を一括取得
+  const booklyGroupCustomer = new Map<string, string | null>();
+  {
+    const { results } = await db
+      .prepare("SELECT id, customer_id FROM booking_groups WHERE source = 'bookly'")
+      .all<{ id: string; customer_id: string | null }>();
+    for (const r of results ?? []) booklyGroupCustomer.set(r.id, r.customer_id);
+  }
+
   const result: CustomerLinkResult = {
     dryRun: opts.dryRun,
     rosterSize: roster.length,
@@ -121,11 +143,8 @@ export async function runCustomerLink(env: Env, opts: { dryRun: boolean }): Prom
       continue;
     }
 
-    // 会員をメールでupsert（パスワードなし＝マジックリンクでログイン可）
-    const existing = await db
-      .prepare('SELECT id, contact_name, phone FROM customers WHERE email = ?')
-      .bind(email)
-      .first<{ id: string; contact_name: string | null; phone: string | null }>();
+    // 会員をメールでupsert（パスワードなし＝マジックリンクでログイン可）。事前ロードから引く。
+    const existing = existingByEmail.get(email);
 
     let customerId: string;
     if (existing) {
@@ -155,19 +174,16 @@ export async function runCustomerLink(env: Env, opts: { dryRun: boolean }): Prom
       }
     }
 
-    // 移行グループに customer_id を付与（source='bookly' かつ 未紐付けのみ）
+    // 移行グループに customer_id を付与（source='bookly' かつ 未紐付けのみ）。事前ロードから引く。
     for (const gid of groupIds) {
-      const g = await db
-        .prepare("SELECT customer_id, source FROM booking_groups WHERE id = ?")
-        .bind(gid)
-        .first<{ customer_id: string | null; source: string | null }>();
-      if (!g || g.source !== 'bookly') continue;
-      if (g.customer_id) { result.groupsAlreadyLinked++; continue; }
+      if (!booklyGroupCustomer.has(gid)) continue; // source!='bookly' 等は対象外
+      if (booklyGroupCustomer.get(gid)) { result.groupsAlreadyLinked++; continue; }
       if (!opts.dryRun) {
         await db
           .prepare("UPDATE booking_groups SET customer_id = ? WHERE id = ? AND source = 'bookly' AND customer_id IS NULL")
           .bind(customerId, gid)
           .run();
+        booklyGroupCustomer.set(gid, customerId); // 以降の重複カウント防止
       }
       result.groupsLinked++;
     }

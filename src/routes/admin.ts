@@ -113,7 +113,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
@@ -338,6 +338,57 @@ app.post('/bookly-customers', requireRole('owner', 'manager'), async (c) => {
       const outcomes = await Promise.allSettled(
         recipients.map(([email, v]) =>
           sendEmail(c.env, { to: email, ...booklyMigrationNoticeEmail({ customerName: v.name, bookings: v.bookings, mypageUrl, contactUrl }) }),
+        ),
+      );
+      const sent = outcomes.filter((o) => o.status === 'fulfilled').length;
+      return c.json({ action, dryRun: false, recipients: recipients.length, sent, failed: outcomes.length - sent });
+    }
+    if (action === 'notify-tickets') {
+      // 回数券だけをお持ちで「今後の予約が無い」お客様（＝予約案内メールの宛先外）向けの専用案内。
+      // 対象＝未claim（claimed_at IS NULL）の pending_tickets。予約もある2軸のお客様は会員化時に
+      // 既に付与済み（claimed_at 設定済み）で除外され、予約案内メール側でカバーされる。
+      const send = body.confirm === true;
+      const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+      const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) || 'https://space-albe.com/contact/';
+      const mypageUrl = `${origin}/mypage.html`;
+      const scopeLabel: Record<string, string> = { ab: '名駅防音室A・B', higashibetsuin: '東別院グランドピアノ練習室' };
+      let rows: Array<{ email: string; name: string | null; scope: string; remaining_hours: number; valid_until: string }> = [];
+      try {
+        const q = await c.env.DB.prepare(
+          `SELECT email, name, scope, remaining_hours, valid_until
+             FROM pending_tickets
+            WHERE claimed_at IS NULL AND remaining_hours > 0
+            ORDER BY email, scope`,
+        ).all<{ email: string; name: string | null; scope: string; remaining_hours: number; valid_until: string }>();
+        rows = q.results ?? [];
+      } catch {
+        return c.json({ action, error: 'pending_tickets テーブルがありません（チケット移行#82が未適用）' }, 400);
+      }
+      const byEmail = new Map<string, { name: string; tickets: Array<{ label: string; remainingHours: number; validUntil: string }> }>();
+      for (const r of rows) {
+        const email = String(r.email ?? '').trim();
+        if (!email) continue;
+        if (!byEmail.has(email)) byEmail.set(email, { name: r.name || 'お客様', tickets: [] });
+        const entry = byEmail.get(email)!;
+        const label = scopeLabel[r.scope] ?? r.scope;
+        const existing = entry.tickets.find((t) => t.label === label);
+        if (existing) {
+          existing.remainingHours += r.remaining_hours;
+          if (r.valid_until < existing.validUntil) existing.validUntil = r.valid_until;
+        } else {
+          entry.tickets.push({ label, remainingHours: r.remaining_hours, validUntil: r.valid_until });
+        }
+      }
+      const recipients = [...byEmail.entries()];
+      if (!send) {
+        return c.json({
+          action, dryRun: true, recipients: recipients.length,
+          sample: recipients.slice(0, 5).map(([email, v]) => ({ email, name: v.name, tickets: v.tickets.length })),
+        });
+      }
+      const outcomes = await Promise.allSettled(
+        recipients.map(([email, v]) =>
+          sendEmail(c.env, { to: email, ...booklyTicketMigrationNoticeEmail({ customerName: v.name, tickets: v.tickets, mypageUrl, contactUrl }) }),
         ),
       );
       const sent = outcomes.filter((o) => o.status === 'fulfilled').length;

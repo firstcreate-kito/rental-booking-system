@@ -1026,6 +1026,58 @@ ${d.mypageUrl}
   return withSignature({ subject, html, text });
 }
 
+/**
+ * 回数券（残り時間）移行のご案内 #82。
+ * 旧Booklyで回数券をお持ちだが「今後のご予約が無い（＝予約移行の案内対象外）」お客様向け。
+ * マイページに初回ログインすると残り時間が自動で引き継がれる（claimPendingTicketsForCustomer）。
+ */
+export function booklyTicketMigrationNoticeEmail(d: {
+  customerName: string;
+  tickets: Array<{ label: string; remainingHours: number; validUntil: string }>;
+  mypageUrl: string;
+  contactUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = '【レンタルスペースALBE】回数券（残り時間）の引き継ぎのご案内';
+  const name = d.customerName && d.customerName.trim() ? d.customerName : 'お客様';
+  const listText = d.tickets
+    .map((t) => `・${t.label}：残り ${t.remainingHours} 時間（有効期限 ${t.validUntil}）`)
+    .join('\n');
+  const text = `${name} 様
+
+いつもレンタルスペースALBEをご利用いただきありがとうございます。
+このたび予約システムを新しくいたしました。${name} 様がお持ちの回数券（残り時間）は、新システムにそのまま引き継いでおりますのでご安心ください。
+
+【引き継ぎ済みの回数券】
+${listText || '（対象の回数券）'}
+
+■ ご利用の始め方（マイページ・パスワード不要）
+${d.mypageUrl}
+ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをすぐにお送りします。
+はじめてログインした時点で、上記の回数券がマイページの「回数券」に自動で反映されます。以降は予約時に回数券をお使いいただけます（次回以降のログインもパスワード不要）。
+
+■ ご不明な点
+お問い合わせはこちら: ${d.contactUrl}
+
+今後ともよろしくお願いいたします。`;
+  const rows = d.tickets
+    .map((t) => `<li>${escapeHtml(t.label)}：<strong>残り ${escapeHtml(String(t.remainingHours))} 時間</strong>（有効期限 ${escapeHtml(t.validUntil)}）</li>`)
+    .join('');
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(name)} 様</p>
+<p>いつもレンタルスペースALBEをご利用いただきありがとうございます。<br>
+このたび予約システムを新しくいたしました。<strong>${escapeHtml(name)} 様がお持ちの回数券（残り時間）は、新システムにそのまま引き継いでおります</strong>のでご安心ください。</p>
+<p style="margin:6px 0 2px;font-weight:bold">引き継ぎ済みの回数券</p>
+<ul style="margin:2px 0 14px">${rows || '<li>（対象の回数券）</li>'}</ul>
+<p style="margin:14px 0 4px;font-weight:bold">ご利用の始め方（マイページ・パスワード不要）</p>
+<p style="margin:2px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページを開く</a></p>
+<p style="color:#6b7280;font-size:13px;margin:4px 0">ログイン画面で「メールでログイン」を選び、この案内が届いたメールアドレスをご入力ください。確認用リンクをすぐにお送りします。<strong>はじめてログインした時点で、上記の回数券がマイページの「回数券」に自動で反映されます。</strong>以降は予約時に回数券をお使いいただけます（次回以降のログインもパスワード不要）。</p>
+<p style="margin:14px 0 4px;font-weight:bold">ご不明な点</p>
+<p style="margin:2px 0">お問い合わせ: <a href="${escapeHtml(d.contactUrl)}">${escapeHtml(d.contactUrl)}</a></p>
+<p style="color:#6b7280;font-size:13px">今後ともよろしくお願いいたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** チケット（回数券）購入完了メール #52 */
 export function ticketPurchaseEmail(d: {
   customerName: string;

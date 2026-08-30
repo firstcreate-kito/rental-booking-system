@@ -571,11 +571,19 @@
       <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn ghost sm" onclick="blcPreview()">① プレビュー（試算のみ）</button>
         <button class="btn sm" id="blcLinkBtn" onclick="blcLink()" disabled>② 会員化＆紐付け実行</button>
-        <button class="btn ghost sm" onclick="blcNotify(false)">③ 案内メール（宛先確認）</button>
-        <button class="btn sm" id="blcSendBtn" onclick="blcNotify(true)" disabled>③ 案内メール送信</button>
+        <button class="btn ghost sm" onclick="blcNotify(false)">③ 予約者へ案内（宛先確認）</button>
+        <button class="btn sm" id="blcSendBtn" onclick="blcNotify(true)" disabled>③ 予約者へ案内 送信</button>
         <button class="btn danger sm" onclick="blcUnlink()">紐付け取り消し</button>
       </div>
-      <div class="muted" style="font-size:12px;margin-top:4px">「案内メール送信」は紐付け済みの全会員に移行案内を送ります（ステージングはメール停止のため実送信されません）。ログインはパスワード不要（メールでログイン）です。</div>
+      <div class="row" style="margin-top:6px;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn ghost sm" onclick="tktNotify(false)">④ チケットのみ保有者へ案内（宛先確認）</button>
+        <button class="btn sm" id="tktSendBtn" onclick="tktNotify(true)" disabled>④ チケット案内 送信</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px">
+        ③「予約者へ案内」＝確定Bookly予約に紐付いた会員へ移行案内を送信（回数券も持つ2軸の方はこちらでカバー）。<br>
+        ④「チケットのみ保有者へ案内」＝<b>予約が無く回数券だけ</b>のお客様（未claim）へ、別内容の回数券引き継ぎ案内を送信。<br>
+        いずれもログインはパスワード不要（メールでログイン）。<b>ステージングはメール停止のため実送信されません。</b>
+      </div>
       <div class="tablewrap" style="margin-top:8px">
         <table class="resp"><tbody id="blcBody"></tbody></table>
       </div>
@@ -2223,6 +2231,19 @@ async function blcNotify(send) {
     msg.className = 'msg';
     msg.textContent = '宛先 ' + body.recipients + '件。例：' + (body.sample || []).map(s => s.name + '（' + s.bookings + '件）').join('、');
     document.getElementById('blcSendBtn').disabled = body.recipients === 0;
+  }
+}
+async function tktNotify(send) {
+  const msg = document.getElementById('blcMsg'); msg.className = 'msg';
+  if (send && !confirm('回数券だけをお持ちのお客様（予約なし）へ「回数券引き継ぎのご案内」メールを送信します。\n（ステージングは実送信されません）\n送信しますか？')) return;
+  msg.textContent = send ? 'チケット案内を送信中…' : 'チケット案内の宛先を確認中…';
+  const { ok, body } = await api('/api/admin/bookly-customers', jsonBody({ action: 'notify-tickets', confirm: send === true }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || '処理に失敗しました'; return; }
+  if (send) { msg.className = 'msg ok'; msg.textContent = 'チケット案内 送信完了：' + body.sent + '/' + body.recipients + '件（失敗 ' + body.failed + '）。'; }
+  else {
+    msg.className = 'msg';
+    msg.textContent = 'チケット案内の宛先 ' + body.recipients + '件。例：' + (body.sample || []).map(s => s.name + '（' + s.tickets + '種）').join('、');
+    document.getElementById('tktSendBtn').disabled = body.recipients === 0;
   }
 }
 async function blcUnlink() {

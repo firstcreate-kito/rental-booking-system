@@ -52,6 +52,21 @@
     table.resp td.act:empty { display:none; }
     table.resp td.act .btn, table.resp td.act button { flex:1 1 auto; min-width:120px; }
   }
+  /* スマホでの管理操作向け調整（在宅・急ぎ用／完全対応でなく崩れ防止を優先）#102
+     はみ出し・重なり・段落ち・改行の主因をまとめて抑える。PC表示には影響しない。 */
+  @media (max-width: 640px) {
+    html, body { overflow-x: hidden; }                 /* 横はみ出しで画面全体がずれるのを防ぐ */
+    header { flex-wrap: wrap; gap: 4px 10px; padding: 10px 14px; } /* タイトルとユーザー情報の重なり回避 */
+    header h1 { font-size: 15px; }
+    main { padding: 12px; }
+    .card { padding: 12px; overflow-wrap: anywhere; word-break: break-word; } /* 長いメール/URLの溢れを折り返す */
+    .grid { grid-template-columns: 1fr; }              /* 入力フォームは1カラムに（潰れ・段落ち回避） */
+    .row { gap: 8px; }
+    .row > * { min-width: 0; }                          /* flex子が縮まずはみ出すのを防ぐ */
+    table.resp td { overflow-wrap: anywhere; word-break: break-word; }
+    /* 横スクロールする表はスワイプで見えるよう最低限の高さ確保（つぶれ防止） */
+    .tablewrap { -webkit-overflow-scrolling: touch; }
+  }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
   .pill.confirmed { background:#dcfce7; color:#166534; }
   .pill.tentative { background:#fef3c7; color:#92400e; }

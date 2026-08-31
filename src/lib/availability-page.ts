@@ -60,9 +60,14 @@ function rowHtml(r: AvailabilityRow, ctx: PageContext): string {
   }
   const next = r.status !== 'ok' && r.nextOpen ? `<div class="next">次に空いているのは <b>${labelYmd(r.nextOpen)}</b></div>` : '';
   // 予約可能期間より先＝閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
-  const viewNote = r.viewOnly ? `<div class="next">この期間はネット予約対象外 ─ 長期・複数日はお問い合わせください</div>` : '';
-  // 遷移先：閲覧のみ→相談、空き→予約フロー、商談中→相談、それ以外→リンクなし
-  const href = r.viewOnly
+  // 申込はお問い合わせのみの施設も同様に、ネット予約リンクは出さずお問い合わせへ誘導する。
+  const viewNote = r.inquiryOnly
+    ? `<div class="next">この施設はネット予約対象外 ─ ご予約・ご相談はお問い合わせください</div>`
+    : r.viewOnly
+      ? `<div class="next">この期間はネット予約対象外 ─ 長期・複数日はお問い合わせください</div>`
+      : '';
+  // 遷移先：お問い合わせのみ/閲覧のみ→相談、空き→予約フロー、商談中→相談、それ以外→リンクなし
+  const href = r.inquiryOnly || r.viewOnly
     ? ctx.contactUrl || null
     : r.status === 'ok'
       ? r.bookingHref

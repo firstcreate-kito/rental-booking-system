@@ -245,6 +245,17 @@ app.post('/', async (c) => {
   const space = await getSpaceById(db, body.spaceId);
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
 
+  // 申込はお問い合わせのみの施設（#移行・inquiry_only）はネット直接予約を受け付けない。
+  // フロント（index.html）はクリックをお問い合わせ誘導に差し替えるが、それはブラウザ側の
+  // 表示ガードにすぎない。別ページ・ディープリンク・再予約・直接APIなど画面ガードを通らない
+  // 経路でも作成されないよう、サーバー側でも必ず拒否する（管理者の代理予約・商談中は別経路のため対象外）。
+  if (space.inquiry_only) {
+    return c.json(
+      { error: 'このスペースはネットでの直接予約を承っておりません。ご予約・ご相談はお問い合わせよりお願いいたします。', code: 'INQUIRY_ONLY' },
+      403,
+    );
+  }
+
   // 会員ログインの有無（クーポン/ポイントは会員のみ）
   const member = await getOptionalCustomer(c);
 

@@ -44,6 +44,7 @@ export interface AvailabilityRow {
   nextOpen: string | null; // 'YYYY-MM-DD'
   bookingHref: string | null;
   viewOnly: boolean; // 予約可能期間超・閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
+  inquiryOnly: boolean; // 申込はお問い合わせのみの施設（ネット直接予約なし→お問い合わせ誘導）
 }
 
 export interface AvailabilityResult {
@@ -198,7 +199,9 @@ export async function assembleAvailability(
     const viewOnly = daysBetween(today, dateYmd) > (rep.booking_horizon_days ?? 180);
     // 予約受付最終日（閉鎖日）を過ぎた日は予約リンクを出さない（閉鎖予定施設）
     const beyondClosing = !!rep.closing_date && dateYmd > rep.closing_date;
-    const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly && !beyondClosing;
+    // 申込はお問い合わせのみの施設はネット直接予約を出さない（お問い合わせへ誘導）。
+    const inquiryOnly = !!rep.inquiry_only;
+    const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly && !beyondClosing && !inquiryOnly;
     const bookingHref = bookable ? `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}` : null;
     const row: AvailabilityRow = {
       id: rep.room_group ? `group:${rep.room_group}` : rep.id,
@@ -217,6 +220,7 @@ export async function assembleAvailability(
       nextOpen,
       bookingHref,
       viewOnly,
+      inquiryOnly,
     };
     const prio = isToday ? rep.same_day_priority ?? 100 : rep.sort_order;
     built.push({ row, prio });

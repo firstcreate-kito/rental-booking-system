@@ -2896,6 +2896,8 @@ function ensurePanelHome(panel) {
 // パネルを元の位置（家）に戻す。テーブル innerHTML 再描画の前に必ず呼ぶ（消失防止）。
 function restorePanel(panel) {
   if (!panel) return;
+  // 行直下展開時に付けた固定表示スタイルを解除（家＝全幅カードに戻すため）
+  panel.style.position = ''; panel.style.left = ''; panel.style.width = ''; panel.style.boxSizing = '';
   const a = ensurePanelHome(panel);
   a.parentNode.insertBefore(panel, a.nextSibling);
 }
@@ -2909,6 +2911,15 @@ function expandPanelUnderRow(tbody, rowEl, panel, colspan) {
     const td = document.createElement('td'); td.colSpan = colspan; tr.appendChild(td);
     rowEl.parentNode.insertBefore(tr, rowEl.nextSibling);
     td.appendChild(panel);
+    // 横スクロールする幅広テーブル（例：スペース設定=7列）では、全幅セル内の右寄せボタン
+    // （保存/閉じる）が画面右外に隠れてしまう。パネルを可視領域の左に固定し幅を収めて防ぐ。
+    const scroller = tbody.closest('.tablewrap');
+    if (scroller) {
+      panel.style.position = 'sticky';
+      panel.style.left = '0';
+      panel.style.width = Math.max(280, scroller.clientWidth - 8) + 'px';
+      panel.style.boxSizing = 'border-box';
+    }
   }
   panel.classList.remove('hidden');
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

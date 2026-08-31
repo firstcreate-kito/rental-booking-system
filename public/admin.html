@@ -657,6 +657,16 @@
 
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
 
+      <h2>空き状況の埋め込み表示</h2>
+      <div class="muted">公式サイト等に iframe で埋め込む「空き状況（/availability?embed=1）」の表示ON/OFFです。OFFにすると埋め込み枠は「一時停止中・お問い合わせへ」の案内だけを表示します（本サイトの /availability ページ自体や予約カレンダーには影響しません）。</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:center">
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cfg_embed_enabled"> 埋め込み表示を有効にする</label>
+        <button class="btn sm" onclick="saveEmbedEnabled()">保存</button>
+      </div>
+      <div class="msg" id="embedMsg"></div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
+
       <h2>ポイント還元率</h2>
       <div class="muted">ご利用金額に対して会員に付与するポイントの割合です。ポイントは1ポイント=1円で次回以降のご予約に利用できます。付与は利用完了（利用日の翌日）に自動で行われます。0にすると付与を停止します。</div>
       <div class="row" style="margin-top:8px;gap:8px;align-items:flex-end">
@@ -2168,6 +2178,15 @@ async function loadContactUrl() {
   document.getElementById('cfg_contact_url').value = body.contactUrl || '';
   const pr = document.getElementById('cfg_point_rate');
   if (pr) pr.value = (body.pointRate != null ? body.pointRate : 1);
+  const emb = document.getElementById('cfg_embed_enabled');
+  if (emb) emb.checked = !!body.availabilityEmbedEnabled;
+}
+async function saveEmbedEnabled() {
+  const msg = document.getElementById('embedMsg');
+  const enabled = document.getElementById('cfg_embed_enabled').checked;
+  const { ok, body } = await api('/api/admin/settings/availability-embed', jsonBody({ enabled }, 'PUT'));
+  msg.className = ok ? 'msg ok' : 'msg bad';
+  msg.textContent = ok ? ('保存しました（埋め込み表示：' + (body.availabilityEmbedEnabled ? '有効' : '停止中') + '）') : (body.error || '保存に失敗しました');
 }
 async function savePointRate() {
   const msg = document.getElementById('ptRateMsg');

@@ -36,17 +36,14 @@ availabilityApi.get('/', async (c) => {
   return c.json(data);
 });
 
-/** 埋め込み表示を一時停止しているときに iframe 内へ返す最小の案内。 */
-function embedDisabledHtml(contactUrl: string): string {
-  const c = contactUrl || 'https://space-albe.com/contact/';
+/** 埋め込み表示を一時停止しているときに iframe 内へ返す「準備中」ページ。 */
+function embedDisabledHtml(): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
-<title>空き状況</title></head>
-<body style="margin:0;font-family:system-ui,sans-serif;color:#334155;background:#fff">
-<div style="max-width:520px;margin:0 auto;padding:28px 20px;text-align:center">
-<p style="font-size:15px;line-height:1.8;margin:0 0 14px">ただいま空き状況の表示を一時停止しております。<br>ご予約・空き状況のご確認はお問い合わせよりお願いいたします。</p>
-<a href="${c}" target="_top" style="display:inline-block;padding:10px 20px;border-radius:8px;background:#2563eb;color:#fff;text-decoration:none;font-weight:600">お問い合わせ</a>
-</div></body></html>`;
+<title>準備中</title></head>
+<body style="margin:0;font-family:system-ui,sans-serif;background:transparent;color:#64748b">
+<div style="padding:40px 20px;text-align:center;font-size:15px;line-height:1.8">ただいま準備中です。</div>
+</body></html>`;
 }
 
 /** SSR ページ: GET /availability(/) */
@@ -59,9 +56,8 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
   if (embed) {
     const embedEnabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
     if (!embedEnabled) {
-      const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '/';
       c.header('Cache-Control', 'no-store');
-      return c.html(embedDisabledHtml(contactUrl));
+      return c.html(embedDisabledHtml());
     }
   }
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });

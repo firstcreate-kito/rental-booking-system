@@ -1,5 +1,5 @@
 /**
- * 週次「今週の予約」まとめメール（#111）。
+ * 週次「翌週の予約」まとめメール（#111）。
  * スペース単位で、その週（月〜日）の予約一覧を、スペースオーナー（スペース別宛先）へ通知する。
  *
  * 宛先の解決順：weekly_report_recipients（カンマ区切り複数可）→ 空なら notify_email（#72）。
@@ -30,12 +30,13 @@ export function resolveWeeklyRecipients(space: Pick<SpaceRow, 'weekly_report_rec
 }
 
 /**
- * 指定週（today を含む週の月〜日／未指定なら今週）の予約を、有効な全スペース分だけ組み立てる。
+ * 「翌週」（today を含む週の“次の”月〜日）の予約を、有効な全スペース分だけ組み立てる。
+ * 毎週月曜の朝に送るので、月曜時点で1週間先の予定を前倒しで案内する。
  * 送信はしない（プレビューにも使う）。予約0件のスペースも count:0 で返す。
  */
 export async function buildWeeklyReports(env: Env, today: string = todayJST()): Promise<WeeklyReportForSpace[]> {
-  const weekStart = mondayOfWeekJST(today);
-  const weekEnd = addDaysJST(weekStart, 6);
+  const weekStart = addDaysJST(mondayOfWeekJST(today), 7); // 翌週の月曜
+  const weekEnd = addDaysJST(weekStart, 6); // 翌週の日曜
   const [spaces, rows] = await Promise.all([
     getAllSpaces(env.DB),
     getBookingsInDateRange(env.DB, weekStart, weekEnd),

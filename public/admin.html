@@ -405,16 +405,16 @@
         </table>
       </div>
 
-      <!-- 週次「今週の予約」まとめメール（#111） -->
+      <!-- 週次「翌週の予約」まとめメール（#111） -->
       <div class="card" style="margin-top:16px;background:#f8fafc">
         <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <h3 style="margin:0">週次まとめメール（今週の予約）</h3>
+          <h3 style="margin:0">週次まとめメール（翌週の予約）</h3>
           <div class="row" style="gap:8px">
             <button class="btn ghost sm" onclick="previewWeekly()">内容をプレビュー</button>
             <button class="btn sm" onclick="sendWeekly()">今すぐ送信</button>
           </div>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:6px">毎週月曜の朝9時に、各スペースの「今週（月〜日）の予約一覧」を、スペース設定の「週次まとめメールの宛先」（空欄なら通知先メール）へ自動送信します。宛先が無い／今週予約0件のスペースは送りません。手動送信はいつでもここから実行できます（ステージングは実送信されません）。</div>
+        <div class="muted" style="font-size:12px;margin-top:6px">毎週月曜の朝9時に、各スペースの「翌週（月〜日）の予約一覧」を、スペース設定の「週次まとめメールの宛先」（空欄なら通知先メール）へ自動送信します。宛先が無い／翌週予約0件のスペースは送りません。手動送信はいつでもここから実行できます（ステージングは実送信されません）。</div>
         <div id="weeklyResult" style="margin-top:10px;font-size:13px"></div>
       </div>
 
@@ -440,7 +440,7 @@
         <div><label>週次まとめメールの宛先（任意・複数可）</label>
           <div id="sp_weekly_rows"></div>
           <button type="button" class="btn ghost sm" onclick="addWeeklyRow('')" style="margin-top:4px">＋宛先を追加</button>
-          <div class="muted" style="font-size:12px;margin-top:2px">毎週月曜の朝に「このスペースの今週（月〜日）の予約一覧」をここに登録した宛先へ送ります（スペースオーナー向け）。空欄なら上の「通知先メールアドレス」にフォールバックし、それも空なら送信しません。</div>
+          <div class="muted" style="font-size:12px;margin-top:2px">毎週月曜の朝に「このスペースの翌週（月〜日）の予約一覧」をここに登録した宛先へ送ります（スペースオーナー向け）。空欄なら上の「通知先メールアドレス」にフォールバックし、それも空なら送信しません。</div>
         </div>
         <div class="muted" style="margin-top:6px;font-size:12px;font-weight:600">空き状況ページ（/availability/）の設定</div>
         <div class="grid">
@@ -1623,7 +1623,7 @@ function collapseSpaceForm() {
   collapsePanel(document.getElementById('spBody'), document.getElementById('spForm'));
 }
 
-// --- 週次まとめメール（今週の予約）#111 ---
+// --- 週次まとめメール（翌週の予約）#111 ---
 async function previewWeekly() {
   const out = document.getElementById('weeklyResult');
   out.innerHTML = '<span class="muted">プレビューを取得中…</span>';
@@ -1636,10 +1636,10 @@ async function previewWeekly() {
   html += spaces.map(s => {
     const badge = s.willSend
       ? '<span style="color:#166534">送信対象</span>'
-      : '<span style="color:#9ca3af">送信なし（' + (s.count === 0 ? '今週予約0件' : '宛先未設定') + '）</span>';
+      : '<span style="color:#9ca3af">送信なし（' + (s.count === 0 ? '翌週予約0件' : '宛先未設定') + '）</span>';
     const to = s.recipients.length ? crEsc(s.recipients.join(', ')) : '（宛先なし）';
     return '<details style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff">'
-      + '<summary style="cursor:pointer"><strong>' + crEsc(s.spaceName) + '</strong>　今週 ' + s.count + '件　' + badge + '</summary>'
+      + '<summary style="cursor:pointer"><strong>' + crEsc(s.spaceName) + '</strong>　翌週 ' + s.count + '件　' + badge + '</summary>'
       + '<div style="font-size:12px;color:#6b7280;margin:6px 0">宛先：' + to + '</div>'
       + '<div style="font-size:12px;color:#374151;margin-bottom:4px">件名：' + crEsc(s.subject) + '</div>'
       + '<pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:8px;font-size:12px;margin:0">' + crEsc(s.text) + '</pre>'
@@ -1648,7 +1648,7 @@ async function previewWeekly() {
   out.innerHTML = html;
 }
 async function sendWeekly() {
-  if (!confirm('今週分の「まとめメール」を、宛先が設定され今週予約があるスペースに今すぐ送信します。よろしいですか？\n（ステージングでは実送信されません）')) return;
+  if (!confirm('翌週分の「まとめメール」を、宛先が設定され翌週予約があるスペースに今すぐ送信します。よろしいですか？\n（ステージングでは実送信されません）')) return;
   const out = document.getElementById('weeklyResult');
   out.innerHTML = '<span class="muted">送信中…</span>';
   const { ok, body } = await api('/api/admin/weekly-report', jsonBody({ action: 'send' }));

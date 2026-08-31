@@ -1814,9 +1814,9 @@ app.get('/spaces', async (c) => {
 });
 
 /**
- * POST /api/admin/weekly-report 週次「今週の予約」まとめメール（#111）。
+ * POST /api/admin/weekly-report 週次「翌週の予約」まとめメール（#111）。
  *  - action='preview'（既定）: 送らずに、スペースごとの件数・宛先・本文プレビューを返す。
- *  - action='send'          : 今週分を実送信（自動送信と同じロジック）。ステージングは実送信停止。
+ *  - action='send'          : 翌週分を実送信（自動送信と同じロジック）。ステージングは実送信停止。
  */
 app.post('/weekly-report', requireRole('owner', 'manager'), async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { action?: string };

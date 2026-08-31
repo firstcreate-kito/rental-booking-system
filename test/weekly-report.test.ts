@@ -1,5 +1,5 @@
 // @ts-nocheck 実SQLエンジン（node:sqlite・実験的ビルトイン）を使うため、当ファイルのみ型チェック対象外。
-// #111 週次「今週の予約」まとめメールの検証。
+// #111 週次「翌週の予約」まとめメールの検証。
 //  - clock: 週の月曜算出・曜日ラベル
 //  - resolveWeeklyRecipients: 宛先解決（weekly→notify フォールバック・重複除去）
 //  - buildWeeklyReports: 期間内のみ集計・スペース別グルーピング・cancelled/blocked/範囲外の除外
@@ -35,9 +35,10 @@ describe('#111 clock/宛先/テンプレの純粋ロジック', () => {
       .toEqual([]);
   });
   it('weeklyReportEmail：件名に件数、0件でも本文生成', () => {
-    const m0 = weeklyReportEmail({ spaceName: 'テスト室', weekStart: '2026-08-31', weekEnd: '2026-09-06', items: [] });
+    const m0 = weeklyReportEmail({ spaceName: 'テスト室', weekStart: '2026-09-07', weekEnd: '2026-09-13', items: [] });
     expect(m0.subject).toContain('計0件');
-    expect(m0.text).toContain('今週のご予約はありません');
+    expect(m0.subject).toContain('翌週の予約');
+    expect(m0.text).toContain('翌週のご予約はありません');
     const m1 = weeklyReportEmail({
       spaceName: 'テスト室', weekStart: '2026-08-31', weekEnd: '2026-09-06',
       items: [{ date: '2026-09-01', weekday: '火', startTime: '10:00', endTime: '12:00', statusLabel: '確定', bookingNumber: '20260901-001', title: '撮影', phone: '090', headcount: 3 }],
@@ -80,39 +81,44 @@ d('#111 buildWeeklyReports（実SQL）', () => {
       ('B','B室',1,2,'nb@x.com',NULL),
       ('C','C室',1,3,NULL,NULL)`).run();
     db.db.prepare(`INSERT INTO customers (id,contact_name,phone,email) VALUES ('c1','山田','090-1','y@x.com')`).run();
-    // 対象週：2026-08-31(月)〜09-06(日)
-    // A: 週内2件（確定・商談中）＋範囲外1件（翌週）＝週内2件
+    // 基準日 today=2026-09-02（今週=8/31〜9/6）。送信対象は「翌週」9/07(月)〜9/13(日)。
+    // A: 翌週2件（確定・商談中）＋今週1件（除外）＋翌週のcancelled1件（除外）
+    // B: 翌週1件＋今週1件（除外）／ C: 今週のみ（翌週0件）
     db.db.prepare(`INSERT INTO booking_groups (id,booking_number,customer_id,space_id,event_name,headcount,status) VALUES
-      ('gA1','20260901-001','c1','A','撮影',3,'confirmed'),
-      ('gA2','20260903-001',NULL,'A','商談',NULL,'tentative'),
-      ('gA3','20260908-001','c1','A','来週',2,'confirmed'),
-      ('gB1','20260902-001','c1','B','会議',5,'confirmed'),
-      ('gC1','20260904-001','c1','C','キャンセル',1,'cancelled')`).run();
+      ('gAnow','20260901-001','c1','A','今週撮影',3,'confirmed'),
+      ('gAnx1','20260908-001','c1','A','翌週撮影',2,'confirmed'),
+      ('gAnx2','20260910-001',NULL,'A','翌週商談',NULL,'tentative'),
+      ('gAcxl','20260909-001','c1','A','翌週キャンセル',1,'cancelled'),
+      ('gBnow','20260902-001','c1','B','今週会議',4,'confirmed'),
+      ('gBnx','20260907-001','c1','B','翌週会議',5,'confirmed'),
+      ('gCnow','20260904-001','c1','C','今週のみ',1,'confirmed')`).run();
     db.db.prepare(`INSERT INTO bookings (id,group_id,space_id,date,start_time,end_time,status) VALUES
-      ('bA1','gA1','A','2026-09-01','10:00','12:00','confirmed'),
-      ('bA2','gA2','A','2026-09-03','14:00','16:00','tentative'),
-      ('bA3','gA3','A','2026-09-08','10:00','12:00','confirmed'),
-      ('bB1','gB1','B','2026-09-02','09:00','11:00','confirmed'),
-      ('bC1','gC1','C','2026-09-04','10:00','12:00','cancelled')`).run();
+      ('bAnow','gAnow','A','2026-09-01','10:00','12:00','confirmed'),
+      ('bAnx1','gAnx1','A','2026-09-08','10:00','12:00','confirmed'),
+      ('bAnx2','gAnx2','A','2026-09-10','14:00','16:00','tentative'),
+      ('bAcxl','gAcxl','A','2026-09-09','10:00','12:00','cancelled'),
+      ('bBnow','gBnow','B','2026-09-02','09:00','11:00','confirmed'),
+      ('bBnx','gBnx','B','2026-09-07','09:00','11:00','confirmed'),
+      ('bCnow','gCnow','C','2026-09-04','10:00','12:00','confirmed')`).run();
     env = { DB: db, PUBLIC_BASE_URL: 'https://booking.space-albe.com' };
   });
 
-  it('今週分をスペース別に集計し、範囲外・cancelled は除外する', async () => {
-    const reports = await buildWeeklyReports(env, '2026-09-02'); // 対象週の水曜
+  it('翌週分をスペース別に集計し、今週・cancelled は除外する', async () => {
+    const reports = await buildWeeklyReports(env, '2026-09-02'); // 今週の水曜 → 対象は翌週
     const byId = Object.fromEntries(reports.map((r) => [r.spaceId, r]));
     expect(reports.length).toBe(3); // active 3スペース
 
-    // A: 週内2件（翌週gA3は範囲外で除外）
+    // A: 翌週2件（今週分・cancelled は除外）
     expect(byId.A.count).toBe(2);
     expect(byId.A.recipients).toEqual(['wa@x.com', 'wb@x.com']); // weekly優先
-    expect(byId.A.weekStart).toBe('2026-08-31');
-    expect(byId.A.weekEnd).toBe('2026-09-06');
+    expect(byId.A.weekStart).toBe('2026-09-07');
+    expect(byId.A.weekEnd).toBe('2026-09-13');
 
-    // B: 1件・notifyへフォールバック
+    // B: 翌週1件（今週分は除外）・notifyへフォールバック
     expect(byId.B.count).toBe(1);
     expect(byId.B.recipients).toEqual(['nb@x.com']);
 
-    // C: cancelled のみ→0件・宛先なし
+    // C: 今週のみ→翌週0件・宛先なし
     expect(byId.C.count).toBe(0);
     expect(byId.C.recipients).toEqual([]);
   });

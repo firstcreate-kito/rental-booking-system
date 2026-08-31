@@ -2918,6 +2918,9 @@ function vwCard(r) {
       (r.prefTimeband && r.prefTimeband !== 'any' ? '（' + crEsc({morning:'午前',afternoon:'午後',evening:'夜'}[r.prefTimeband] || r.prefTimeband) + '）' : '') +
       '</div>';
   }
+  if (r.usageWish) {
+    wish += '<div><span class="muted">ご利用希望日（時期）：</span>' + crEsc(r.usageWish) + '</div>';
+  }
   const confirmedLine = r.confirmed
     ? '<div style="margin-top:4px"><span class="muted">' + (r.status === 'confirmed' ? '確定日時' : '提案日時') + '：</span><strong>' + crEsc(r.confirmed.date + ' ' + r.confirmed.start + '〜' + (r.confirmed.end || '')) + '</strong></div>'
     : '';

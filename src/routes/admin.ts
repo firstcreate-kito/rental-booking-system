@@ -1803,6 +1803,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       return DATE_RE.test(v) ? v : null;
     })(),
     inquiryOnly: !!body.inquiryOnly,
+    // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）。http(s)/相対パスのみ許可。
+    imageUrl: (() => {
+      const v = String(body.imageUrl ?? '').trim();
+      if (!v) return null;
+      return /^(https?:\/\/|\/)/i.test(v) ? v : null;
+    })(),
   };
   return { input };
 }

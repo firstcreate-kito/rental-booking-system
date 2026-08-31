@@ -45,6 +45,7 @@ export interface AvailabilityRow {
   bookingHref: string | null;
   spaceHref: string; // 施設カレンダーへのリンク（日付なし）。直接予約不可の行でもまずカレンダーへ誘導する用
   viewOnly: boolean; // 予約可能期間超・閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
+  imageUrl: string | null; // サムネイル画像URL（左端に表示・グループ行は代表部屋の画像）#74拡張
 }
 
 export interface AvailabilityResult {
@@ -225,6 +226,7 @@ export async function assembleAvailability(
       bookingHref,
       spaceHref,
       viewOnly,
+      imageUrl: rep.image_url ?? null,
     };
     const prio = isToday ? rep.same_day_priority ?? 100 : rep.sort_order;
     built.push({ row, prio });

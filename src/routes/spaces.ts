@@ -57,6 +57,7 @@ function toPublicSpace(s: SpaceRow) {
     allowManualInvoice: !!s.allow_manual_invoice, // 請求書払い（手動・自社口座）#88関連
     paymentMode: s.payment_mode, // 支払いモード（#67）
     inquiryOnly: !!s.inquiry_only, // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）
+    imageUrl: s.image_url ?? null, // サムネイル画像URL（予約トップのカードに表示）#74拡張
   };
 }
 

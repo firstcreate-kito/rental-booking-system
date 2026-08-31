@@ -68,12 +68,18 @@ function rowHtml(r: AvailabilityRow, ctx: PageContext): string {
   // を出す（openModal/施設設定ガードで制御）。
   const href = r.spaceHref;
   const meta = [r.areaName, r.meta].filter(Boolean).join('・');
-  const inner =
+  // サムネイル（左端）。http(s)/相対パスのみ許可。未設定・不正URLはプレースホルダの箱を表示。
+  const safeImg = r.imageUrl && /^(https?:\/\/|\/)/i.test(r.imageUrl) ? r.imageUrl : null;
+  const thumb = safeImg
+    ? `<img class="rthumb" src="${escapeHtml(safeImg)}" alt="${escapeHtml(r.name)}" loading="lazy" decoding="async" onerror="this.style.visibility='hidden'">`
+    : `<span class="rthumb ph" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/></svg></span>`;
+  const body =
     `<div><div class="rname">${escapeHtml(r.name)}${rooms}</div>` +
     `<div class="rmeta">${escapeHtml(meta)}</div></div>` +
     `<div class="rprice">${priceHtml}</div>` +
     `<div class="rstat"><span class="mark">${mark}</span><span class="rtime">${escapeHtml(rtime)}</span></div>` +
     next + viewNote;
+  const inner = `${thumb}<div class="rbody">${body}</div>`;
   // 埋め込み時は予約/相談リンクを親ウィンドウで開く（iframe内だと決済・ログインが壊れるため）
   const tgt = ctx.embed ? ' target="_top"' : '';
   return href ? `<a class="row"${tgt} href="${escapeHtml(href)}">${inner}</a>` : `<div class="row">${inner}</div>`;
@@ -161,7 +167,10 @@ h1{ margin:14px 0 8px; padding:0 var(--pad); font-size:21px; font-weight:600; } 
 .frow{ padding:11px 0; border-bottom:1px solid var(--line); }
 .headline{ padding:18px var(--pad) 12px; } .headline b{ display:block; font-size:19px; font-weight:600; } .headline span{ font-size:13px; color:var(--ink-2); }
 .ghead{ padding:10px var(--pad) 8px; font-size:12px; letter-spacing:.1em; color:var(--ink-3); border-top:1px solid var(--line); background:var(--wash); }
-.row{ display:grid; grid-template-columns:1fr auto; gap:4px 12px; padding:13px var(--pad); border-top:1px solid var(--line); align-items:center; }
+.row{ display:flex; gap:12px; padding:13px var(--pad); border-top:1px solid var(--line); align-items:center; }
+.rbody{ flex:1 1 auto; min-width:0; display:grid; grid-template-columns:1fr auto; gap:4px 12px; align-items:center; }
+.rthumb{ flex:0 0 auto; width:64px; height:64px; border-radius:6px; object-fit:cover; background:var(--wash); border:1px solid var(--line); }
+.rthumb.ph{ display:flex; align-items:center; justify-content:center; color:var(--ink-3); }
 .rname{ font-size:15px; font-weight:600; } .rmeta{ font-size:12px; color:var(--ink-2); } .rooms{ font-size:12px; color:var(--ink-2); font-weight:400; }
 .rstat{ grid-column:1/-1; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:2px; } .mark{ font-family:var(--f-num); font-size:17px; } .rtime{ font-size:13px; color:var(--ink-2); }
 .rprice{ font-family:var(--f-num); font-size:14px; text-align:right; white-space:nowrap; } .rprice u{ text-decoration:none; font-family:var(--f-sans); font-size:11px; color:var(--ink-2); } .rprice .q{ font-family:var(--f-sans); font-size:12px; color:var(--ink-2); }

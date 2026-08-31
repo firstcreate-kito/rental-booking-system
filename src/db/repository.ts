@@ -43,6 +43,7 @@ export interface SpaceRow {
   weekend_day_rate_only: number; // 土日祝は1日料金のみ（#18）
   closing_date: string | null; // 予約受付最終日（この日まで予約可・NULL=なし）
   inquiry_only: number; // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）#移行
+  image_url: string | null; // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）#74拡張
 }
 
 /** 支払いモード（#67） */
@@ -91,6 +92,8 @@ export interface SpaceInput {
   closingDate?: string | null;
   /** 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）。既定OFF */
   inquiryOnly?: boolean;
+  /** サムネイル画像URL（空き状況ページ・予約トップのカードに表示）。空欄=画像なし */
+  imageUrl?: string | null;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -146,6 +149,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.closingDate ?? null,
     s.inquiryOnly ? 1 : 0,
     s.weeklyReportRecipients ?? null,
+    s.imageUrl ?? null,
   ];
 }
 
@@ -157,8 +161,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -172,7 +176,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)

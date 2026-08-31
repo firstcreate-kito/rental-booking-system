@@ -442,6 +442,10 @@
           <button type="button" class="btn ghost sm" onclick="addWeeklyRow('')" style="margin-top:4px">＋宛先を追加</button>
           <div class="muted" style="font-size:12px;margin-top:2px">毎週月曜の朝に「このスペースの翌週（月〜日）の予約一覧」をここに登録した宛先へ送ります（スペースオーナー向け）。空欄なら上の「通知先メールアドレス」にフォールバックし、それも空なら送信しません。</div>
         </div>
+        <div><label>サムネイル画像URL（任意）</label>
+          <input id="sp_image" type="url" placeholder="例）https://space-albe.com/wp-content/uploads/2020/10/free-img-01.jpg" />
+          <div class="muted" style="font-size:12px;margin-top:2px">予約トップの「スペースを選択」カードと空き状況ページ（/availability/）の各行の左側に表示する部屋写真のURL。公式サイト等の公開画像URL（https）を貼り付けてください。空欄なら写真枠（プレースホルダ）を表示します。同型グループ（防音室A/B等）は代表部屋の画像を使います。</div>
+        </div>
         <div class="muted" style="margin-top:6px;font-size:12px;font-weight:600">空き状況ページ（/availability/）の設定</div>
         <div class="grid">
           <div><label>エリア</label>
@@ -1535,6 +1539,7 @@ function fillSpaceForm(s) {
   const g = (id, v) => document.getElementById(id).value = (v ?? '');
   g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_notify', s?.notify_email); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
   setWeeklyRows(s?.weekly_report_recipients || '');
+  g('sp_image', s?.image_url);
   g('sp_area', s?.area); g('sp_use', s?.use_category); g('sp_group', s?.room_group);
   g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
   g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
@@ -1590,6 +1595,7 @@ async function saveSpace() {
   const editing = v('sp_editing');
   const payload = {
     name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, notifyEmail: v('sp_notify') || null, weeklyReportRecipients: collectWeeklyRecipients() || null, billingType: document.getElementById('sp_billing').value,
+    imageUrl: v('sp_image') || null,
     area: v('sp_area') || null, useCategory: v('sp_use') || null, roomGroup: v('sp_group') || null,
     sameDayCutoffHours: Number(v('sp_cutoff') || 1), sameDayPriority: Number(v('sp_prio') || 100),
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),

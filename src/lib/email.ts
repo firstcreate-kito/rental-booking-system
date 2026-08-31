@@ -1941,3 +1941,99 @@ ${d.staffNote ? `<p style="white-space:pre-wrap;background:#f9fafb;border:1px so
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ---------------------------------------------------------------------------
+// 週次「今週の予約」まとめメール（管理者・スペースオーナー宛・#111）
+// ---------------------------------------------------------------------------
+
+/** 週次まとめメールの1件（1日分） */
+export interface WeeklyReportItem {
+  date: string; // 'YYYY-MM-DD'
+  weekday: string; // '月' など
+  startTime: string;
+  endTime: string;
+  statusLabel: string; // '確定' / '商談中'
+  bookingNumber: string;
+  title: string; // イベント名 または お客様名
+  phone?: string | null;
+  headcount?: number | null;
+}
+
+/** 'YYYY-MM-DD' → 'M/D' */
+function mdLabel(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${Number(m)}/${Number(d)}`;
+}
+
+/**
+ * 週次「今週の予約」まとめ（スペース単位・#111）。
+ * スペースオーナー向けに、その週（月〜日）の予約一覧を通知する。件数0でも本文は生成できる
+ * （実際に0件で送るか否かは呼び出し側=runWeeklyReport が判断）。
+ */
+export function weeklyReportEmail(d: {
+  spaceName: string;
+  weekStart: string; // 'YYYY-MM-DD'（月曜）
+  weekEnd: string; // 'YYYY-MM-DD'（日曜）
+  items: WeeklyReportItem[];
+  adminUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const n = d.items.length;
+  const range = `${mdLabel(d.weekStart)}〜${mdLabel(d.weekEnd)}`;
+  const subject = `【今週の予約】${d.spaceName}（${range}）計${n}件`;
+  const meta = (it: WeeklyReportItem) => {
+    const parts: string[] = [];
+    if (it.headcount != null) parts.push(`${it.headcount}名`);
+    if (it.phone) parts.push(String(it.phone));
+    return parts.length ? `（${parts.join(' / ')}）` : '';
+  };
+  const textBody =
+    n === 0
+      ? '今週のご予約はありません。'
+      : d.items
+          .map(
+            (it) =>
+              `${mdLabel(it.date)}(${it.weekday}) ${it.startTime}〜${it.endTime}  [${it.statusLabel}]  ${it.title || '（無題）'}  ${it.bookingNumber}${meta(it)}`,
+          )
+          .join('\n');
+  const text = `${d.spaceName} の今週（${range}）の予約一覧です。計${n}件。
+
+${textBody}
+${d.adminUrl ? `\n管理画面：${d.adminUrl}\n` : ''}
+※このメールは毎週月曜の朝に自動送信しています（確定・商談中の予約を含みます）。`;
+
+  const rows =
+    n === 0
+      ? `<tr><td colspan="4" style="padding:10px;border:1px solid #e5e7eb;color:#6b7280;text-align:center">今週のご予約はありません。</td></tr>`
+      : d.items
+          .map((it) => {
+            const badge =
+              it.statusLabel === '商談中'
+                ? '<span style="display:inline-block;padding:1px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:12px">商談中</span>'
+                : '<span style="display:inline-block;padding:1px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:12px">確定</span>';
+            const sub: string[] = [];
+            if (it.headcount != null) sub.push(`${it.headcount}名`);
+            if (it.phone) sub.push(escapeHtml(String(it.phone)));
+            const subLine = sub.length ? `<br><span style="color:#6b7280;font-size:12px">${sub.join(' / ')}</span>` : '';
+            return `<tr>
+<td style="padding:6px 10px;border:1px solid #e5e7eb;white-space:nowrap"><strong>${mdLabel(it.date)}</strong>（${escapeHtml(it.weekday)}）</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb;white-space:nowrap">${escapeHtml(it.startTime)}〜${escapeHtml(it.endTime)}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${badge}</td>
+<td style="padding:6px 10px;border:1px solid #e5e7eb">${escapeHtml(it.title || '（無題）')}<br><span style="color:#9ca3af;font-size:12px">${escapeHtml(it.bookingNumber)}</span>${subLine}</td>
+</tr>`;
+          })
+          .join('');
+  const html = `<div style="font-family:sans-serif;line-height:1.6;color:#1f2937">
+<p><strong>${escapeHtml(d.spaceName)}</strong> の今週（${range}）の予約一覧です。計 <strong>${n}件</strong>。</p>
+<table style="border-collapse:collapse;margin:12px 0;font-size:13px;width:100%">
+<tr style="background:#f3f4f6">
+<th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">日付</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">時間</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">状態</th>
+<th style="padding:6px 10px;border:1px solid #e5e7eb;text-align:left">内容 / 予約番号</th></tr>
+${rows}
+</table>
+${d.adminUrl ? `<p><a href="${d.adminUrl}" style="color:#2563eb">管理画面を開く</a></p>` : ''}
+<p style="color:#6b7280;font-size:12px">※このメールは毎週月曜の朝に自動送信しています（確定・商談中の予約を含みます）。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}

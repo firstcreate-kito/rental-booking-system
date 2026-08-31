@@ -116,6 +116,7 @@ import { computeGroupCancel } from '../lib/cancellation-service';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
+import { buildWeeklyReports, runWeeklyReport } from '../lib/weekly-report';
 import { gcalConfigured, freeBusy, toJstRfc3339 } from '../lib/gcal';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { runBooklyImport, rollbackBooklyImport, cleanupOrphanCalendarEvents } from '../lib/bookly-import';
@@ -1780,6 +1781,13 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
     allowManualInvoice: !!body.allowManualInvoice,
     // スペース別の通知先メール（#72）。空欄なら本部のみに通知。
     notifyEmail: body.notifyEmail ? String(body.notifyEmail).trim() : null,
+    // 週次まとめメールの宛先（#111）。カンマ区切りで複数可。空欄なら notify_email にフォールバック。
+    weeklyReportRecipients: (() => {
+      const v = String(body.weeklyReportRecipients ?? '').trim();
+      if (!v) return null;
+      // 前後空白除去＋重複除去してカンマ区切りで正規化
+      return [...new Set(v.split(',').map((s) => s.trim()).filter(Boolean))].join(',') || null;
+    })(),
     // 空き状況ページ用メタ（#74）
     area: body.area ? String(body.area).trim() : null,
     useCategory: body.useCategory ? String(body.useCategory).trim() : null,
@@ -1803,6 +1811,36 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
 app.get('/spaces', async (c) => {
   const spaces = await getAllSpaces(c.env.DB);
   return c.json({ spaces });
+});
+
+/**
+ * POST /api/admin/weekly-report 週次「今週の予約」まとめメール（#111）。
+ *  - action='preview'（既定）: 送らずに、スペースごとの件数・宛先・本文プレビューを返す。
+ *  - action='send'          : 今週分を実送信（自動送信と同じロジック）。ステージングは実送信停止。
+ */
+app.post('/weekly-report', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { action?: string };
+  if (body.action === 'send') {
+    const res = await runWeeklyReport(c.env);
+    return c.json({ ok: true, ...res });
+  }
+  const reports = await buildWeeklyReports(c.env);
+  const weekStart = reports[0]?.weekStart ?? '';
+  const weekEnd = reports[0]?.weekEnd ?? '';
+  return c.json({
+    ok: true,
+    weekStart,
+    weekEnd,
+    spaces: reports.map((r) => ({
+      spaceId: r.spaceId,
+      spaceName: r.spaceName,
+      recipients: r.recipients,
+      count: r.count,
+      willSend: r.recipients.length > 0 && r.count > 0,
+      subject: r.mail.subject,
+      text: r.mail.text,
+    })),
+  });
 });
 
 /** POST /api/admin/spaces スペース追加（owner/manager） */

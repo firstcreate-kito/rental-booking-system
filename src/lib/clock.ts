@@ -31,6 +31,24 @@ export function addDaysJST(dateISO: string, days: number): string {
   return `${next.getUTCFullYear()}-${p(next.getUTCMonth() + 1)}-${p(next.getUTCDate())}`;
 }
 
+/** 'YYYY-MM-DD' の曜日（0=日〜6=土）をJST基準で返す */
+export function weekdayJST(dateISO: string): number {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/** 曜日の日本語1文字（0=日〜6=土） */
+export function weekdayLabelJST(dateISO: string): string {
+  return ['日', '月', '火', '水', '木', '金', '土'][weekdayJST(dateISO)];
+}
+
+/** dateISO を含む週の月曜日 'YYYY-MM-DD'（週の起点=月曜） */
+export function mondayOfWeekJST(dateISO: string): string {
+  const dow = weekdayJST(dateISO); // 0=日,1=月,...6=土
+  const deltaToMonday = dow === 0 ? -6 : 1 - dow;
+  return addDaysJST(dateISO, deltaToMonday);
+}
+
 /** JSTの現在日時 'YYYY-MM-DD HH:MM:SS' */
 export function nowJST(now: number = Date.now()): string {
   const d = jstNow(now);

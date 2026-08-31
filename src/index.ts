@@ -48,6 +48,7 @@ import {
 import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
 import { runDataRetention } from './lib/retention';
 import { runReleaseExpiredKonbiniHolds } from './lib/konbini-cleanup';
+import { runWeeklyReport } from './lib/weekly-report';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -402,6 +403,11 @@ export default {
       );
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
       ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
+    }
+    // 週次「今週の予約」まとめメール（#111）: 毎週月曜 00:00 UTC＝09:00 JST。
+    // スペース単位でその週（月〜日）の予約一覧をオーナー宛に送る。
+    if (event.cron === '0 0 * * 1') {
+      ctx.waitUntil(runWeeklyReport(env).then(() => {}).catch(() => {}));
     }
   },
 };

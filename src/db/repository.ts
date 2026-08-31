@@ -34,6 +34,7 @@ export interface SpaceRow {
   allow_manual_invoice: number; // 請求書払い（手動・自社口座／Stripe非経由）の受付可否（#88関連）
   payment_mode: string; // 'card_only' | 'card_bank' | 'card_konbini_bank'（#67）
   notify_email: string | null; // スペース別の管理者通知先（#72）
+  weekly_report_recipients: string | null; // 週次まとめメールの宛先（#111・カンマ区切り複数可）
   area: string | null; // エリア（#74）
   use_category: string | null; // 用途（カンマ区切り可）（#74）
   room_group: string | null; // 同型グループID（#74）
@@ -76,6 +77,8 @@ export interface SpaceInput {
   allowManualInvoice?: boolean;
   /** スペース別の管理者通知先メール（#72）。空なら本部のみ。複数配信はメール転送で対応 */
   notifyEmail?: string | null;
+  /** 週次まとめメールの宛先（#111）。カンマ区切りで複数可。空なら notify_email にフォールバック */
+  weeklyReportRecipients?: string | null;
   /** 空き状況ページ用メタ（#74） */
   area?: string | null;
   useCategory?: string | null;
@@ -142,6 +145,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.weekendDayRateOnly ? 1 : 0,
     s.closingDate ?? null,
     s.inquiryOnly ? 1 : 0,
+    s.weeklyReportRecipients ?? null,
   ];
 }
 
@@ -153,8 +157,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -168,7 +172,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -2989,6 +2993,51 @@ export async function getGroupDays(db: D1Database, groupId: string): Promise<Arr
     .bind(groupId)
     .all<{ date: string; start_time: string; end_time: string }>();
   return (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time }));
+}
+
+/** 週次まとめメール（#111）1行＝1日分の予約 */
+export interface WeeklyReportBookingRow {
+  space_id: string;
+  space_name: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  group_status: string;
+  booking_number: string;
+  event_name: string | null;
+  headcount: number | null;
+  contact_name: string | null;
+  phone: string | null;
+}
+
+/**
+ * 期間内（startDate〜endDate の両端含む）の予約を日付順に返す（#111 週次まとめ用）。
+ * confirmed / tentative（商談中）のみ。blocked/held/cancelled は除外。
+ * 1レコード＝1日分（bookings 単位）。スペース→日付→開始時刻でソート。
+ */
+export async function getBookingsInDateRange(
+  db: D1Database,
+  startDate: string,
+  endDate: string,
+): Promise<WeeklyReportBookingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT bg.space_id, s.name AS space_name,
+              b.date, b.start_time, b.end_time,
+              bg.status AS group_status, bg.booking_number, bg.event_name, bg.headcount,
+              c.contact_name, c.phone
+       FROM bookings b
+       JOIN booking_groups bg ON bg.id = b.group_id
+       JOIN spaces s ON s.id = bg.space_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
+       WHERE b.date >= ? AND b.date <= ?
+         AND bg.status IN ('confirmed','tentative')
+         AND b.status IN ('confirmed','tentative')
+       ORDER BY bg.space_id, b.date, b.start_time`,
+    )
+    .bind(startDate, endDate)
+    .all<WeeklyReportBookingRow>();
+  return results ?? [];
 }
 
 /**

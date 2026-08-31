@@ -405,6 +405,19 @@
         </table>
       </div>
 
+      <!-- 週次「今週の予約」まとめメール（#111） -->
+      <div class="card" style="margin-top:16px;background:#f8fafc">
+        <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0">週次まとめメール（今週の予約）</h3>
+          <div class="row" style="gap:8px">
+            <button class="btn ghost sm" onclick="previewWeekly()">内容をプレビュー</button>
+            <button class="btn sm" onclick="sendWeekly()">今すぐ送信</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:6px">毎週月曜の朝9時に、各スペースの「今週（月〜日）の予約一覧」を、スペース設定の「週次まとめメールの宛先」（空欄なら通知先メール）へ自動送信します。宛先が無い／今週予約0件のスペースは送りません。手動送信はいつでもここから実行できます（ステージングは実送信されません）。</div>
+        <div id="weeklyResult" style="margin-top:10px;font-size:13px"></div>
+      </div>
+
       <!-- 追加/編集フォーム -->
       <div id="spForm" class="card hidden" style="margin-top:16px;background:#fafbff">
         <h2 id="spFormTitle">スペースを追加</h2>
@@ -423,6 +436,11 @@
         <div><label>通知先メールアドレス（任意・提携店など）</label>
           <input id="sp_notify" type="email" placeholder="例）partnerA@space-albe.com" />
           <div class="muted" style="font-size:12px;margin-top:2px">このスペースの予約・変更・キャンセル通知を、本部（rental@space-albe.com）に加えてこのアドレスにも送ります。複数人へ配りたい場合は、このアドレス宛の転送設定をメールサーバー側で行ってください。空欄なら本部のみに通知します。</div>
+        </div>
+        <div><label>週次まとめメールの宛先（任意・複数可）</label>
+          <div id="sp_weekly_rows"></div>
+          <button type="button" class="btn ghost sm" onclick="addWeeklyRow('')" style="margin-top:4px">＋宛先を追加</button>
+          <div class="muted" style="font-size:12px;margin-top:2px">毎週月曜の朝に「このスペースの今週（月〜日）の予約一覧」をここに登録した宛先へ送ります（スペースオーナー向け）。空欄なら上の「通知先メールアドレス」にフォールバックし、それも空なら送信しません。</div>
         </div>
         <div class="muted" style="margin-top:6px;font-size:12px;font-weight:600">空き状況ページ（/availability/）の設定</div>
         <div class="grid">
@@ -1486,11 +1504,35 @@ async function loadSpacesAdmin() {
       '</td><td><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
   }).join('');
 }
+// 週次まとめ宛先（#111）：可変の入力行（＋追加／×削除・最低1行維持）
+function addWeeklyRow(val) {
+  const wrap = document.getElementById('sp_weekly_rows');
+  const row = document.createElement('div');
+  row.className = 'row weekly-row';
+  row.style.cssText = 'gap:6px;margin-bottom:4px';
+  row.innerHTML = '<input type="email" class="wr-email" placeholder="例）owner@space-albe.com" style="flex:1" />'
+    + '<button type="button" class="btn ghost sm" title="削除" onclick="this.parentElement.remove()">×</button>';
+  row.querySelector('.wr-email').value = val || '';
+  wrap.appendChild(row);
+}
+function setWeeklyRows(csv) {
+  const wrap = document.getElementById('sp_weekly_rows');
+  wrap.innerHTML = '';
+  const parts = String(csv || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) { addWeeklyRow(''); return; }
+  parts.forEach(addWeeklyRow);
+}
+function collectWeeklyRecipients() {
+  const emails = [...document.querySelectorAll('#sp_weekly_rows .wr-email')]
+    .map(el => el.value.trim()).filter(Boolean);
+  return [...new Set(emails)].join(',');
+}
 function fillSpaceForm(s) {
   document.getElementById('sp_editing').value = s ? s.id : '';
   document.getElementById('spFormTitle').textContent = s ? ('スペースを編集：' + s.name) : 'スペースを追加';
   const g = (id, v) => document.getElementById(id).value = (v ?? '');
   g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_notify', s?.notify_email); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
+  setWeeklyRows(s?.weekly_report_recipients || '');
   g('sp_area', s?.area); g('sp_use', s?.use_category); g('sp_group', s?.room_group);
   g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
   g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
@@ -1541,7 +1583,7 @@ async function saveSpace() {
   const numOrNull = id => { const x = v(id); return x === '' ? null : Number(x); };
   const editing = v('sp_editing');
   const payload = {
-    name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, notifyEmail: v('sp_notify') || null, billingType: document.getElementById('sp_billing').value,
+    name: v('sp_name'), slug: v('sp_slug') || null, googleCalendarId: v('sp_gcal') || null, notifyEmail: v('sp_notify') || null, weeklyReportRecipients: collectWeeklyRecipients() || null, billingType: document.getElementById('sp_billing').value,
     area: v('sp_area') || null, useCategory: v('sp_use') || null, roomGroup: v('sp_group') || null,
     sameDayCutoffHours: Number(v('sp_cutoff') || 1), sameDayPriority: Number(v('sp_prio') || 100),
     weekdayRate: numOrNull('sp_wd'), weekendRate: numOrNull('sp_we'), dayRateHours: numOrNull('sp_drh'),
@@ -1570,6 +1612,39 @@ async function saveSpace() {
   msg.className = 'msg ok'; msg.textContent = '保存しました';
   document.getElementById('spForm').classList.add('hidden');
   loadSpacesAdmin();
+}
+
+// --- 週次まとめメール（今週の予約）#111 ---
+async function previewWeekly() {
+  const out = document.getElementById('weeklyResult');
+  out.innerHTML = '<span class="muted">プレビューを取得中…</span>';
+  const { ok, body } = await api('/api/admin/weekly-report', jsonBody({ action: 'preview' }));
+  if (!ok) { out.innerHTML = '<span class="msg bad">取得に失敗しました：' + crEsc(body.error || '') + '</span>'; return; }
+  const range = (body.weekStart || '') + ' 〜 ' + (body.weekEnd || '');
+  const spaces = body.spaces || [];
+  const willSend = spaces.filter(s => s.willSend).length;
+  let html = '<div style="margin-bottom:8px">対象週：<strong>' + crEsc(range) + '</strong>　送信されるスペース：<strong>' + willSend + '</strong> / ' + spaces.length + '</div>';
+  html += spaces.map(s => {
+    const badge = s.willSend
+      ? '<span style="color:#166534">送信対象</span>'
+      : '<span style="color:#9ca3af">送信なし（' + (s.count === 0 ? '今週予約0件' : '宛先未設定') + '）</span>';
+    const to = s.recipients.length ? crEsc(s.recipients.join(', ')) : '（宛先なし）';
+    return '<details style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff">'
+      + '<summary style="cursor:pointer"><strong>' + crEsc(s.spaceName) + '</strong>　今週 ' + s.count + '件　' + badge + '</summary>'
+      + '<div style="font-size:12px;color:#6b7280;margin:6px 0">宛先：' + to + '</div>'
+      + '<div style="font-size:12px;color:#374151;margin-bottom:4px">件名：' + crEsc(s.subject) + '</div>'
+      + '<pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:8px;font-size:12px;margin:0">' + crEsc(s.text) + '</pre>'
+      + '</details>';
+  }).join('');
+  out.innerHTML = html;
+}
+async function sendWeekly() {
+  if (!confirm('今週分の「まとめメール」を、宛先が設定され今週予約があるスペースに今すぐ送信します。よろしいですか？\n（ステージングでは実送信されません）')) return;
+  const out = document.getElementById('weeklyResult');
+  out.innerHTML = '<span class="muted">送信中…</span>';
+  const { ok, body } = await api('/api/admin/weekly-report', jsonBody({ action: 'send' }));
+  if (!ok) { out.innerHTML = '<span class="msg bad">送信に失敗しました：' + crEsc(body.error || '') + '</span>'; return; }
+  out.innerHTML = '<span class="msg ok">送信しました：' + (body.sent || 0) + '通（スキップ ' + (body.skipped || 0) + '）</span>';
 }
 
 // --- 季節料金・キャンペーン ---

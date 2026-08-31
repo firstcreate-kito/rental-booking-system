@@ -783,10 +783,12 @@ async function loadSpaces() {
     if (match) {
       S.deepLinked = true;
       selectSpace(match.id);
-      // サイトの埋め込みカレンダーから ?date=YYYY-MM-DD 付きで遷移してきた場合、
+      // サイトの埋め込みカレンダー／空き状況ページから ?date=YYYY-MM-DD 付きで遷移してきた場合、
       // カレンダー表示後にその日の時刻選択モーダルを自動で開く（#19）。
+      // ただし「申込はお問い合わせのみ」の施設では自動で開かない（施設設定を尊重）。
+      // お客様はカレンダーを見た上で、日付クリック→お問い合わせ誘導に進む。
       const wantDate = new URLSearchParams(location.search).get('date');
-      if (wantDate && /^\d{4}-\d{2}-\d{2}$/.test(wantDate)) {
+      if (wantDate && /^\d{4}-\d{2}-\d{2}$/.test(wantDate) && !(match.inquiryOnly)) {
         setTimeout(() => { try { openModal(wantDate); } catch (e) {} }, 400);
       }
       return;
@@ -1438,6 +1440,12 @@ function setDefaultEnd() {
   en.value = chosen || lastValid || st.value;
 }
 async function openModal(date) {
+  // 「申込はお問い合わせのみ」の施設は、予約モーダルを開かずお問い合わせへ誘導する（施設設定を尊重・保険）。
+  // ※ 万一この関数が呼ばれても、サーバー側でも inquiry_only の予約作成は拒否される。
+  if (S.space && S.space.inquiryOnly) {
+    alert('このスペースはネットでの直接予約を承っておりません。ご予約・ご相談はお問い合わせよりお願いいたします。');
+    return;
+  }
   // WEBサイト埋め込み(?embed=1)時は、日付クリックで予約システム本体（全画面）へ遷移し、
   // その日付の時刻選択を開いて予約を進める。予約プロセスはiframe内では行わない（#19）。
   if (S.embed) {

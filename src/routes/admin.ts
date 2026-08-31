@@ -2420,13 +2420,6 @@ app.get('/settings', async (c) => {
   return c.json({
     contactUrl: s.get('contact_url') ?? '',
     pointRate: Number(s.get('point_rate') ?? '1'), // ポイント還元率(%)（#70）
-    // 空き状況ページ表示トグル。明示 '1'/'0' が優先、未設定はステージングON・本番OFF（実効値を返す）。
-    availabilityEmbedEnabled: (() => {
-      const raw = s.get('availability_embed_enabled');
-      if (raw === '1') return true;
-      if (raw === '0') return false;
-      return c.env.APP_ENV === 'staging';
-    })(),
     issuer: {
       name: s.get('issuer_name') ?? '',
       zip: s.get('issuer_zip') ?? '',
@@ -2568,14 +2561,6 @@ app.put('/settings/contact-url', requireRole('owner', 'manager'), async (c) => {
   }
   await setSystemSetting(c.env.DB, 'contact_url', url);
   return c.json({ ok: true, contactUrl: url });
-});
-
-/** PUT /api/admin/settings/availability-embed 空き状況の埋め込み表示のON/OFF（既定OFF・一時停止用） */
-app.put('/settings/availability-embed', requireRole('owner', 'manager'), async (c) => {
-  const b = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
-  const enabled = b.enabled === true || b.enabled === '1' || b.enabled === 1;
-  await setSystemSetting(c.env.DB, 'availability_embed_enabled', enabled ? '1' : '0');
-  return c.json({ ok: true, availabilityEmbedEnabled: enabled });
 });
 
 // ---------------------------------------------------------------------------

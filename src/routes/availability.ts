@@ -26,27 +26,9 @@ function nextWeekend(today: string): string {
   return today;
 }
 
-/**
- * 空き状況ページ/APIの表示可否。管理画面トグル（availability_embed_enabled）が優先。
- * 明示 '1'→表示 / '0'→停止。未設定のときは環境ごとの既定：ステージングは表示（テスト用）、
- * 本番は停止（安全側）。これによりステージングでは既定で挙動確認ができ、本番は保護される。
- */
-async function availabilityDisplayEnabled(env: AppBindings['Bindings']): Promise<boolean> {
-  const raw = await getSystemSetting(env.DB, 'availability_embed_enabled');
-  if (raw === '1') return true;
-  if (raw === '0') return false;
-  return env.APP_ENV === 'staging';
-}
-
 /** JSON API: GET /api/availability?date=&use=&area= */
 export const availabilityApi = new Hono<AppBindings>();
 availabilityApi.get('/', async (c) => {
-  // 空き状況の一時停止トグルがOFFのときは JSON も返さない（迂回路の遮断）。
-  const enabled = await availabilityDisplayEnabled(c.env);
-  if (!enabled) {
-    c.header('Cache-Control', 'no-store');
-    return c.json({ disabled: true }, 503);
-  }
   const q = c.req.query('date');
   const date = isYmd(q) ? q : todayJST();
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
@@ -54,29 +36,12 @@ availabilityApi.get('/', async (c) => {
   return c.json(data);
 });
 
-/** 空き状況の表示を一時停止しているときに返す「準備中」ページ（埋め込み・直接アクセス共通）。 */
-function embedDisabledHtml(): string {
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
-<title>準備中</title></head>
-<body style="margin:0;font-family:system-ui,sans-serif;background:transparent;color:#64748b">
-<div style="padding:40px 20px;text-align:center;font-size:15px;line-height:1.8">ただいま準備中です。</div>
-</body></html>`;
-}
-
 /** SSR ページ: GET /availability(/) */
 export async function availabilityPage(c: import('hono').Context<AppBindings>): Promise<Response> {
   const q = c.req.query('date');
   const today = todayJST();
   const date = isYmd(q) ? q : today;
-  // 空き状況の表示は管理画面のトグルで一時停止できる。既定は停止（明示的に有効化した時のみ表示）。
-  // 埋め込み（iframe）・直接アクセスの /availability の両方に適用する。
-  const embed = c.req.query('embed') === '1';
-  const availabilityEnabled = await availabilityDisplayEnabled(c.env);
-  if (!availabilityEnabled) {
-    c.header('Cache-Control', 'no-store');
-    return c.html(embedDisabledHtml());
-  }
+  const embed = c.req.query('embed') === '1'; // WEBサイト等への iframe 埋め込み（#19）
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '/';
   const html = renderAvailabilityPage(data, {
@@ -86,7 +51,7 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
     contactUrl,
     lineUrl: LINE_URL,
     loginUrl: '/mypage.html',
-    embed, // WEBサイト等への iframe 埋め込み（#19・上のトグルで有効化した時のみ到達）
+    embed, // WEBサイト等への iframe 埋め込み（#19）
   });
   c.header('Cache-Control', 'public, max-age=300');
   return c.html(html);

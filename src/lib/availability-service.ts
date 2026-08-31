@@ -204,8 +204,9 @@ export async function assembleAvailability(
     const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly && !beyondClosing;
     const bookingHref = bookable ? `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}` : null;
     // 直接予約できない行（閲覧のみ/商談中/満室等）でも、お問い合わせに直行せず一度カレンダーへ
-    // 誘導するためのリンク（日付なし＝時刻選択の自動オープンはしない）。
-    const spaceHref = `/?space=${encodeURIComponent(rep.slug ?? rep.id)}`;
+    // 誘導するためのリンク。日付を付けてその月のカレンダーを開く（時刻選択の自動オープンは
+    // カレンダー側で「予約可能な日だけ」に限定する）。
+    const spaceHref = `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}`;
     const row: AvailabilityRow = {
       id: rep.room_group ? `group:${rep.room_group}` : rep.id,
       name: roomsTotal > 1 ? groupDisplayName(rep.name) : rep.name,

@@ -782,14 +782,20 @@ async function loadSpaces() {
     const match = S.spaces.find(s => s.id === wanted || s.slug === wanted);
     if (match) {
       S.deepLinked = true;
-      selectSpace(match.id);
-      // サイトの埋め込みカレンダー／空き状況ページから ?date=YYYY-MM-DD 付きで遷移してきた場合、
-      // カレンダー表示後にその日の時刻選択モーダルを自動で開く（#19）。
-      // ただし「申込はお問い合わせのみ」の施設では自動で開かない（施設設定を尊重）。
-      // お客様はカレンダーを見た上で、日付クリック→お問い合わせ誘導に進む。
+      // ?date= 付きで来た場合は、その日の「月」のカレンダーを開く（例：11/27→11月表示）。
       const wantDate = new URLSearchParams(location.search).get('date');
-      if (wantDate && /^\d{4}-\d{2}-\d{2}$/.test(wantDate) && !(match.inquiryOnly)) {
-        setTimeout(() => { try { openModal(wantDate); } catch (e) {} }, 400);
+      const validDate = wantDate && /^\d{4}-\d{2}-\d{2}$/.test(wantDate);
+      selectSpace(match.id, validDate ? wantDate.slice(0, 7) : undefined);
+      // その日が実際に予約可能な場合のみ、時刻選択モーダルを自動で開く（#19）。
+      // 閲覧のみ・商談中・満室・お問い合わせのみ等では自動オープンせず、カレンダーを見た上で
+      // 日付クリック→施設設定に応じた案内（お問い合わせ等）に進む。
+      if (validDate && !match.inquiryOnly) {
+        setTimeout(() => {
+          try {
+            const d = S.daysByDate && S.daysByDate[wantDate];
+            if (d && d.bookable) openModal(wantDate);
+          } catch (e) {}
+        }, 500);
       }
       return;
     }
@@ -1080,11 +1086,14 @@ async function prefetchUsableTickets() {
   } catch (e) {}
   updateTicketGuideNote();
 }
-function selectSpace(id) {
+function selectSpace(id, targetMonth) {
   S.space = S.spaces.find(s => s.id === id);
   S.cart = [];
   const now = new Date();
-  S.month = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const cur = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  // 空き状況ページ等から特定月（例：選んだ日の月）が指定されたらその月で開く。
+  // 過去へは戻さない（当月より前なら当月にクランプ）。
+  S.month = (targetMonth && /^\d{4}-\d{2}$/.test(targetMonth) && targetMonth > cur) ? targetMonth : cur;
   document.getElementById('calSpaceName').textContent = S.space.name;
   updateTicketGuideNote();
   prefetchUsableTickets();
@@ -1185,6 +1194,9 @@ async function loadCalendar() {
       inqEl.classList.add('hidden');
     }
   }
+  // 日付→日データのマップ（ディープリンクの自動オープン判定などに使用）
+  S.daysByDate = {};
+  (body1.days || []).concat(body2.days || []).forEach((d) => { if (d && d.date) S.daysByDate[d.date] = d; });
   renderMonthPanel('calM1', 'dows1', 'grid1', m1, body1.days);
   renderMonthPanel('calM2', 'dows2', 'grid2', m2, body2.days);
   document.getElementById('calRange').textContent = monthLabel(m1) + ' 〜 ' + monthLabel(m2);

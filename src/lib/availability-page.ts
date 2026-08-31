@@ -61,16 +61,12 @@ function rowHtml(r: AvailabilityRow, ctx: PageContext): string {
   const next = r.status !== 'ok' && r.nextOpen ? `<div class="next">次に空いているのは <b>${labelYmd(r.nextOpen)}</b></div>` : '';
   // 予約可能期間より先＝閲覧のみ（ネット予約対象外）。まずカレンダーへ誘導する（#77）
   const viewNote = r.viewOnly ? `<div class="next">この期間はネット予約対象外 ─ 長期・複数日はカレンダーからお問い合わせください</div>` : '';
-  // 遷移先はお問い合わせに直行させず、まず施設カレンダーへ：
-  //  空き(予約可能)→日付つきで予約フロー、閲覧のみ/商談中→日付なしでカレンダー表示、
-  //  満室/休業などリンク対象外→リンクなし。カレンダー側で施設設定に応じた案内（お問い合わせ等）を表示。
-  const href = r.viewOnly
-    ? r.spaceHref
-    : r.status === 'ok'
-      ? r.bookingHref || r.spaceHref
-      : r.status === 'talk'
-        ? r.spaceHref
-        : null;
+  // どの状態でも「まず施設カレンダー（選んだ日の月）」へ遷移させる。指定日が満室・商談中・
+  // お問い合わせのみでも、前後の日の空きを見て検討できるようにするため。カレンダー側で
+  //  ・予約可能な日 → その日の時刻選択モーダルを自動で開く
+  //  ・満室/閲覧のみ/商談中/お問い合わせのみ → モーダルは開かず、日付クリックで施設設定に応じた案内
+  // を出す（openModal/施設設定ガードで制御）。
+  const href = r.spaceHref;
   const meta = [r.areaName, r.meta].filter(Boolean).join('・');
   const inner =
     `<div><div class="rname">${escapeHtml(r.name)}${rooms}</div>` +

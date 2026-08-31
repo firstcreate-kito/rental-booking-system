@@ -145,22 +145,29 @@ export async function assembleAvailability(
   const intervalsOf = (spaceId: string, ymd: string) => map.get(spaceId)?.get(ymd) ?? [];
 
   // 各施設の対象日判定＋「次の空き」
+  // 1施設のデータ不備（例: 不正な営業時刻）で例外が出ても、その施設だけ「満室扱い」に
+  // フォールバックしてページ全体は必ず描画する（空き状況ページの堅牢化）。
   const perSpace: SpaceDay[] = spaces.map((s) => {
-    const leadDays = s.booking_deadline_days ?? defaultDeadline;
-    const earliest = addDaysJST(today, leadDays);
-    const ctx = { today, now, earliest, cutoff: s.same_day_cutoff_hours ?? 1 };
-    const judged = judgeDay(s, dateYmd, intervalsOf(s.id, dateYmd), holidays, ctx);
-    let nextOpen: string | null = null;
-    if (judged.group !== 'ok') {
-      for (let i = 1; i <= NEXT_OPEN_SCAN_DAYS; i++) {
-        const d = addDaysJST(dateYmd, i);
-        if (judgeDay(s, d, intervalsOf(s.id, d), holidays, ctx).group === 'ok') {
-          nextOpen = d;
-          break;
+    try {
+      const leadDays = s.booking_deadline_days ?? defaultDeadline;
+      const earliest = addDaysJST(today, leadDays);
+      const ctx = { today, now, earliest, cutoff: s.same_day_cutoff_hours ?? 1 };
+      const judged = judgeDay(s, dateYmd, intervalsOf(s.id, dateYmd), holidays, ctx);
+      let nextOpen: string | null = null;
+      if (judged.group !== 'ok') {
+        for (let i = 1; i <= NEXT_OPEN_SCAN_DAYS; i++) {
+          const d = addDaysJST(dateYmd, i);
+          if (judgeDay(s, d, intervalsOf(s.id, d), holidays, ctx).group === 'ok') {
+            nextOpen = d;
+            break;
+          }
         }
       }
+      return { space: s, group: judged.group, freeWindows: judged.freeWindows, nextOpen };
+    } catch (err) {
+      console.log('[availability] space judge failed (fallback to full)', { spaceId: s.id, name: s.name, error: (err as Error).message });
+      return { space: s, group: 'full' as AvailabilityGroup, freeWindows: [], nextOpen: null };
     }
-    return { space: s, group: judged.group, freeWindows: judged.freeWindows, nextOpen };
   });
 
   // 同型グループでまとめる（room_group が同じものを1行に）

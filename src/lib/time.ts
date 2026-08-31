@@ -8,6 +8,9 @@ export function toMinutes(hhmm: string): number {
   if (!m) throw new Error(`invalid time format: ${hhmm}`);
   const h = Number(m[1]);
   const min = Number(m[2]);
+  // 「24:00」は日付の終わり(1440分)として許容する（営業終了時刻の表記ゆれ対応）。
+  // 例：24時間営業スペースの close_time を 00:00〜24:00 と設定するケース。
+  if (h === 24 && min === 0) return 24 * 60;
   if (h < 0 || h > 23 || min < 0 || min > 59) {
     throw new Error(`out-of-range time: ${hhmm}`);
   }

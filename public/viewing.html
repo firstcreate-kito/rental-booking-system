@@ -225,6 +225,21 @@
         <label><input type="radio" name="bs" value="considering">予約検討中</label>
         <label><input type="radio" name="bs" value="other">その他</label>
       </div>
+      <label>ご利用希望日（時期） <span class="opt">任意</span></label>
+      <div class="muted" style="font-size:12px;margin:-2px 0 6px">見学後のご利用を具体的にお考えの場合は、ご希望の日時をお知らせください。時期がお決まりでない方は「時期検討中」をお選びください。</div>
+      <div class="radios">
+        <label><input type="radio" name="uw" value="date" onchange="onUsageWhenChange()">日付・時間を指定</label>
+        <label><input type="radio" name="uw" value="undecided" onchange="onUsageWhenChange()">時期検討中</label>
+      </div>
+      <div id="uwDate" class="hidden" style="margin-top:6px">
+        <div class="row" style="gap:10px;flex-wrap:wrap">
+          <div><label style="font-size:13px">ご希望日</label><input type="date" id="uw_date"></div>
+          <div><label style="font-size:13px">ご希望時間帯 <span class="opt">任意</span></label><input type="time" id="uw_time"></div>
+        </div>
+      </div>
+      <div id="uwText" class="hidden" style="margin-top:6px">
+        <textarea id="uw_text" placeholder="ご利用希望の時期をご記入ください（例：来月以降で調整希望／夏頃　など）"></textarea>
+      </div>
       <label>ご質問・ご要望 <span class="opt">任意</span></label>
       <textarea id="note" placeholder="ご不明点やご要望がありましたらご記入ください。"></textarea>
     </div>
@@ -554,6 +569,21 @@ async function submit() {
     payload.prefTimeband = document.getElementById('prefTimeband').value;
   }
 
+  // ご利用希望日（時期）任意欄：日付指定 or 時期検討中（フリーテキスト）
+  const uwEl = document.querySelector('input[name="uw"]:checked');
+  if (uwEl) {
+    payload.usageWishType = uwEl.value;
+    if (uwEl.value === 'date') {
+      const ud = document.getElementById('uw_date').value;
+      const ut = document.getElementById('uw_time').value;
+      if (ud) payload.usageDate = ud;
+      if (ut) payload.usageTime = ut;
+    } else if (uwEl.value === 'undecided') {
+      const txt = document.getElementById('uw_text').value.trim();
+      if (txt) payload.usageText = txt;
+    }
+  }
+
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送信中…';
   const { ok, body } = await api('/api/viewing/requests', { method: 'POST', body: JSON.stringify(payload) });
@@ -576,6 +606,12 @@ async function submit() {
   } catch (e) {}
 }
 
+// ご利用希望日（時期）任意欄：選択に応じて入力欄を出し分け
+function onUsageWhenChange() {
+  const v = (document.querySelector('input[name="uw"]:checked') || {}).value;
+  document.getElementById('uwDate').classList.toggle('hidden', v !== 'date');
+  document.getElementById('uwText').classList.toggle('hidden', v !== 'undecided');
+}
 // 初期日付の下限＝本日
 (function initDates(){
   const today = new Date();
@@ -583,6 +619,7 @@ async function submit() {
   const min = `${y}-${m}-${d}`;
   document.getElementById('d1').min = min;
   document.getElementById('d2').min = min;
+  document.getElementById('uw_date').min = min; // ご利用希望日も過去日は選べない
 })();
 // 起動：施設一覧→外部ログインボタン→（?magic=／?login_error= があれば処理）→会員セッション復元
 (async function boot() {

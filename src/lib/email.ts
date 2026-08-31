@@ -1811,7 +1811,7 @@ ${d.note ? `<p style="margin:6px 0;color:#6b7280">ご質問・ご要望</p><p st
 
 /** 見学申込 通知メール（スタッフ向け） */
 export function adminViewingRequestEmail(
-  d: ViewingRequestEmailData & { email: string; phone: string; orgName?: string; bookingStatus?: string; adminUrl?: string },
+  d: ViewingRequestEmailData & { email: string; phone: string; orgName?: string; bookingStatus?: string; usageWish?: string; adminUrl?: string },
 ): { subject: string; html: string; text: string } {
   const subject = `【見学申込】${d.spaceNames}｜${d.customerName} 様`;
   const wishText =
@@ -1827,7 +1827,7 @@ export function adminViewingRequestEmail(
 ${d.orgName ? `会社/学校/団体：${d.orgName}\n` : ''}見学希望スペース：${d.spaceNames}
 受付方式：${d.mode === 'slot' ? '空き枠選択' : '希望時期→候補提案'}
 ${wishText}
-${d.purpose ? `利用目的：${d.purpose}\n` : ''}${bs ? `現在の予約状況：${bs}\n` : ''}${d.note ? `\nご質問・ご要望：\n${d.note}\n` : ''}
+${d.purpose ? `利用目的：${d.purpose}\n` : ''}${bs ? `現在の予約状況：${bs}\n` : ''}${d.usageWish ? `ご利用希望日（時期）：${d.usageWish}\n` : ''}${d.note ? `\nご質問・ご要望：\n${d.note}\n` : ''}
 ${d.adminUrl ? `\n▼管理画面（見学タブ）で確定/提案してください\n${d.adminUrl}` : '\n管理画面「見学」タブで確定/提案してください。'}`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>見学の申し込みが入りました。</p>
@@ -1840,6 +1840,7 @@ ${d.orgName ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">会社/学�
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">受付方式</td><td>${d.mode === 'slot' ? '空き枠選択' : '希望時期→候補提案'}</td></tr>
 ${d.purpose ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">利用目的</td><td>${escapeHtml(d.purpose)}</td></tr>` : ''}
 ${bs ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">現在の予約状況</td><td>${escapeHtml(bs)}</td></tr>` : ''}
+${d.usageWish ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご利用希望日（時期）</td><td>${escapeHtml(d.usageWish)}</td></tr>` : ''}
 </table>
 ${
   d.mode === 'slot' && d.choices?.length

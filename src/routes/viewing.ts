@@ -136,6 +136,21 @@ app.post('/requests', async (c) => {
   const purpose = String((body.purpose as string) || '').trim();
   const bookingStatus = String((body.bookingStatus as string) || '').trim();
   const note = String((body.note as string) || '').trim() || null;
+  // ご利用希望日（時期）任意欄：カレンダー指定 or「時期検討中」（フリーテキスト）を表示文字列へ整形
+  const usageWish = ((): string | null => {
+    const t = String((body.usageWishType as string) || '').trim();
+    if (t === 'date') {
+      const d = String((body.usageDate as string) || '').trim();
+      if (!DATE_RE.test(d)) return null;
+      const tm = String((body.usageTime as string) || '').trim();
+      return TIME_RE.test(tm) ? `${d} ${tm}` : d;
+    }
+    if (t === 'undecided') {
+      const txt = String((body.usageText as string) || '').trim();
+      return txt ? `時期検討中：${txt}` : '時期検討中';
+    }
+    return null;
+  })();
 
   // 共通バリデーション
   if (spaceIds.length === 0) return c.json({ error: '見学希望のスペースを選択してください' }, 400);
@@ -227,6 +242,7 @@ app.post('/requests', async (c) => {
     prefDaytype,
     prefTimeband,
     note,
+    usageWish,
     customerId: member?.id ?? null,
     spaceIds,
     now,
@@ -267,6 +283,7 @@ app.post('/requests', async (c) => {
           desiredPeriod: desiredPeriod ?? undefined,
           purpose,
           note: note ?? undefined,
+          usageWish: usageWish ?? undefined,
           email,
           phone,
           orgName: orgName ?? undefined,

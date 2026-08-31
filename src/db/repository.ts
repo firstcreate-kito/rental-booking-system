@@ -3323,6 +3323,7 @@ export interface ViewingRequestInput {
   prefDaytype?: string | null;
   prefTimeband?: string | null;
   note?: string | null;
+  usageWish?: string | null; // ご利用希望日（時期）任意欄：整形済み表示文字列
   customerId?: string | null;
   spaceIds: string[];
   now: string;
@@ -3345,6 +3346,7 @@ export interface ViewingRequestRow {
   pref_daytype: string | null;
   pref_timeband: string | null;
   note: string | null;
+  usage_wish: string | null;
   status: string;
   confirmed_date: string | null;
   confirmed_start: string | null;
@@ -3365,8 +3367,8 @@ export async function createViewingRequest(db: D1Database, d: ViewingRequestInpu
       `INSERT INTO viewing_requests
        (id, mode, customer_name, email, phone, org_name, purpose, booking_status,
         first_date, first_start, second_date, second_start,
-        desired_period, pref_daytype, pref_timeband, note, customer_id, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        desired_period, pref_daytype, pref_timeband, note, usage_wish, customer_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     )
     .bind(
       d.id,
@@ -3385,6 +3387,7 @@ export async function createViewingRequest(db: D1Database, d: ViewingRequestInpu
       d.prefDaytype ?? null,
       d.prefTimeband ?? null,
       d.note ?? null,
+      d.usageWish ?? null,
       d.customerId ?? null,
       d.now,
     )

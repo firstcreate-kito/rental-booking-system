@@ -1656,6 +1656,7 @@ app.get('/viewing-requests', async (c) => {
     desiredPeriod: r.desired_period ?? '',
     prefDaytype: r.pref_daytype ?? '',
     prefTimeband: r.pref_timeband ?? '',
+    usageWish: r.usage_wish ?? '',
     note: r.note ?? '',
     status: r.status,
     confirmed: r.confirmed_date ? { date: r.confirmed_date, start: r.confirmed_start, end: r.confirmed_end } : null,

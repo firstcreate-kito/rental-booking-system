@@ -2420,7 +2420,13 @@ app.get('/settings', async (c) => {
   return c.json({
     contactUrl: s.get('contact_url') ?? '',
     pointRate: Number(s.get('point_rate') ?? '1'), // ポイント還元率(%)（#70）
-    availabilityEmbedEnabled: s.get('availability_embed_enabled') === '1', // 空き状況の埋め込み表示（既定OFF）
+    // 空き状況ページ表示トグル。明示 '1'/'0' が優先、未設定はステージングON・本番OFF（実効値を返す）。
+    availabilityEmbedEnabled: (() => {
+      const raw = s.get('availability_embed_enabled');
+      if (raw === '1') return true;
+      if (raw === '0') return false;
+      return c.env.APP_ENV === 'staging';
+    })(),
     issuer: {
       name: s.get('issuer_name') ?? '',
       zip: s.get('issuer_zip') ?? '',

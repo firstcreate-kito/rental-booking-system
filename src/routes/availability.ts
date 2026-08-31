@@ -26,11 +26,23 @@ function nextWeekend(today: string): string {
   return today;
 }
 
+/**
+ * 空き状況ページ/APIの表示可否。管理画面トグル（availability_embed_enabled）が優先。
+ * 明示 '1'→表示 / '0'→停止。未設定のときは環境ごとの既定：ステージングは表示（テスト用）、
+ * 本番は停止（安全側）。これによりステージングでは既定で挙動確認ができ、本番は保護される。
+ */
+async function availabilityDisplayEnabled(env: AppBindings['Bindings']): Promise<boolean> {
+  const raw = await getSystemSetting(env.DB, 'availability_embed_enabled');
+  if (raw === '1') return true;
+  if (raw === '0') return false;
+  return env.APP_ENV === 'staging';
+}
+
 /** JSON API: GET /api/availability?date=&use=&area= */
 export const availabilityApi = new Hono<AppBindings>();
 availabilityApi.get('/', async (c) => {
   // 空き状況の一時停止トグルがOFFのときは JSON も返さない（迂回路の遮断）。
-  const enabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
+  const enabled = await availabilityDisplayEnabled(c.env);
   if (!enabled) {
     c.header('Cache-Control', 'no-store');
     return c.json({ disabled: true }, 503);
@@ -60,7 +72,7 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
   // 空き状況の表示は管理画面のトグルで一時停止できる。既定は停止（明示的に有効化した時のみ表示）。
   // 埋め込み（iframe）・直接アクセスの /availability の両方に適用する。
   const embed = c.req.query('embed') === '1';
-  const availabilityEnabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
+  const availabilityEnabled = await availabilityDisplayEnabled(c.env);
   if (!availabilityEnabled) {
     c.header('Cache-Control', 'no-store');
     return c.html(embedDisabledHtml());

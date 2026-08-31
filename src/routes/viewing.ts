@@ -261,7 +261,7 @@ app.post('/requests', async (c) => {
   c.executionCtx.waitUntil(
     sendEmail(c.env, {
       to: email,
-      ...viewingReceivedEmail({ customerName: contactName, spaceNames, mode, choices, desiredPeriod: desiredPeriod ?? undefined, purpose, note: note ?? undefined }),
+      ...viewingReceivedEmail({ customerName: contactName, spaceNames, mode, choices, desiredPeriod: desiredPeriod ?? undefined, purpose, phone, note: note ?? undefined }),
     }),
   );
   // スタッフ宛：全選択施設の通知先を集約

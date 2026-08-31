@@ -1771,7 +1771,7 @@ export interface ViewingRequestEmailData {
 }
 
 /** 見学申込 受付メール（お客様向け・自動返信） */
-export function viewingReceivedEmail(d: ViewingRequestEmailData): { subject: string; html: string; text: string } {
+export function viewingReceivedEmail(d: ViewingRequestEmailData & { phone?: string }): { subject: string; html: string; text: string } {
   const subject = '【レンタルスペースALBE】見学のお申し込みを受け付けました';
   const wishText =
     d.mode === 'slot' && d.choices?.length
@@ -1784,7 +1784,7 @@ export function viewingReceivedEmail(d: ViewingRequestEmailData): { subject: str
 
 【見学希望のスペース】
 ${d.spaceNames}${wishText}
-${d.purpose ? `\n【利用目的】\n${d.purpose}` : ''}${d.note ? `\n\n【ご質問・ご要望】\n${d.note}` : ''}
+${d.purpose ? `\n【利用目的】\n${d.purpose}` : ''}${d.phone ? `\n\n【お電話番号】\n${d.phone}` : ''}${d.note ? `\n\n【ご質問・ご要望】\n${d.note}` : ''}
 
 ※このメールは「受付」の段階です。見学日時の確定は、あらためてメールでお知らせいたします。
 ※ご予約状況の変化により、ご希望に添えない場合は代替日をご案内いたします。`;
@@ -1803,6 +1803,7 @@ ${d.purpose ? `\n【利用目的】\n${d.purpose}` : ''}${d.note ? `\n\n【ご�
 <p style="font-weight:600">${escapeHtml(d.spaceNames)}</p>
 ${choicesHtml}
 ${d.purpose ? `<p style="margin:6px 0;color:#6b7280">利用目的</p><p>${escapeHtml(d.purpose)}</p>` : ''}
+${d.phone ? `<p style="margin:6px 0;color:#6b7280">お電話番号</p><p>${escapeHtml(d.phone)}</p>` : ''}
 ${d.note ? `<p style="margin:6px 0;color:#6b7280">ご質問・ご要望</p><p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">${escapeHtml(d.note)}</p>` : ''}
 <p style="color:#6b7280;font-size:13px">※このメールは「受付」の段階です。見学日時の確定は、あらためてメールでお知らせいたします。<br>※ご予約状況の変化により、ご希望に添えない場合は代替日をご案内いたします。</p>
 </div>`;

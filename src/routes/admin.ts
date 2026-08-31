@@ -1143,10 +1143,15 @@ app.get('/bookings/:number', async (c) => {
   const currentOptionsTotal = (optSel ?? []).reduce((s, o) => s + o.subtotal, 0);
   const answers = await getBookingAnswers(db, g.id);
   const ticketPaid = !!(await getTicketUsageForGroup(db, g.id)); // チケット払いか（日時変更で時間数変更不可）#24
+  const prof = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null; // 情報編集の初期値用（#110）
   return c.json({
     bookingNumber: g.booking_number,
     status: g.status,
     eventName: g.event_name,
+    note: g.note ?? '',
+    customer: prof
+      ? { id: String(prof.id), contactName: prof.contact_name ? String(prof.contact_name) : '', email: prof.email ? String(prof.email) : '', phone: prof.phone ? String(prof.phone) : '' }
+      : null,
     spaceName: space?.name ?? '',
     spaceId: g.space_id,
     openTime: space?.open_time ?? null,
@@ -1178,6 +1183,74 @@ app.get('/bookings/:number', async (c) => {
         stockTotal: o.stock_total,
       })),
   });
+});
+
+/**
+ * POST /api/admin/bookings/:number/info 予約情報の編集（#110）
+ * body: { eventName?, note?, contactName?, phone?, email? }
+ * 日時・料金は変えず、event_name（＝サイネージ表示名）とメモ、紐づく顧客の担当者名・電話・
+ * メールを更新し、Googleカレンダー（サイネージの元データ）を再同期する。
+ * 用途例：直前に個人名→イベント名へ表示を変更／イベント名の誤登録の修正／連絡先の変更。
+ * 表示名の修正が主目的のため、変更通知メール（お客様/管理者）は送らない。
+ */
+app.post('/bookings/:number/info', requireRole('owner', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const body = (await c.req.json().catch(() => ({}))) as {
+    eventName?: string; note?: string; contactName?: string; phone?: string; email?: string;
+  };
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (g.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約は編集できません' }, 400);
+
+  const eventName = typeof body.eventName === 'string' ? body.eventName.trim() : undefined;
+  if (eventName !== undefined && eventName === '') return c.json({ error: 'イベント名は空にできません' }, 400);
+  const note = typeof body.note === 'string' ? body.note.trim() : undefined;
+
+  // グループ（イベント名＝サイネージ表示名・メモ）の更新
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  if (eventName !== undefined) { sets.push('event_name = ?'); binds.push(eventName); }
+  if (note !== undefined) { sets.push('note = ?'); binds.push(note || null); }
+  if (sets.length) {
+    binds.push(g.id);
+    await db.prepare(`UPDATE booking_groups SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+  }
+
+  // お客様プロフィール（担当者名・電話・メール）の更新（この予約に紐づく顧客・共有プロフィール）
+  let customerUpdated = false;
+  if (g.customer_id) {
+    const cs: string[] = [];
+    const cb: unknown[] = [];
+    if (typeof body.contactName === 'string' && body.contactName.trim()) { cs.push('contact_name = ?'); cb.push(body.contactName.trim()); }
+    if (typeof body.phone === 'string') { cs.push('phone = ?'); cb.push(body.phone.trim() || null); }
+    if (typeof body.email === 'string' && body.email.trim()) { cs.push('email = ?'); cb.push(body.email.trim()); }
+    if (cs.length) {
+      cb.push(g.customer_id);
+      await db.prepare(`UPDATE customers SET ${cs.join(', ')} WHERE id = ?`).bind(...cb).run();
+      customerUpdated = true;
+    }
+  }
+
+  if (!sets.length && !customerUpdated) return c.json({ error: '変更する項目がありません' }, 400);
+
+  // Googleカレンダー（サイネージの元データ）を再同期＝タイトル/説明にイベント名・お名前を反映
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  let calendarWarning: string | null = null;
+  try {
+    const res = await syncBookingCalendarEvents(c.env, g.id, origin);
+    calendarWarning = res.warning ?? null;
+  } catch {
+    calendarWarning = 'カレンダー同期に失敗しました（表示反映が遅れる場合があります）';
+  }
+
+  try {
+    const adminC = c.get('admin');
+    const parts = [eventName !== undefined ? 'イベント名' : null, customerUpdated ? 'お客様連絡先' : null, note !== undefined ? 'メモ' : null].filter(Boolean).join('・');
+    await recordBookingEvent(db, { groupId: g.id, type: 'info_edit', summary: `予約情報を編集（${parts}）`, actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
+  } catch { /* 履歴記録の失敗は本処理に影響させない */ }
+
+  return c.json({ ok: true, calendarWarning });
 });
 
 /**

@@ -1624,6 +1624,7 @@ export interface BookingGroupRow {
   payment_method: string | null;
   invoice_name: string | null;
   payment_status: string;
+  note: string | null;
 }
 
 export interface BookingRow {

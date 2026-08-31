@@ -195,6 +195,22 @@
           <button class="btn ghost sm" onclick="closeReschedule()">✕</button>
         </div>
         <div class="muted" id="rsInfo" style="margin:6px 0 10px"></div>
+        <!-- 予約情報の編集（サイネージ表示名＝イベント名・お客様連絡先）#110 -->
+        <div style="margin:6px 0 12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px">予約情報（サイネージ表示名・お客様連絡先）</div>
+          <div class="grid">
+            <div><label>イベント名（サイネージ表示名）</label><input id="rs_event" placeholder="例）○○社 商談会" /></div>
+            <div><label>担当者名</label><input id="rs_contact" /></div>
+            <div><label>電話</label><input id="rs_phone" /></div>
+            <div><label>メール</label><input id="rs_email" /></div>
+          </div>
+          <label>メモ（任意）</label><input id="rs_note" />
+          <div class="row" style="gap:8px;align-items:center;margin-top:8px">
+            <button class="btn sm" onclick="submitBookingInfo()">情報を保存</button>
+            <span class="muted" style="font-size:11px">日時・料金は変わりません。サイネージ表示（イベント名・お名前）に反映されます。通知メールは送りません。</span>
+          </div>
+          <div class="msg" id="rsInfoMsg" style="font-size:12px"></div>
+        </div>
         <div style="font-weight:600;font-size:13px;margin-bottom:4px">日時</div>
         <div id="rsSlots"></div>
         <div id="rsAnswersWrap" class="hidden" style="margin-top:12px">
@@ -2600,6 +2616,17 @@ async function openReschedule(number, prefillItems) {
   const payTxt = payLbl ? ('／' + payLbl + ((body.paymentMethod==='invoice'||body.paymentMethod==='bank_transfer') && body.invoiceName ? '（'+body.invoiceName+'）' : '')) : '';
   document.getElementById('rsInfo').textContent =
     body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）' + payTxt;
+  // 予約情報の編集欄に現在値を反映（#110）
+  document.getElementById('rs_event').value = body.eventName || '';
+  document.getElementById('rs_note').value = body.note || '';
+  const _cst = body.customer || {};
+  document.getElementById('rs_contact').value = _cst.contactName || '';
+  document.getElementById('rs_phone').value = _cst.phone || '';
+  document.getElementById('rs_email').value = _cst.email || '';
+  document.getElementById('rsInfoMsg').textContent = '';
+  // 顧客が紐づかない予約（ゲスト等）は連絡先の編集不可（イベント名・メモは可）
+  const _hasCust = !!body.customer;
+  ['rs_contact', 'rs_phone', 'rs_email'].forEach(id => { document.getElementById(id).disabled = !_hasCust; });
   // 支払いステータス変更（本予約かつ金額>0のとき表示）
   const payWrap = document.getElementById('rsPayWrap');
   if (body.status === 'confirmed' && body.totalAmount > 0 && body.paymentStatus) {
@@ -2677,6 +2704,27 @@ async function updatePayStatus() {
   msg.className = 'msg ok';
   msg.textContent = '「' + label + '」に更新しました' + (body.receiptUrl ? '（領収書を発行）' : '');
   loadBookings(); // 一覧のバッジを更新
+}
+// 予約情報（イベント名＝サイネージ表示名・お客様連絡先・メモ）の保存（#110）
+async function submitBookingInfo() {
+  if (!rsNumber) return;
+  const msg = document.getElementById('rsInfoMsg');
+  const eventName = document.getElementById('rs_event').value.trim();
+  if (!eventName) { msg.className = 'msg bad'; msg.textContent = 'イベント名（サイネージ表示名）は空にできません'; return; }
+  const payload = {
+    eventName,
+    note: document.getElementById('rs_note').value.trim(),
+    contactName: document.getElementById('rs_contact').value.trim(),
+    phone: document.getElementById('rs_phone').value.trim(),
+    email: document.getElementById('rs_email').value.trim(),
+  };
+  msg.className = 'msg'; msg.textContent = '保存中…';
+  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/info', jsonBody(payload));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  msg.className = 'msg ok';
+  msg.textContent = '保存しました（サイネージ表示に反映されます）' + (body.calendarWarning ? '／⚠ ' + body.calendarWarning : '');
+  // 一覧のイベント名・お客様表示を更新
+  loadBookings();
 }
 async function submitReschedule() {
   if (!rsNumber) return;

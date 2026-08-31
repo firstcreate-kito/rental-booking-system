@@ -43,6 +43,7 @@ export interface AvailabilityRow {
   freeWindows: Array<{ start: string; end: string }>;
   nextOpen: string | null; // 'YYYY-MM-DD'
   bookingHref: string | null;
+  spaceHref: string; // 施設カレンダーへのリンク（日付なし）。直接予約不可の行でもまずカレンダーへ誘導する用
   viewOnly: boolean; // 予約可能期間超・閲覧のみ（ネット予約対象外→お問い合わせ）（#77）
 }
 
@@ -202,6 +203,9 @@ export async function assembleAvailability(
     // （カレンダー側でお問い合わせ誘導＋サーバー側で予約作成を遮断）。ここでは特別扱いしない。
     const bookable = (best.group === 'ok' || best.group === 'talk') && !viewOnly && !beyondClosing;
     const bookingHref = bookable ? `/?space=${encodeURIComponent(rep.slug ?? rep.id)}&date=${dateYmd}` : null;
+    // 直接予約できない行（閲覧のみ/商談中/満室等）でも、お問い合わせに直行せず一度カレンダーへ
+    // 誘導するためのリンク（日付なし＝時刻選択の自動オープンはしない）。
+    const spaceHref = `/?space=${encodeURIComponent(rep.slug ?? rep.id)}`;
     const row: AvailabilityRow = {
       id: rep.room_group ? `group:${rep.room_group}` : rep.id,
       name: roomsTotal > 1 ? groupDisplayName(rep.name) : rep.name,
@@ -218,6 +222,7 @@ export async function assembleAvailability(
       freeWindows: best.freeWindows,
       nextOpen,
       bookingHref,
+      spaceHref,
       viewOnly,
     };
     const prio = isToday ? rep.same_day_priority ?? 100 : rep.sort_order;

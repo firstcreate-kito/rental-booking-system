@@ -232,10 +232,8 @@
         <label><input type="radio" name="uw" value="undecided" onchange="onUsageWhenChange()">時期検討中</label>
       </div>
       <div id="uwDate" class="hidden" style="margin-top:6px">
-        <div class="row" style="gap:10px;flex-wrap:wrap">
-          <div><label style="font-size:13px">ご希望日</label><input type="date" id="uw_date"></div>
-          <div><label style="font-size:13px">ご希望時間帯 <span class="opt">任意</span></label><input type="time" id="uw_time"></div>
-        </div>
+        <div id="uwRows"></div>
+        <button type="button" onclick="addUsageRow()" style="margin-top:6px;appearance:none;background:#fff;border:1px solid var(--brand);color:var(--brand);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer">＋追加する</button>
       </div>
       <div id="uwText" class="hidden" style="margin-top:6px">
         <textarea id="uw_text" placeholder="ご利用希望の時期をご記入ください（例：来月以降で調整希望／夏頃　など）"></textarea>
@@ -574,10 +572,13 @@ async function submit() {
   if (uwEl) {
     payload.usageWishType = uwEl.value;
     if (uwEl.value === 'date') {
-      const ud = document.getElementById('uw_date').value;
-      const ut = document.getElementById('uw_time').value;
-      if (ud) payload.usageDate = ud;
-      if (ut) payload.usageTime = ut;
+      const dates = [];
+      document.querySelectorAll('#uwRows .uw-row').forEach(r => {
+        const d = r.querySelector('.uw-date').value;
+        const t = r.querySelector('.uw-time').value;
+        if (d) dates.push({ date: d, time: t || '' });
+      });
+      if (dates.length) payload.usageDates = dates;
     } else if (uwEl.value === 'undecided') {
       const txt = document.getElementById('uw_text').value.trim();
       if (txt) payload.usageText = txt;
@@ -611,6 +612,26 @@ function onUsageWhenChange() {
   const v = (document.querySelector('input[name="uw"]:checked') || {}).value;
   document.getElementById('uwDate').classList.toggle('hidden', v !== 'date');
   document.getElementById('uwText').classList.toggle('hidden', v !== 'undecided');
+  // 「日付・時間を指定」を選んだら最低1行を用意
+  if (v === 'date' && !document.querySelectorAll('#uwRows .uw-row').length) addUsageRow();
+}
+// ご希望日時の行（複数選択可・＋追加する）
+function usageDateMin() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+function addUsageRow() {
+  const wrap = document.getElementById('uwRows');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'row uw-row';
+  row.style.cssText = 'gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:6px';
+  row.innerHTML =
+    '<div><label style="font-size:13px">ご希望日</label><input type="date" class="uw-date" min="' + usageDateMin() + '"></div>' +
+    '<div><label style="font-size:13px">ご希望時間帯 <span class="opt">任意</span></label><input type="time" class="uw-time"></div>' +
+    '<button type="button" class="uw-del" title="この日程を削除" style="appearance:none;background:#fff;border:1px solid #d1d5db;color:#6b7280;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer">×</button>';
+  wrap.appendChild(row);
+  row.querySelector('.uw-del').addEventListener('click', () => { row.remove(); if (!wrap.querySelectorAll('.uw-row').length) addUsageRow(); });
 }
 // 初期日付の下限＝本日
 (function initDates(){
@@ -619,7 +640,6 @@ function onUsageWhenChange() {
   const min = `${y}-${m}-${d}`;
   document.getElementById('d1').min = min;
   document.getElementById('d2').min = min;
-  document.getElementById('uw_date').min = min; // ご利用希望日も過去日は選べない
 })();
 // 起動：施設一覧→外部ログインボタン→（?magic=／?login_error= があれば処理）→会員セッション復元
 (async function boot() {

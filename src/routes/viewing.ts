@@ -140,10 +140,26 @@ app.post('/requests', async (c) => {
   const usageWish = ((): string | null => {
     const t = String((body.usageWishType as string) || '').trim();
     if (t === 'date') {
-      const d = String((body.usageDate as string) || '').trim();
-      if (!DATE_RE.test(d)) return null;
-      const tm = String((body.usageTime as string) || '').trim();
-      return TIME_RE.test(tm) ? `${d} ${tm}` : d;
+      // 複数のご希望日時（＋追加する）に対応。各 {date, time?} を整形して連結。
+      const arr = Array.isArray(body.usageDates) ? (body.usageDates as unknown[]) : [];
+      const parts: string[] = [];
+      for (const it of arr) {
+        if (!it || typeof it !== 'object') continue;
+        const o = it as Record<string, unknown>;
+        const d = String(o.date || '').trim();
+        if (!DATE_RE.test(d)) continue;
+        const tm = String(o.time || '').trim();
+        parts.push(TIME_RE.test(tm) ? `${d} ${tm}` : d);
+      }
+      // 後方互換：単一 usageDate/usageTime も受け付ける
+      if (!parts.length) {
+        const d = String((body.usageDate as string) || '').trim();
+        if (DATE_RE.test(d)) {
+          const tm = String((body.usageTime as string) || '').trim();
+          parts.push(TIME_RE.test(tm) ? `${d} ${tm}` : d);
+        }
+      }
+      return parts.length ? parts.join(' ／ ') : null;
     }
     if (t === 'undecided') {
       const txt = String((body.usageText as string) || '').trim();

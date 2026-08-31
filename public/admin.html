@@ -657,10 +657,10 @@
 
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--line)" />
 
-      <h2>空き状況の埋め込み表示</h2>
-      <div class="muted">公式サイト等に iframe で埋め込む「空き状況（/availability?embed=1）」の表示ON/OFFです。OFFにすると埋め込み枠は「一時停止中・お問い合わせへ」の案内だけを表示します（本サイトの /availability ページ自体や予約カレンダーには影響しません）。</div>
+      <h2>空き状況ページの表示</h2>
+      <div class="muted">空き状況ページ「/availability」（公式サイトへの iframe 埋め込み・直接アクセスの両方）の表示ON/OFFです。OFFにすると「ただいま準備中です。」とだけ表示します（トップの予約カレンダーや予約フローには影響しません）。再開はONにして保存するだけです。</div>
       <div class="row" style="margin-top:8px;gap:8px;align-items:center">
-        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cfg_embed_enabled"> 埋め込み表示を有効にする</label>
+        <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cfg_embed_enabled"> 空き状況ページを表示する</label>
         <button class="btn sm" onclick="saveEmbedEnabled()">保存</button>
       </div>
       <div class="msg" id="embedMsg"></div>

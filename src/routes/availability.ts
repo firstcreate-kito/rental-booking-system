@@ -29,6 +29,12 @@ function nextWeekend(today: string): string {
 /** JSON API: GET /api/availability?date=&use=&area= */
 export const availabilityApi = new Hono<AppBindings>();
 availabilityApi.get('/', async (c) => {
+  // 空き状況の一時停止トグルがOFFのときは JSON も返さない（迂回路の遮断）。
+  const enabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
+  if (!enabled) {
+    c.header('Cache-Control', 'no-store');
+    return c.json({ disabled: true }, 503);
+  }
   const q = c.req.query('date');
   const date = isYmd(q) ? q : todayJST();
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
@@ -36,7 +42,7 @@ availabilityApi.get('/', async (c) => {
   return c.json(data);
 });
 
-/** 埋め込み表示を一時停止しているときに iframe 内へ返す「準備中」ページ。 */
+/** 空き状況の表示を一時停止しているときに返す「準備中」ページ（埋め込み・直接アクセス共通）。 */
 function embedDisabledHtml(): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -51,14 +57,13 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
   const q = c.req.query('date');
   const today = todayJST();
   const date = isYmd(q) ? q : today;
-  // 埋め込み（iframe）は管理画面のトグルで一時停止できる。既定は停止（明示的に有効化した時のみ表示）。
+  // 空き状況の表示は管理画面のトグルで一時停止できる。既定は停止（明示的に有効化した時のみ表示）。
+  // 埋め込み（iframe）・直接アクセスの /availability の両方に適用する。
   const embed = c.req.query('embed') === '1';
-  if (embed) {
-    const embedEnabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
-    if (!embedEnabled) {
-      c.header('Cache-Control', 'no-store');
-      return c.html(embedDisabledHtml());
-    }
+  const availabilityEnabled = (await getSystemSetting(c.env.DB, 'availability_embed_enabled')) === '1';
+  if (!availabilityEnabled) {
+    c.header('Cache-Control', 'no-store');
+    return c.html(embedDisabledHtml());
   }
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '/';

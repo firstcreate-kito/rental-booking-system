@@ -950,6 +950,13 @@ app.post('/quote', async (c) => {
   }
   const space = await getSpaceById(db, body.spaceId);
   if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+  // 申込はお問い合わせのみの施設は見積り（＝予約フローの入口）も拒否する（迂回路の遮断）。
+  if (space.inquiry_only) {
+    return c.json(
+      { error: 'このスペースはネットでの直接予約を承っておりません。ご予約・ご相談はお問い合わせよりお願いいたします。', code: 'INQUIRY_ONLY' },
+      403,
+    );
+  }
 
   // 会員ログイン時のみ クーポン/ポイントを見積りに反映
   const member = await getOptionalCustomer(c);

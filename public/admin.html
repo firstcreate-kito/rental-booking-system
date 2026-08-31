@@ -67,12 +67,12 @@
     /* 横スクロールする表はスワイプで見えるよう最低限の高さ確保（つぶれ防止） */
     .tablewrap { -webkit-overflow-scrolling: touch; }
   }
-  /* 顧客・特典：選択した顧客行の直下に展開する操作パネルの行 */
-  tr.cs-detail-row > td { padding:0; background:#fafbff; }
+  /* 一覧の「選択した行の直下」に展開する操作/編集パネルの行（顧客・特典／スペース設定／オプション管理 共通） */
+  tr.cs-detail-row > td, tr.row-detail-row > td { padding:0; background:#fafbff; }
   @media (max-width: 640px) {
-    table.resp tr.cs-detail-row { display:block; border:none; padding:0; margin:0 0 12px; background:transparent; }
-    table.resp tr.cs-detail-row td { display:block; padding:0; text-align:left; }
-    table.resp tr.cs-detail-row td::before { content:""; display:none; }
+    table.resp tr.cs-detail-row, table.resp tr.row-detail-row { display:block; border:none; padding:0; margin:0 0 12px; background:transparent; }
+    table.resp tr.cs-detail-row td, table.resp tr.row-detail-row td { display:block; padding:0; text-align:left; }
+    table.resp tr.cs-detail-row td::before, table.resp tr.row-detail-row td::before { content:""; display:none; }
   }
   .pill { font-size:11px; padding:2px 8px; border-radius:999px; }
   .pill.confirmed { background:#dcfce7; color:#166534; }
@@ -504,7 +504,7 @@
         </select>
         <div class="muted" style="font-size:12px;margin-top:4px">直前予約・変更が多いスペース（防音室・ピアノ練習室など）向けの特別設定。日時変更は空き次第で無料のままです。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
-          <button class="btn ghost sm" onclick="document.getElementById('spForm').classList.add('hidden')">閉じる</button>
+          <button class="btn ghost sm" onclick="collapseSpaceForm()">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
         </div>
         <div class="msg" id="spMsg"></div>
@@ -741,7 +741,7 @@
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="op_active" checked> 公開する</label>
         </div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
-          <button class="btn ghost sm" onclick="document.getElementById('optForm').classList.add('hidden')">閉じる</button>
+          <button class="btn ghost sm" onclick="collapseOptionForm()">閉じる</button>
           <button class="btn" onclick="saveOption()">保存</button>
         </div>
         <div class="msg" id="optMsg"></div>
@@ -1355,7 +1355,7 @@ async function loadBookings() {
     } else if (!isPast && b.status === 'confirmed') {
       actions = '<button class="btn ghost sm" onclick="openReschedule(\'' + b.booking_number + '\')">予約内容変更</button> ' +
         '<button class="btn danger sm" onclick="cancelBooking(\'' + b.booking_number + '\')">キャンセル</button>' +
-        ' <button class="btn ghost sm" onclick="openAdditional(\'' + b.booking_number + '\',' + JSON.stringify(b.space_name || '') + ')">追加請求</button>';
+        ' <button class="btn ghost sm" onclick="openAdditional(\'' + b.booking_number + '\',' + jsArg(b.space_name || '') + ')">追加請求</button>';
       // 請求書払い：入金確認後に領収書を発行（#41）
       if (b.payment_method === 'invoice') {
         actions += ' <button class="btn sm" style="background:#0d9488" onclick="issueReceipt(\'' + b.booking_number + '\')">領収書発行</button>';
@@ -1494,12 +1494,14 @@ let adminSpaces = [];
 async function loadSpacesAdmin() {
   const { body } = await api('/api/admin/spaces');
   adminSpaces = body.spaces || [];
+  // 一覧再描画で行内フォームが消えないよう、先に元位置へ退避する
+  { const f = document.getElementById('spForm'); if (f) { f.classList.add('hidden'); restorePanel(f); } }
   document.getElementById('spBody').innerHTML = adminSpaces.map(s => {
     const wd = s.weekday_rate != null ? yen(s.weekday_rate) : '—';
     const we = s.weekend_rate != null ? yen(s.weekend_rate) : '—';
     const day = s.day_rate_hours != null ? (s.day_rate_hours + '時間分') : '—';
     const pub = s.is_active ? '<span class="pill confirmed">公開</span>' : '<span class="pill cancelled">非公開</span>';
-    return '<tr><td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
+    return '<tr data-space="' + s.id + '"><td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
       wd + ' / ' + we + '</td><td>' + day + '</td><td>' + s.open_time + '–' + s.close_time + '</td><td>' + pub +
       '</td><td><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
   }).join('');
@@ -1555,7 +1557,11 @@ function fillSpaceForm(s) {
   document.getElementById('sp_cancel_policy').value = 'standard';
   if (s) loadSpaceCancelPolicy(s.id);
   document.getElementById('spMsg').textContent = '';
-  document.getElementById('spForm').classList.remove('hidden');
+  // クリックしたスペース行の直下にフォームを展開する（編集時）。新規はテーブル下の元位置に表示。
+  const spForm = document.getElementById('spForm');
+  const spBody = document.getElementById('spBody');
+  const rowEl = s ? spBody.querySelector('tr[data-space="' + s.id + '"]') : null;
+  expandPanelUnderRow(spBody, rowEl, spForm, 7);
 }
 async function loadSpaceCancelPolicy(id) {
   const { ok, body } = await api('/api/admin/spaces/' + id + '/cancel-policy');
@@ -1610,8 +1616,11 @@ async function saveSpace() {
     await api('/api/admin/spaces/' + spaceId + '/cancel-policy', jsonBody({ preset: document.getElementById('sp_cancel_policy').value }, 'PUT'));
   }
   msg.className = 'msg ok'; msg.textContent = '保存しました';
-  document.getElementById('spForm').classList.add('hidden');
+  collapseSpaceForm(); // フォームを家へ戻してから一覧を再描画（展開行の中で消えるのを防ぐ）
   loadSpacesAdmin();
+}
+function collapseSpaceForm() {
+  collapsePanel(document.getElementById('spBody'), document.getElementById('spForm'));
 }
 
 // --- 週次まとめメール（今週の予約）#111 ---
@@ -1807,8 +1816,8 @@ async function searchCustomers() {
   const { body } = await api('/api/admin/customers?q=' + encodeURIComponent(q));
   const rows = body.customers || [];
   document.getElementById('csEmpty').textContent = rows.length ? '' : '該当する顧客がいません';
-  // 一覧を作り直す前に操作パネルをセクション直下へ退避（innerHTML更新で消えるのを防ぐ）
-  { const sec = document.getElementById('csBody').closest('section'); const d = document.getElementById('csDetail'); d.classList.add('hidden'); sec.appendChild(d); }
+  // 一覧を作り直す前に操作パネルを元位置へ退避（innerHTML更新で消えるのを防ぐ）
+  { const d = document.getElementById('csDetail'); d.classList.add('hidden'); restorePanel(d); }
   document.getElementById('csBody').innerHTML = rows.map(c =>
     '<tr data-cust="' + c.id + '"><td>' + (c.contact_name||'') + (c.is_blocked ? ' <span class="pill bad" style="font-size:11px">ブラックリスト</span>' : '') + '</td><td>' + (c.email||'') + '</td><td>' + (c.phone||'') + '</td><td>' + (c.point_balance||0) + 'P</td><td>' +
     (c.is_registered ? '会員' : 'ゲスト') + '</td><td><button class="btn ghost sm" onclick="selectCustomer(\'' + c.id + '\')">特典操作</button></td></tr>').join('');
@@ -1864,30 +1873,13 @@ async function selectCustomer(id) {
   const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1);
   document.getElementById('tk_until').value = oneYear.toISOString().slice(0, 10);
   // 操作パネルを「クリックした顧客行の直下」に展開する（最下部ではなく該当行の下）
-  const detail = document.getElementById('csDetail');
-  const sec = document.getElementById('csBody').closest('section');
-  sec.appendChild(detail); // まず旧位置（前回の展開行など）から切り離す
-  document.querySelectorAll('#csBody tr.cs-detail-row').forEach(r => r.remove());
-  const rowEl = document.querySelector('#csBody tr[data-cust="' + id + '"]');
-  if (rowEl) {
-    const holder = document.createElement('tr');
-    holder.className = 'cs-detail-row';
-    const td = document.createElement('td');
-    td.colSpan = 6;
-    holder.appendChild(td);
-    rowEl.parentNode.insertBefore(holder, rowEl.nextSibling);
-    td.appendChild(detail);
-  }
-  detail.classList.remove('hidden');
-  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const csBody = document.getElementById('csBody');
+  const rowEl = csBody.querySelector('tr[data-cust="' + id + '"]');
+  expandPanelUnderRow(csBody, rowEl, document.getElementById('csDetail'), 6);
 }
-// 操作パネルを閉じる：非表示にしてセクション直下へ退避し、展開行を除去する
+// 操作パネルを閉じる：非表示にして元位置へ戻し、展開行を除去する
 function closeCustomerDetail() {
-  const detail = document.getElementById('csDetail');
-  detail.classList.add('hidden');
-  const sec = document.getElementById('csBody').closest('section');
-  sec.appendChild(detail);
-  document.querySelectorAll('#csBody tr.cs-detail-row').forEach(r => r.remove());
+  collapsePanel(document.getElementById('csBody'), document.getElementById('csDetail'));
 }
 async function toggleBlocked() {
   const cb = document.getElementById('cs_blocked');
@@ -2091,10 +2083,12 @@ async function loadOptionsAdmin() {
   if (A.spaces.length === 0) await loadSpaces();
   const { body } = await api('/api/admin/options');
   adminOptions = body.options || [];
+  // 一覧再描画で行内フォームが消えないよう、先に元位置へ退避する
+  { const f = document.getElementById('optForm'); if (f) { f.classList.add('hidden'); restorePanel(f); } }
   document.getElementById('optBody').innerHTML = adminOptions.map(o => {
     const stock = o.stock_total != null ? (o.stock_total + '個') : '無制限';
     const pub = o.is_active ? '<span class="pill confirmed">公開</span>' : '<span class="pill cancelled">非公開</span>';
-    return '<tr><td>' + o.name + '</td><td>' + o.category + '</td><td>' + priceTypeLabel(o.price_type, o.unit_price, o.unit_label) +
+    return '<tr data-option="' + o.id + '"><td>' + o.name + '</td><td>' + o.category + '</td><td>' + priceTypeLabel(o.price_type, o.unit_price, o.unit_label) +
       '</td><td>' + stock + '</td><td>' + (o.space_ids ? o.space_ids.length : 0) + 'スペース</td><td>' + pub +
       '</td><td><button class="btn ghost sm" onclick="editOption(\'' + o.id + '\')">編集</button></td></tr>';
   }).join('') || '<tr><td colspan="7" class="muted">登録なし</td></tr>';
@@ -2119,7 +2113,14 @@ function fillOptionForm(o) {
   toggleStockField();
   renderSpaceChecks(o?.space_ids);
   document.getElementById('optMsg').textContent = '';
-  document.getElementById('optForm').classList.remove('hidden');
+  // クリックしたオプション行の直下にフォームを展開（編集時）。新規はテーブル下の元位置に表示。
+  const optForm = document.getElementById('optForm');
+  const optBody = document.getElementById('optBody');
+  const rowEl = o ? optBody.querySelector('tr[data-option="' + o.id + '"]') : null;
+  expandPanelUnderRow(optBody, rowEl, optForm, 7);
+}
+function collapseOptionForm() {
+  collapsePanel(document.getElementById('optBody'), document.getElementById('optForm'));
 }
 function newOption() { fillOptionForm(null); }
 function editOption(id) { fillOptionForm(adminOptions.find(o => o.id === id)); }
@@ -2150,7 +2151,7 @@ async function saveOption() {
     : await api('/api/admin/options', jsonBody(payload));
   if (!res.ok) { msg.className = 'msg bad'; msg.textContent = res.body.error || '保存に失敗しました'; return; }
   msg.className = 'msg ok'; msg.textContent = '保存しました';
-  document.getElementById('optForm').classList.add('hidden');
+  collapseOptionForm(); // フォームを家へ戻してから一覧を再描画（展開行の中で消えるのを防ぐ）
   loadOptionsAdmin();
 }
 
@@ -2869,6 +2870,49 @@ async function submitReschedule() {
 // ---- 変更リクエスト（#54）----
 const CR_TYPE_LABEL = { reschedule:'日時変更のご希望', option:'オプション変更のご希望', cancel:'キャンセルのご希望', other:'その他のご相談' };
 function crEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+// onclick="…"（二重引用符属性）内に、単一引用符のJS文字列リテラルを安全に埋め込む（引用符・記号込みで返す）。
+// 例: onclick="foo(' + jsArg(name) + ')" → 名前に " や ' が含まれても属性が壊れない。
+function jsArg(s) {
+  const js = String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const html = js.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return "'" + html + "'";
+}
+// --- 一覧の「クリックした行の直下」にパネル/フォームを展開する共通ユーティリティ ---
+// パネルは共有ノードなので、テーブル再描画で消えないよう、初回位置（元の家）を覚えておく。
+function ensurePanelHome(panel) {
+  if (!panel._homeAnchor) {
+    const a = document.createComment('panel-home');
+    panel.parentNode.insertBefore(a, panel);
+    panel._homeAnchor = a;
+  }
+  return panel._homeAnchor;
+}
+// パネルを元の位置（家）に戻す。テーブル innerHTML 再描画の前に必ず呼ぶ（消失防止）。
+function restorePanel(panel) {
+  if (!panel) return;
+  const a = ensurePanelHome(panel);
+  a.parentNode.insertBefore(panel, a.nextSibling);
+}
+// tbody 内の rowEl の直下に、colspan 一杯の展開行を挿入して panel を入れる。
+// rowEl が無い（新規追加など）場合は元の位置に置いたまま表示する。
+function expandPanelUnderRow(tbody, rowEl, panel, colspan) {
+  restorePanel(panel); // まず家へ退避（前回の展開行から切り離す）
+  tbody.querySelectorAll('tr.row-detail-row').forEach(r => r.remove());
+  if (rowEl) {
+    const tr = document.createElement('tr'); tr.className = 'row-detail-row';
+    const td = document.createElement('td'); td.colSpan = colspan; tr.appendChild(td);
+    rowEl.parentNode.insertBefore(tr, rowEl.nextSibling);
+    td.appendChild(panel);
+  }
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+// 展開したパネルを閉じて家に戻し、展開行を消す。
+function collapsePanel(tbody, panel) {
+  if (panel) panel.classList.add('hidden');
+  if (tbody) tbody.querySelectorAll('tr.row-detail-row').forEach(r => r.remove());
+  restorePanel(panel);
+}
 async function loadChangeRequests() {
   const showHandled = document.getElementById('crShowHandled') && document.getElementById('crShowHandled').checked;
   const qs = showHandled ? '' : '?status=pending';

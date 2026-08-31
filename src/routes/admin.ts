@@ -15,6 +15,7 @@ import {
   getAllSpaces,
   insertSpace,
   updateSpace,
+  reorderSpaces,
   getSpaceById,
   getSpaceCancelPolicyRows,
   setSpaceCancelPolicyTiers,
@@ -1863,6 +1864,20 @@ app.post('/spaces', requireRole('owner', 'manager'), async (c) => {
     throw err;
   }
   return c.json({ id, ...input }, 201);
+});
+
+/** POST /api/admin/spaces/reorder 予約トップの表示順を一括更新（owner/manager）#103 */
+app.post('/spaces/reorder', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+  const ids = Array.isArray(body.ids) ? body.ids.map((x) => String(x)) : null;
+  if (!ids || !ids.length) return c.json({ error: 'ids（並び順のスペースID配列）が必要です' }, 400);
+  // 実在IDのみ許可（不正ID混入を防止）
+  const all = await getAllSpaces(c.env.DB);
+  const known = new Set(all.map((s) => s.id));
+  const filtered = ids.filter((id) => known.has(id));
+  if (!filtered.length) return c.json({ error: '有効なスペースIDがありません' }, 400);
+  await reorderSpaces(c.env.DB, filtered);
+  return c.json({ ok: true, count: filtered.length });
 });
 
 /** PUT /api/admin/spaces/:id スペース編集（owner/manager） */

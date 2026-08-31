@@ -183,6 +183,15 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
     .run();
 }
 
+/** スペースの表示順を一括更新（配列の並び順で sort_order を 0,1,2... に設定）#103 */
+export async function reorderSpaces(db: D1Database, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const stmts = ids.map((id, i) =>
+    db.prepare('UPDATE spaces SET sort_order = ? WHERE id = ?').bind(i, id),
+  );
+  await db.batch(stmts);
+}
+
 export interface BookingIntervalRow {
   date: string;
   start_time: string;

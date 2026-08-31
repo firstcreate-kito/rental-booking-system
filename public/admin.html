@@ -81,6 +81,12 @@
   .pill.completed { background:#e0e7ff; color:#3730a3; }
   .muted { color:var(--muted); font-size:12px; }
   .hidden { display:none; }
+  /* スペース表示順のドラッグ&ドロップ（#103） */
+  #spBody tr[data-space] { cursor:default; }
+  #spBody td.drag-handle { cursor:grab; color:#9aa0a6; user-select:none; text-align:center; font-weight:700; letter-spacing:-2px; }
+  #spBody td.drag-handle:active { cursor:grabbing; }
+  #spBody tr.dragging { opacity:.5; background:#eef4ff; }
+  @media (max-width: 640px) { #spBody td.drag-handle { display:none; } } /* スマホはタッチDnD非対応のため非表示（数値並び順で調整） */
   .msg { font-size:13px; margin-top:8px; }
   .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
   /* タブは横に詰め込まず、幅が足りなければ複数行に折り返す。各ボタンは縮まず文字を1行に保つ。 */
@@ -398,9 +404,11 @@
         <button class="btn sm" onclick="newSpace()">＋ 新規スペース</button>
       </div>
       <div class="muted" style="margin:6px 0">追加・編集・非公開化ができます（owner / manager のみ）。</div>
+      <div class="muted" style="margin:6px 0;font-size:12px">左端の <b>⋮⋮</b> をドラッグして行を上下に入れ替えると、予約トップ「スペースを選択」の表示順に即反映されます（PC推奨）。個別の数値でも「編集 → 並び順」で調整できます。</div>
+      <div class="msg" id="spOrderMsg"></div>
       <div class="tablewrap" style="margin-top:10px">
         <table class="resp">
-          <thead><tr><th>名前</th><th>スラッグ(URL)</th><th>平日/土日祝(円)</th><th>1日料金</th><th>営業</th><th>公開</th><th></th></tr></thead>
+          <thead><tr><th style="width:28px"></th><th>名前</th><th>スラッグ(URL)</th><th>平日/土日祝(円)</th><th>1日料金</th><th>営業</th><th>公開</th><th></th></tr></thead>
           <tbody id="spBody"></tbody>
         </table>
       </div>
@@ -1505,10 +1513,66 @@ async function loadSpacesAdmin() {
     const we = s.weekend_rate != null ? yen(s.weekend_rate) : '—';
     const day = s.day_rate_hours != null ? (s.day_rate_hours + '時間分') : '—';
     const pub = s.is_active ? '<span class="pill confirmed">公開</span>' : '<span class="pill cancelled">非公開</span>';
-    return '<tr data-space="' + s.id + '"><td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
+    return '<tr data-space="' + s.id + '" draggable="true">' +
+      '<td class="drag-handle" title="ドラッグで並べ替え" aria-label="ドラッグで並べ替え">⋮⋮</td>' +
+      '<td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
       wd + ' / ' + we + '</td><td>' + day + '</td><td>' + s.open_time + '–' + s.close_time + '</td><td>' + pub +
       '</td><td><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
   }).join('');
+  bindSpaceDnD();
+}
+// 予約トップの表示順をドラッグ&ドロップで並べ替え（#103）。tbody に一度だけ委譲バインド。
+let _spDnDBound = false;
+function bindSpaceDnD() {
+  const spBody = document.getElementById('spBody');
+  if (!spBody || _spDnDBound) return;
+  _spDnDBound = true;
+  spBody.addEventListener('dragstart', (e) => {
+    const tr = e.target.closest('tr[data-space]');
+    if (!tr) return;
+    // 編集フォームが開いていたら閉じる（並べ替え中の行ズレ防止）
+    const f = document.getElementById('spForm');
+    if (f && !f.classList.contains('hidden')) collapseSpaceForm();
+    tr.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', tr.getAttribute('data-space')); } catch (_) {}
+  });
+  spBody.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const dragging = spBody.querySelector('tr.dragging');
+    const over = e.target.closest('tr[data-space]');
+    if (!dragging || !over || over === dragging) return;
+    const rect = over.getBoundingClientRect();
+    const after = (e.clientY - rect.top) > rect.height / 2;
+    if (after) over.after(dragging); else over.before(dragging);
+  });
+  spBody.addEventListener('drop', (e) => { e.preventDefault(); });
+  spBody.addEventListener('dragend', () => {
+    const d = spBody.querySelector('tr.dragging');
+    if (d) d.classList.remove('dragging');
+    saveSpaceOrder();
+  });
+}
+async function saveSpaceOrder() {
+  const spBody = document.getElementById('spBody');
+  const ids = [...spBody.querySelectorAll('tr[data-space]')].map(tr => tr.getAttribute('data-space'));
+  // 変更が無ければ保存しない
+  const cur = adminSpaces.map(s => s.id).join(',');
+  if (ids.join(',') === cur) return;
+  const msg = document.getElementById('spOrderMsg');
+  if (msg) { msg.className = 'msg'; msg.textContent = '並び順を保存中…'; }
+  const res = await api('/api/admin/spaces/reorder', jsonBody({ ids }));
+  if (res.ok) {
+    if (msg) { msg.className = 'msg ok'; msg.textContent = '並び順を保存しました（予約トップに反映されます）'; }
+    // ローカルの adminSpaces も新しい順に並べ替え（次回描画のズレ防止）
+    const pos = {}; ids.forEach((id, i) => { pos[id] = i; });
+    adminSpaces.sort((a, b) => (pos[a.id] ?? 999) - (pos[b.id] ?? 999));
+    adminSpaces.forEach((s, i) => { s.sort_order = i; });
+  } else {
+    if (msg) { msg.className = 'msg bad'; msg.textContent = (res.body && res.body.error) || '並び順の保存に失敗しました'; }
+    loadSpacesAdmin(); // 失敗時はサーバー状態に戻す
+  }
 }
 // 週次まとめ宛先（#111）：可変の入力行（＋追加／×削除・最低1行維持）
 function addWeeklyRow(val) {
@@ -1566,7 +1630,7 @@ function fillSpaceForm(s) {
   const spForm = document.getElementById('spForm');
   const spBody = document.getElementById('spBody');
   const rowEl = s ? spBody.querySelector('tr[data-space="' + s.id + '"]') : null;
-  expandPanelUnderRow(spBody, rowEl, spForm, 7);
+  expandPanelUnderRow(spBody, rowEl, spForm, 8);
 }
 async function loadSpaceCancelPolicy(id) {
   const { ok, body } = await api('/api/admin/spaces/' + id + '/cancel-policy');

@@ -350,11 +350,11 @@
       <div class="muted">お客様のカレンダーに「商談中」と表示され、オンライン予約はできなくなります（お問い合わせ誘導）。</div>
       <div class="grid" style="margin-top:8px">
         <div><label>スペース *</label><select id="t_space" onchange="onAdminSpaceChange('t')"></select></div>
-        <div><label>日付 *</label><input id="t_date" type="date" /></div>
-        <div><label>開始 *</label><select id="t_start" onchange="onAdminStartChange('t')"></select></div>
-        <div><label>終了 *</label><select id="t_end"></select></div>
       </div>
-      <label>案件名 *</label><input id="t_event" placeholder="例）○○社 商談中" />
+      <label style="display:block;margin-top:10px">日程 *（複数日をまとめて登録できます）</label>
+      <div id="t_days"></div>
+      <div style="margin-top:6px"><button class="btn sm ghost" type="button" onclick="addTentDay()">＋日程を追加</button></div>
+      <label style="margin-top:10px">案件名 *</label><input id="t_event" placeholder="例）○○社 商談中" />
       <label>既存のお客様を検索（任意）</label>
       <div class="row" style="gap:8px">
         <input id="t_cs_q" placeholder="名前・メール・電話・会社名で部分検索" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();custLookup('t');}" />
@@ -1062,7 +1062,7 @@ async function loadSpaces() {
   document.getElementById('f_space').innerHTML = '<option value="">すべて</option>' + opts;
   document.getElementById('p_space').innerHTML = opts;
   document.getElementById('t_space').innerHTML = opts;
-  buildAdminTimeOptions('p'); buildAdminTimeOptions('t');
+  buildAdminTimeOptions('p'); initTentDays();
 }
 
 // --- 代理予約／商談中：時刻ドロップダウン（#33）＋料金の自動計算・手動変更（#30）---
@@ -1089,8 +1089,53 @@ function setAdminDefaultEnd(pre) {
   for (const o of enSel.options) { if (hm2min(o.value) <= hm2min(stSel.value)) continue; last = o.value; if (hm2min(o.value) >= target) { chosen = o.value; break; } }
   enSel.value = chosen || last || stSel.value;
 }
-function onAdminSpaceChange(pre) { buildAdminTimeOptions(pre); if (pre === 'p') recalcProxyPrice(); }
+function onAdminSpaceChange(pre) {
+  // 商談中はスペース変更で全日程行の時刻候補を作り直す（営業時間が施設で異なるため）#108
+  if (pre === 't') { document.querySelectorAll('#t_days .t-day').forEach(fillTentRowTimes); return; }
+  buildAdminTimeOptions(pre); if (pre === 'p') recalcProxyPrice();
+}
 function onAdminStartChange(pre) { setAdminDefaultEnd(pre); if (pre === 'p') recalcProxyPrice(); }
+
+// --- 商談中：複数日程（＋日程を追加）#108 ---
+function tentSpace() { return A.spaces.find(s => s.id === document.getElementById('t_space').value) || A.spaces[0]; }
+function fillTentRowTimes(row) {
+  const sp = tentSpace(); if (!sp) return;
+  const ts = adminTimes(sp.openTime || '08:00', sp.closeTime || '22:00');
+  const st = row.querySelector('.t-start'), en = row.querySelector('.t-end');
+  const prevSt = st.value, prevEn = en.value;
+  st.innerHTML = ts.slice(0, -1).map(t => '<option>' + t + '</option>').join('');
+  en.innerHTML = ts.slice(1).map(t => '<option>' + t + '</option>').join('');
+  // 既存の選択はできる限り維持し、範囲外になった場合のみ既定へ
+  st.value = (prevSt && ts.includes(prevSt)) ? prevSt : ts[0];
+  if (prevEn && ts.includes(prevEn) && hm2min(prevEn) > hm2min(st.value)) en.value = prevEn;
+  else setTentDefaultEnd(row);
+}
+function setTentDefaultEnd(row) {
+  const st = row.querySelector('.t-start'), en = row.querySelector('.t-end');
+  const target = hm2min(st.value) + 60; let chosen = null, last = null;
+  for (const o of en.options) { if (hm2min(o.value) <= hm2min(st.value)) continue; last = o.value; if (hm2min(o.value) >= target) { chosen = o.value; break; } }
+  en.value = chosen || last || st.value;
+}
+function ensureTentDay() { if (!document.querySelectorAll('#t_days .t-day').length) addTentDay(); }
+function addTentDay(date) {
+  const wrap = document.getElementById('t_days');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'row t-day';
+  row.style.cssText = 'gap:8px;align-items:flex-end;margin-top:6px;flex-wrap:wrap';
+  row.innerHTML =
+    '<div><label>日付</label><input type="date" class="t-date" /></div>' +
+    '<div><label>開始</label><select class="t-start"></select></div>' +
+    '<div><label>終了</label><select class="t-end"></select></div>' +
+    '<button class="btn sm danger t-del" type="button" title="この日程を削除">×</button>';
+  wrap.appendChild(row);
+  if (date) row.querySelector('.t-date').value = date;
+  fillTentRowTimes(row);
+  row.querySelector('.t-start').addEventListener('change', () => setTentDefaultEnd(row));
+  row.querySelector('.t-del').addEventListener('click', () => { row.remove(); ensureTentDay(); });
+  return row;
+}
+function initTentDays() { const wrap = document.getElementById('t_days'); if (!wrap) return; wrap.innerHTML = ''; addTentDay(); }
 
 // 代理予約の料金：自動計算して表示。優遇（割引）はp_amountで手動上書き可（#30）
 let proxyPriceEdited = false;
@@ -1131,7 +1176,7 @@ function showTab(t) {
   if (t === 'customers') initCustomers();
   if (t === 'export') initExport();
   if (t === 'proxy') { buildAdminTimeOptions('p'); proxyPriceEdited = false; recalcProxyPrice(); }
-  if (t === 'tent') { buildAdminTimeOptions('t'); }
+  if (t === 'tent') { initTentDays(); }
 }
 
 // --- データエクスポート（#71） ---
@@ -1357,12 +1402,27 @@ async function createBooking(kind) {
   const pre = p ? 'p' : 't';
   const msg = document.getElementById(p ? 'proxyMsg' : 'tentMsg');
   const spaceId = document.getElementById(pre + '_space').value;
-  const date = document.getElementById(pre + '_date').value;
-  const startTime = document.getElementById(pre + '_start').value.trim();
-  const endTime = document.getElementById(pre + '_end').value.trim();
   const eventName = document.getElementById(pre + '_event').value.trim();
-  if (!spaceId || !date || !startTime || !endTime || !eventName) { msg.className = 'msg bad'; msg.textContent = '必須項目を入力してください'; return; }
-  const payload = { spaceId, eventName, items: [{ date, startTime, endTime }] };
+  // 日程の収集：代理予約は単一、商談中は複数日程（＋日程を追加）#108
+  let items = [];
+  if (p) {
+    const date = document.getElementById('p_date').value;
+    const startTime = document.getElementById('p_start').value.trim();
+    const endTime = document.getElementById('p_end').value.trim();
+    if (!date || !startTime || !endTime) { msg.className = 'msg bad'; msg.textContent = '必須項目を入力してください'; return; }
+    items = [{ date, startTime, endTime }];
+  } else {
+    for (const r of document.querySelectorAll('#t_days .t-day')) {
+      const date = r.querySelector('.t-date').value;
+      const startTime = r.querySelector('.t-start').value.trim();
+      const endTime = r.querySelector('.t-end').value.trim();
+      if (!date || !startTime || !endTime) { msg.className = 'msg bad'; msg.textContent = '各日程の日付・開始・終了を入力してください'; return; }
+      if (startTime >= endTime) { msg.className = 'msg bad'; msg.textContent = '終了は開始より後にしてください（' + date + '）'; return; }
+      items.push({ date, startTime, endTime });
+    }
+  }
+  if (!spaceId || !eventName || !items.length) { msg.className = 'msg bad'; msg.textContent = '必須項目を入力してください'; return; }
+  const payload = { spaceId, eventName, items };
   // お客様情報（代理予約・商談中とも共通。商談中で入れておくと本予約化時に再入力不要）
   const name = document.getElementById(pre + '_name').value.trim();
   const email = document.getElementById(pre + '_email').value.trim();

@@ -13,6 +13,13 @@ export interface EmailEnv {
   MAIL_ADMIN?: string;
   /** 返信先。送信元を noreply@… にしてもお客様の返信がこの受信箱に届く（任意）。 */
   MAIL_REPLY_TO?: string;
+  /**
+   * お客様宛メールの控え（エビデンス）を受け取る内部アドレス（#106）。カンマ区切りで複数可。
+   * 設定時は、お客様に届くメールを BCC で同アドレスにも複製する（お客様には見えない）。
+   * 打ち合わせ時の証跡・電話対応時に「お客様の手元と同じ本文」を参照するため。
+   * 管理者宛の内部通知（宛先に MAIL_ADMIN を含む）と、認証系（internal:true）は複製しない。
+   */
+  MAIL_BCC?: string;
   /** 実行環境（development / staging / production）。staging では既定で実送信しない。 */
   APP_ENV?: string;
   /** ステージングでも実メールを送りたいときだけ 'true'。既定（未設定）は送らない。 */
@@ -25,6 +32,12 @@ export interface EmailMessage {
   subject: string;
   html: string;
   text: string;
+  /**
+   * 内部向けメールで、控え(MAIL_BCC)への複製対象から明示的に除外する（#106）。
+   * 認証系（マジックリンク・確認コード・パスワード再設定）はログイントークンを含むため true。
+   * 管理者宛の内部通知は宛先で自動判定するため、通常このフラグは不要。
+   */
+  internal?: boolean;
 }
 
 export interface SendResult {
@@ -59,6 +72,18 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
   }
   // 返信先（任意）：送信元を noreply@… にしてもお客様の返信が実際の受信箱に届くようにする。
   const replyTo = (env.MAIL_REPLY_TO ?? '').trim();
+  // 控え（エビデンス）のBCC複製（#106）。お客様宛メールのみを内部アドレスに複製する。
+  // 除外条件：(1) internal:true（認証系トークン等）、(2) 宛先に MAIL_ADMIN を含む＝管理者宛の
+  // 内部通知（既に社内に届くため重複しない）、(3) 既に宛先に入っているアドレス（二重送信回避）。
+  const bccRaw = (env.MAIL_BCC ?? '').trim();
+  let bcc: string[] = [];
+  if (bccRaw && !msg.internal) {
+    const adminAddr = (env.MAIL_ADMIN ?? '').trim();
+    const isInternalByRecipient = !!adminAddr && recipients.includes(adminAddr);
+    if (!isInternalByRecipient) {
+      bcc = [...new Set(bccRaw.split(',').map((s) => s.trim()).filter(Boolean))].filter((a) => !recipients.includes(a));
+    }
+  }
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -73,6 +98,7 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
         html: msg.html,
         text: msg.text,
         ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(bcc.length ? { bcc } : {}),
       }),
     });
     if (!res.ok) {

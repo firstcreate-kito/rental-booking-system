@@ -170,7 +170,8 @@ app.post('/password-reset/request', async (c) => {
       expiresLabel: '1時間',
       initial: !cust.password_hash,
     });
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
+    // 認証系はログイントークンを含むため、控え(MAIL_BCC)への複製対象から除外（#106）。
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail, internal: true }));
   }
   return c.json({ ok: true });
 });
@@ -223,7 +224,8 @@ app.post('/magic-link/request', async (c) => {
     await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt }, now);
     const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
     const loginUrl = `${origin}/mypage.html?magic=${secret}`;
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...magicLinkEmail({ loginUrl, expiresLabel: '30分' }) }));
+    // 認証系はログイントークンを含むため、控え(MAIL_BCC)への複製対象から除外（#106）。
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...magicLinkEmail({ loginUrl, expiresLabel: '30分' }), internal: true }));
   }
   return c.json({ ok: true });
 });
@@ -266,7 +268,8 @@ app.post('/login-code/request', async (c) => {
     const code = sixDigitCode();
     const expiresAt = nowJST(Date.now() + 10 * 60 * 1000); // 10分
     await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret: code, kind: 'code', expiresAt }, now);
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...loginCodeEmail({ code, expiresLabel: '10分' }) }));
+    // 認証系はログイントークンを含むため、控え(MAIL_BCC)への複製対象から除外（#106）。
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...loginCodeEmail({ code, expiresLabel: '10分' }), internal: true }));
   }
   return c.json({ ok: true });
 });

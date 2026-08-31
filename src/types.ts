@@ -27,6 +27,8 @@ export interface Env {
   MAIL_ADMIN?: string;
   /** 返信先（任意）。送信元を noreply@… にする場合に、返信先を実在の受信箱へ向ける */
   MAIL_REPLY_TO?: string;
+  /** お客様宛メールの控え（エビデンス）BCC先（#106）。カンマ区切り可。本番のみ設定。 */
+  MAIL_BCC?: string;
   /** Google カレンダー連携（サービスアカウント）。両方セット時のみ有効 */
   GOOGLE_SA_EMAIL?: string;
   GOOGLE_SA_PRIVATE_KEY?: string;

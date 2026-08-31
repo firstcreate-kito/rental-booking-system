@@ -36,7 +36,11 @@
   "vars": {
     "APP_ENV": "development",
     // 領収書・請求書の閲覧リンクや通知メール内リンクの基底URL（本番の顧客向けドメイン）。
-    "PUBLIC_BASE_URL": "https://booking.space-albe.com"
+    "PUBLIC_BASE_URL": "https://booking.space-albe.com",
+    // お客様宛メールの控え（エビデンス）BCC先（#106・本番のみ）。打ち合わせの証跡・電話対応で
+    // 「お客様の手元と同じ本文」を参照するため。管理者宛の内部通知と認証系は複製しない。
+    // ※ staging には env.staging.vars に載せないので複製されない（さらに staging は実送信自体を停止）。
+    "MAIL_BCC": "rental-test@space-albe.com"
   },
   // 定期実行（Cron）。
   //  - "*/5 * * * *": 5分間隔でGoogleカレンダー取りこぼし補完（#25/#27）

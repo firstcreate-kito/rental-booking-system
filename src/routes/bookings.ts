@@ -19,6 +19,7 @@ import {
   getTicketSpaceIds,
   getTicketUsageForGroup,
   buildTicketRescheduleStmts,
+  buildTicketCancelPlan,
   createBookingPayment,
   setBookingPaymentBankInfo,
   createDocumentForGroup,
@@ -1079,14 +1080,21 @@ app.post('/:number/cancel', async (c) => {
 
   const now = nowJST();
   const today = now.slice(0, 10);
+
+  // チケット払いの予約は現金キャンセル料¥0。前日以前は時間返還／当日は失効（返還なし）。
+  const earliest = bookings.map((b) => b.date).sort()[0] || g.original_date || today;
+  const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, today);
+
   let totalFee = 0;
   const stmts: D1PreparedStatement[] = [];
   const breakdown: Array<{ date: string; price: number; chargePct: number; cancelFee: number }> = [];
 
   for (const b of bookings) {
     const charge = computeCancelCharge(tiers, b.date, now, b.price);
-    totalFee += charge.cancelFee;
-    breakdown.push({ date: b.date, price: b.price, chargePct: charge.chargePct, cancelFee: charge.cancelFee });
+    const chargePct = ticketPlan ? 0 : charge.chargePct;
+    const cancelFee = ticketPlan ? 0 : charge.cancelFee; // チケット払いは¥0
+    totalFee += cancelFee;
+    breakdown.push({ date: b.date, price: b.price, chargePct, cancelFee });
     stmts.push(
       db
         .prepare(
@@ -1101,14 +1109,16 @@ app.post('/:number/cancel', async (c) => {
           g.customer_id ?? '',
           now,
           daysBetween(today, b.date),
-          charge.chargePct,
+          chargePct,
           b.price,
-          charge.cancelFee,
+          cancelFee,
         ),
     );
     stmts.push(db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").bind(b.id));
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
+  // 前日以前のチケット予約は、消費していたチケット時間を返還する。
+  if (ticketPlan?.action === 'restore') stmts.push(...ticketPlan.restoreStmts);
   await db.batch(stmts);
 
   // キャンセル時は、この予約で使用したポイントを返還する（#78改）
@@ -1167,7 +1177,8 @@ app.post('/:number/cancel', async (c) => {
     status: 'cancelled',
     cancelFee: totalFee,
     breakdown,
-    note: 'キャンセル料は管理者が手動で徴収します',
+    ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
+    note: ticketPlan ? 'チケット予約のため現金キャンセル料は発生しません' : 'キャンセル料は管理者が手動で徴収します',
   });
 });
 

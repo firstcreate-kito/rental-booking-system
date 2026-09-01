@@ -22,6 +22,7 @@ import {
   getDocumentsForCustomer,
   getBookingGroupByNumber,
   getBookingsByGroup,
+  buildTicketCancelPlan,
   createChangeRequest,
   type ChangeRequestType,
 } from '../db/repository';
@@ -121,9 +122,17 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
   if (!g || !g.customer_id || g.customer_id !== customer.id) return c.json({ error: 'not found' }, 404);
   if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
   const bookings = await getBookingsByGroup(db, g.id);
-  const quote = await quoteCancellation(db, g, bookings, nowJST());
+  const now = nowJST();
+  const quote = await quoteCancellation(db, g, bookings, now);
+  // チケット払いの予約は現金キャンセル料¥0。前日以前は時間返還／当日は失効（返還なし）。
+  const nonCancelled = bookings.filter((b) => b.status !== 'cancelled');
+  const earliest = nonCancelled.map((b) => b.date).sort()[0] || g.original_date || now.slice(0, 10);
+  const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, now.slice(0, 10));
+  const ticket = ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false };
+  // チケット払いは現金の請求・返金は発生しない（見積り額を0に上書き）。
+  const q = ticketPlan ? { ...quote, cancelFee: 0, refundAmount: 0 } : quote;
   // 支払方法も返す（'invoice'＝自社口座への直接振込のみ、返金時に振込手数料の注記を表示）
-  return c.json({ ...quote, paymentMethod: g.payment_method });
+  return c.json({ ...q, paymentMethod: g.payment_method, ticket });
 });
 
 /**

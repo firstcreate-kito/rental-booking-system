@@ -2625,6 +2625,23 @@ async function releaseTentative(number) {
 async function cancelBooking(number) {
   const pre = await api('/api/admin/bookings/' + number + '/cancel-preview');
   if (!pre.ok) { alert(pre.body.error || '取得に失敗しました'); return; }
+  const t = pre.body.ticket;
+  if (t && t.isTicket) {
+    // チケット払い：現金キャンセル料¥0。前日以前は時間返還／当日は失効。
+    const hrs = (t.hours != null ? t.hours + '時間' : 'チケット時間');
+    const tMsg = t.action === 'restore'
+      ? 'チケット予約です。前日以前のため、チケット ' + hrs + ' を返還します（現金キャンセル料なし）。'
+      : 'チケット予約です。当日キャンセルのため、チケット ' + hrs + ' は失効（返還なし）となります（現金キャンセル料なし）。';
+    if (!confirm('予約 ' + number + ' をキャンセルします。\n\n' + tMsg + '\n\nよろしいですか？')) return;
+    const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody({}));
+    if (!res.ok) { alert(res.body.error || 'キャンセルに失敗しました'); return; }
+    const done = res.body.ticket && res.body.ticket.action === 'restore'
+      ? 'キャンセルしました。チケット ' + hrs + ' を返還しました（現金キャンセル料なし）。'
+      : 'キャンセルしました。チケット ' + hrs + ' は失効しました（現金キャンセル料なし）。';
+    alert(done);
+    await loadBookings();
+    return; // チケット払いは現金返金なし
+  }
   const lines = (pre.body.breakdown||[]).map(b => '　' + b.date + '：' + b.chargePct + '% → ' + yen(b.cancelFee)).join('\n');
   if (!confirm('予約 ' + number + ' をキャンセルします。\n\nキャンセル料の内訳：\n' + lines + '\n合計 ' + yen(pre.body.totalFee) + '（手動徴収）\n\nよろしいですか？')) return;
   const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody({}));

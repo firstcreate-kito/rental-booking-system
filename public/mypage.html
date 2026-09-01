@@ -330,7 +330,8 @@
         <summary>キャンセルについて</summary>
         <div class="cracc-body">
           ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
-          ・キャンセル料は<b>スペース・時期により異なります</b>。「キャンセル」をお選びいただくと、発生するキャンセル料・ご返金額を画面に表示します。
+          ・キャンセル料は<b>スペース・時期により異なります</b>。「キャンセル」をお選びいただくと、発生するキャンセル料・ご返金額を画面に表示します。<br>
+          ・<b>チケット（回数券）でのご予約</b>は、現金でのキャンセル料はかかりません。<b>利用日の前日まで</b>のキャンセルはチケット時間を<b>全額返還</b>、<b>当日</b>のキャンセルはチケット時間が<b>失効（返還なし）</b>となります。
         </div>
       </details>
     </div>
@@ -902,6 +903,20 @@ async function loadCancelQuote() {
     return;
   }
   const yen = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+  // チケット（回数券）でのご予約：現金の請求なし。前日以前は時間返還・当日は失効。
+  if (body.ticket && body.ticket.isTicket) {
+    const t = body.ticket;
+    const hrs = t.hours != null ? t.hours + '時間' : 'チケット時間';
+    const detail = t.action === 'restore'
+      ? '前日までのキャンセルのため、<strong>' + hrs + 'を返還</strong>します（再予約にご利用いただけます）。'
+      : '<strong>当日のキャンセル</strong>のため、' + hrs + 'は<strong>失効（返還なし）</strong>となります。';
+    lines.innerHTML =
+      '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">チケット（回数券）でのご予約のキャンセル</div>' +
+      '<div>現金でのキャンセル料・ご返金は<strong>ありません（¥0）</strong>。</div>' +
+      '<div style="margin-top:4px">' + detail + '</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お手続きは担当者が行います。</div>';
+    return;
+  }
   // 自社口座への直接振込（請求書払い=invoice）で実際に返金が生じる場合のみ、振込手数料の注記を表示。
   // Stripe収納代行の銀行振込(bank_transfer)・カード等は対象外。
   const feeNote = (body.paymentMethod === 'invoice' && body.paidAmount > 0 && body.refundAmount > 0)

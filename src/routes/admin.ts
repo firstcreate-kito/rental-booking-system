@@ -46,6 +46,7 @@ import {
   getIssuedTicket,
   getTicketUsageForGroup,
   buildTicketRescheduleStmts,
+  buildTicketCancelPlan,
   getTicketProducts,
   getTicketProduct,
   insertTicketProduct,
@@ -809,8 +810,16 @@ app.get('/bookings/:number/cancel-preview', async (c) => {
   if (!g) return c.json({ error: 'booking not found' }, 404);
   if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
   const bookings = await getBookingsByGroup(db, g.id);
-  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, nowJST(), g.original_date);
-  return c.json({ bookingNumber: g.booking_number, status: g.status, totalFee, breakdown });
+  const now = nowJST();
+  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now, g.original_date);
+  // チケット払いの予約は、現金キャンセル料は¥0。前日以前は時間返還／当日は失効（返還なし）。
+  const nonCancelled = bookings.filter((b) => b.status !== 'cancelled');
+  const earliest = nonCancelled.map((b) => b.date).sort()[0] || g.original_date || now.slice(0, 10);
+  const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, now.slice(0, 10));
+  const ticket = ticketPlan
+    ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours }
+    : { isTicket: false };
+  return c.json({ bookingNumber: g.booking_number, status: g.status, totalFee: ticketPlan ? 0 : totalFee, breakdown, ticket });
 });
 
 /** POST /api/admin/bookings/:number/cancel 本予約のキャンセル（キャンセル料計算・記録） */
@@ -823,10 +832,17 @@ app.post('/bookings/:number/cancel', async (c) => {
 
   const bookings = await getBookingsByGroup(db, g.id);
   const now = nowJST();
-  const { totalFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now, g.original_date);
+  const { totalFee: rawFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now, g.original_date);
+
+  // チケット払いの予約は現金キャンセル料¥0。前日以前は時間返還／当日は失効（返還なし）。
+  const nonCancelled = bookings.filter((b) => b.status !== 'cancelled');
+  const earliest = nonCancelled.map((b) => b.date).sort()[0] || g.original_date || now.slice(0, 10);
+  const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, now.slice(0, 10));
+  const totalFee = ticketPlan ? 0 : rawFee; // チケット払いは現金キャンセル料を取らない
 
   const stmts: D1PreparedStatement[] = [];
   for (const b of breakdown) {
+    const fee = ticketPlan ? 0 : b.cancelFee; // チケット払いは¥0で記録
     stmts.push(
       db
         .prepare(
@@ -834,11 +850,13 @@ app.post('/bookings/:number/cancel', async (c) => {
            (id, group_id, booking_id, customer_id, cancelled_at, days_before, charge_pct, original_price, cancel_fee, collection_status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         )
-        .bind(crypto.randomUUID(), g.id, b.bookingId, g.customer_id ?? '', now, b.daysBefore, b.chargePct, b.price, b.cancelFee),
+        .bind(crypto.randomUUID(), g.id, b.bookingId, g.customer_id ?? '', now, b.daysBefore, ticketPlan ? 0 : b.chargePct, b.price, fee),
     );
     stmts.push(db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").bind(b.bookingId));
   }
   stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
+  // 前日以前のチケット予約は、消費していたチケット時間を返還する。
+  if (ticketPlan?.action === 'restore') stmts.push(...ticketPlan.restoreStmts);
   await db.batch(stmts);
 
   // キャンセル時は、この予約で使用したポイントを返還する（#78改）
@@ -894,9 +912,20 @@ app.post('/bookings/:number/cancel', async (c) => {
 
   try {
     const adminC = c.get('admin');
-    await recordBookingEvent(db, { groupId: g.id, type: 'cancel', amount: totalFee, summary: totalFee > 0 ? `キャンセル（キャンセル料 ¥${Math.round(totalFee).toLocaleString('ja-JP')}）` : 'キャンセル（キャンセル料なし）', actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
+    const ticketNote = ticketPlan
+      ? ticketPlan.action === 'restore'
+        ? `・チケット${ticketPlan.hours}時間を返還`
+        : `・チケット${ticketPlan.hours}時間は失効（当日）`
+      : '';
+    const summary = ticketPlan
+      ? `キャンセル（チケット予約・現金キャンセル料なし${ticketNote}）`
+      : totalFee > 0
+        ? `キャンセル（キャンセル料 ¥${Math.round(totalFee).toLocaleString('ja-JP')}）`
+        : 'キャンセル（キャンセル料なし）';
+    await recordBookingEvent(db, { groupId: g.id, type: 'cancel', amount: totalFee, summary, actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
   } catch { /* 履歴記録の失敗はキャンセル処理に影響させない */ }
-  return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, note: 'キャンセル料は管理者が手動で徴収します' });
+  const ticketResult = ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false };
+  return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, ticket: ticketResult, note: ticketPlan ? 'チケット予約のため現金キャンセル料は発生しません' : 'キャンセル料は管理者が手動で徴収します' });
 });
 
 /** GET /api/admin/bookings/:number/history 予約の変更履歴（管理用）#93 */

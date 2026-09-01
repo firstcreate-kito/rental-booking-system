@@ -830,6 +830,13 @@ app.post('/bookings/:number/cancel', async (c) => {
   if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
   if (g.status === 'tentative') return c.json({ error: '商談中は「解除」を使ってください' }, 400);
 
+  // キャンセル料の手動指定（任意・0以上の整数）。指定時は自動計算より優先する。
+  const cbody = (await c.req.json().catch(() => ({}))) as { overrideFee?: number };
+  const overrideFee =
+    typeof cbody.overrideFee === 'number' && Number.isFinite(cbody.overrideFee) && cbody.overrideFee >= 0
+      ? Math.floor(cbody.overrideFee)
+      : null;
+
   const bookings = await getBookingsByGroup(db, g.id);
   const now = nowJST();
   const { totalFee: rawFee, breakdown } = await computeGroupCancel(db, g.space_id, bookings, now, g.original_date);
@@ -838,11 +845,15 @@ app.post('/bookings/:number/cancel', async (c) => {
   const nonCancelled = bookings.filter((b) => b.status !== 'cancelled');
   const earliest = nonCancelled.map((b) => b.date).sort()[0] || g.original_date || now.slice(0, 10);
   const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, now.slice(0, 10));
-  const totalFee = ticketPlan ? 0 : rawFee; // チケット払いは現金キャンセル料を取らない
+  // チケット払いは常に¥0。非チケットは手動指定があればそれを優先、なければ自動計算。
+  const feeManual = !ticketPlan && overrideFee !== null;
+  const totalFee = ticketPlan ? 0 : feeManual ? overrideFee : rawFee;
 
   const stmts: D1PreparedStatement[] = [];
-  for (const b of breakdown) {
-    const fee = ticketPlan ? 0 : b.cancelFee; // チケット払いは¥0で記録
+  for (let i = 0; i < breakdown.length; i++) {
+    const b = breakdown[i];
+    // チケット払いは¥0。手動指定時は合計を先頭明細に寄せて記録（SUM=指定額）。
+    const fee = ticketPlan ? 0 : feeManual ? (i === 0 ? totalFee : 0) : b.cancelFee;
     stmts.push(
       db
         .prepare(
@@ -917,15 +928,16 @@ app.post('/bookings/:number/cancel', async (c) => {
         ? `・チケット${ticketPlan.hours}時間を返還`
         : `・チケット${ticketPlan.hours}時間は失効（当日）`
       : '';
+    const manualNote = feeManual ? '・料金手動指定' : '';
     const summary = ticketPlan
       ? `キャンセル（チケット予約・現金キャンセル料なし${ticketNote}）`
       : totalFee > 0
-        ? `キャンセル（キャンセル料 ¥${Math.round(totalFee).toLocaleString('ja-JP')}）`
-        : 'キャンセル（キャンセル料なし）';
+        ? `キャンセル（キャンセル料 ¥${Math.round(totalFee).toLocaleString('ja-JP')}${manualNote}）`
+        : `キャンセル（キャンセル料なし${manualNote}）`;
     await recordBookingEvent(db, { groupId: g.id, type: 'cancel', amount: totalFee, summary, actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
   } catch { /* 履歴記録の失敗はキャンセル処理に影響させない */ }
   const ticketResult = ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false };
-  return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, breakdown, ticket: ticketResult, note: ticketPlan ? 'チケット予約のため現金キャンセル料は発生しません' : 'キャンセル料は管理者が手動で徴収します' });
+  return c.json({ bookingNumber: g.booking_number, status: 'cancelled', cancelFee: totalFee, feeManual, breakdown, ticket: ticketResult, note: ticketPlan ? 'チケット予約のため現金キャンセル料は発生しません' : 'キャンセル料は管理者が手動で徴収します' });
 });
 
 /** GET /api/admin/bookings/:number/history 予約の変更履歴（管理用）#93 */

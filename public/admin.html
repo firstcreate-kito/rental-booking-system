@@ -2642,11 +2642,25 @@ async function cancelBooking(number) {
     await loadBookings();
     return; // チケット払いは現金返金なし
   }
+  const computed = Math.round(pre.body.totalFee || 0);
   const lines = (pre.body.breakdown||[]).map(b => '　' + b.date + '：' + b.chargePct + '% → ' + yen(b.cancelFee)).join('\n');
-  if (!confirm('予約 ' + number + ' をキャンセルします。\n\nキャンセル料の内訳：\n' + lines + '\n合計 ' + yen(pre.body.totalFee) + '（手動徴収）\n\nよろしいですか？')) return;
-  const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody({}));
+  // キャンセル料は自動計算額を初期表示し、管理者が任意に変更できる（0で免除も可）。
+  const input = prompt(
+    '予約 ' + number + ' をキャンセルします。\n\n自動計算のキャンセル料：' + yen(computed) + '\n' + lines +
+    '\n\nキャンセル料（円・変更可）を入力してください。\n・そのままOK＝自動計算額\n・0＝免除／任意の金額に変更可（手動徴収）',
+    String(computed),
+  );
+  if (input === null) return; // 入力キャンセル＝中止
+  let payload = {};
+  const trimmed = String(input).trim();
+  if (trimmed !== '') {
+    const n = Math.floor(Number(trimmed));
+    if (!Number.isFinite(n) || n < 0) { alert('キャンセル料は0以上の数値で入力してください'); return; }
+    if (n !== computed) payload = { overrideFee: n }; // 変更時のみ手動指定を送る
+  }
+  const res = await api('/api/admin/bookings/' + number + '/cancel', jsonBody(payload));
   if (!res.ok) { alert(res.body.error || 'キャンセルに失敗しました'); return; }
-  alert('キャンセルしました。キャンセル料 ' + yen(res.body.cancelFee) + '（手動徴収）');
+  alert('キャンセルしました。キャンセル料 ' + yen(res.body.cancelFee) + '（手動徴収' + (res.body.feeManual ? '・手動指定' : '') + '）');
   await loadBookings();
   // 入金済みなら続けて返金モーダルを自動で開く（キャンセル料を差し引いた額を初期表示）
   openRefund(number, { deductFee: res.body.cancelFee || 0, auto: true });

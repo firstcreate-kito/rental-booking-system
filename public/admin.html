@@ -231,6 +231,15 @@
         </div>
         <div style="font-weight:600;font-size:13px;margin:12px 0 4px">オプション</div>
         <div id="rsOptions" class="muted" style="font-size:13px">—</div>
+        <!-- 合計金額の手動指定（任意）。移行(Bookly)・チケット等で自動計算が合わないときに上書きする。 -->
+        <div style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">合計金額を手動で指定（任意）</div>
+          <div class="row" style="gap:8px;align-items:center">
+            <input id="rs_override" type="number" min="0" step="1" placeholder="空欄＝自動計算" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:15px" />
+            <span class="muted" id="rsCurTotal" style="font-size:12px;white-space:nowrap"></span>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:4px">※ここに金額を入れると自動計算より優先し、その金額で保存します（例：チケット/移行予約の日程変更で正規料金が出た場合に <b>0</b> と入力）。金額の手動指定時は差額の請求/返金アラートは出ません（決済は行いません）。空欄なら従来どおり自動計算です。</div>
+        </div>
         <div id="rsPayWrap" class="hidden" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc">
           <div style="font-weight:600;font-size:13px;margin-bottom:4px">支払いステータス（任意で変更）</div>
           <div class="row" style="gap:8px;align-items:center">
@@ -2777,6 +2786,9 @@ async function openReschedule(number, prefillItems) {
   // 予約情報の編集欄に現在値を反映（#110）
   document.getElementById('rs_event').value = body.eventName || '';
   document.getElementById('rs_note').value = body.note || '';
+  // 合計金額の手動指定欄は毎回クリアし、現在の合計をヒント表示（空欄＝自動計算）
+  document.getElementById('rs_override').value = '';
+  document.getElementById('rsCurTotal').textContent = '現在の合計：' + yen(body.totalAmount);
   // 予約時のお客様メッセージ（あれば表示）
   const _custMsg = (body.customerMessage || '').trim();
   document.getElementById('rsCustMsg').textContent = _custMsg;
@@ -2926,14 +2938,25 @@ async function submitReschedule() {
     return '　' + before + '  →  ' + after;
   }).join('\n');
   const optNote = options.length ? ('\nオプション：' + options.length + '件') : '\nオプション：なし';
+  // 合計金額の手動指定（空欄＝自動計算）。0 も有効値として扱う。
+  const ovRaw = document.getElementById('rs_override').value.trim();
+  let overrideTotal;
+  if (ovRaw !== '') {
+    const n = Math.floor(Number(ovRaw));
+    if (!Number.isFinite(n) || n < 0) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">合計金額は0以上の数値で入力してください</span>'; return; }
+    overrideTotal = n;
+  }
+  const ovNote = overrideTotal !== undefined ? ('\n合計金額：手動指定 ' + yen(overrideTotal) + '（自動計算より優先・差額の請求/返金はしません）') : '';
   const mailNote = rsStatus === 'tentative'
     ? '※商談中のためスペース料金は据え置きです（オプションは反映されます）。'
     : '※お客様（メール登録がある場合）と管理者へ変更通知メールが送信されます。';
-  if (!confirm('予約 ' + rsNumber + ' の内容を変更します。\n\n【日時】\n' + changeLines + optNote + '\n\n' + mailNote + '\n\nこの内容で変更・通知してもよろしいですか？')) return;
+  if (!confirm('予約 ' + rsNumber + ' の内容を変更します。\n\n【日時】\n' + changeLines + optNote + ovNote + '\n\n' + mailNote + '\n\nこの内容で変更・通知してもよろしいですか？')) return;
   const btn = document.getElementById('rsSubmit');
   btn.disabled = true;
   document.getElementById('rsMsg').textContent = '保存中…';
-  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody({ items, options }));
+  const rsPayload = { items, options };
+  if (overrideTotal !== undefined) rsPayload.overrideTotal = overrideTotal;
+  const { ok, body } = await api('/api/admin/bookings/' + rsNumber + '/reschedule', jsonBody(rsPayload));
   btn.disabled = false;
   if (!ok) { document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">' + (body.error || '変更に失敗しました') + '</span>'; return; }
   let note = '予約内容を変更しました。新しい合計 ' + yen(body.newTotal);

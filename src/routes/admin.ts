@@ -1300,8 +1300,15 @@ app.post('/bookings/:number/reschedule', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }>;
     options?: Array<{ optionId: string; quantity?: number }>;
+    /** 合計金額の手動指定（任意）。指定時は自動計算より優先し、差額の請求/返金アラートは出さない。 */
+    overrideTotal?: number;
   };
   if (!Array.isArray(body.items) || body.items.length === 0) return c.json({ error: 'items は必須です' }, 400);
+  // 合計金額の手動指定（0以上の整数のみ有効）。移行(Bookly)/チケット等で自動計算が合わないときに使う。
+  const overrideTotal =
+    typeof body.overrideTotal === 'number' && Number.isFinite(body.overrideTotal) && body.overrideTotal >= 0
+      ? Math.floor(body.overrideTotal)
+      : null;
 
   const g = await getBookingGroupByNumber(db, number);
   if (!g) return c.json({ error: 'booking not found' }, 404);
@@ -1430,8 +1437,10 @@ app.post('/bookings/:number/reschedule', async (c) => {
   } else {
     newSpaceFee = isTentative ? existingSpaceFee : newGroup.spaceTotal;
   }
-  const newTotal = newSpaceFee + optionsTotalFinal;
-  const adjustment = isTentative ? null : computeAdjustment(g.total_amount, newTotal);
+  // 合計金額：手動指定があればそれを優先（自動計算を上書き）。
+  const newTotal = overrideTotal !== null ? overrideTotal : newSpaceFee + optionsTotalFinal;
+  // 差額（請求/返金）アラートは自動計算時のみ。手動指定・商談中は出さない（管理者が意図的に金額を決めるため）。
+  const adjustment = isTentative || overrideTotal !== null ? null : computeAdjustment(g.total_amount, newTotal);
 
   const newBookingIds = body.items.map(() => crypto.randomUUID());
   // チケット再計算の文（外部キー制約回避のため2段構成で組み立てる）
@@ -1552,9 +1561,10 @@ app.post('/bookings/:number/reschedule', async (c) => {
   try {
     const adminR = c.get('admin');
     const changed = g.total_amount !== newTotal;
+    const manualNote = overrideTotal !== null ? '・金額手動指定' : '';
     const summary = changed
-      ? `日時・内容を変更（合計 ¥${Math.round(g.total_amount).toLocaleString('ja-JP')}→¥${Math.round(newTotal).toLocaleString('ja-JP')}）`
-      : '日時・内容を変更';
+      ? `日時・内容を変更（合計 ¥${Math.round(g.total_amount).toLocaleString('ja-JP')}→¥${Math.round(newTotal).toLocaleString('ja-JP')}${manualNote}）`
+      : '日時・内容を変更' + (manualNote ? '（金額手動指定）' : '');
     await recordBookingEvent(db, { groupId: g.id, type: 'reschedule', amount: changed ? newTotal : null, summary, actor: adminR?.email ? 'admin:' + adminR.email : 'admin' }, nowJST());
   } catch { /* 履歴記録の失敗は変更処理に影響させない */ }
 

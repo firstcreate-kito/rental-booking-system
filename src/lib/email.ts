@@ -316,6 +316,50 @@ ${feeLine}
   return withSignature({ subject, html, text });
 }
 
+/** ご返金のお知らせ（お客様向け・返金実行時） */
+export function refundEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  customerName: string;
+  amount: number;
+  method: 'card' | 'paypal' | 'bank';
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】ご返金のお知らせ（${d.bookingNumber}）`;
+  // 返金手段ごとに、お客様への反映のされ方・確認方法を案内する。
+  const methodLabel = d.method === 'card' ? 'クレジットカード' : d.method === 'paypal' ? 'PayPal' : '銀行振込';
+  const methodNote =
+    d.method === 'card'
+      ? 'ご利用のクレジットカードへ返金いたしました。カード会社の締め日により、明細への反映まで数日〜1か月程度かかる場合があります。カードのご利用明細でご確認ください。'
+      : d.method === 'paypal'
+        ? 'PayPalへ返金いたしました。PayPalのお取引履歴でご確認いただけます。'
+        : 'ご指定の口座へお振込みにて返金いたしました。着金までしばらくお待ちください。';
+  const text = `${d.customerName} 様
+
+以下のご予約について、ご返金の手続きが完了しましたのでお知らせいたします。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+ご返金額（税込）: ${yen(d.amount)}
+ご返金方法: ${methodLabel}
+
+${methodNote}
+
+ご不明な点がございましたら、お気軽にお問い合わせください。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>以下のご予約について、<strong>ご返金の手続きが完了</strong>しましたのでお知らせいたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金額（税込）</td><td><strong>${yen(d.amount)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金方法</td><td>${escapeHtml(methodLabel)}</td></tr>
+</table>
+<p style="color:#6b7280;font-size:13px">${escapeHtml(methodNote)}</p>
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたら、お気軽にお問い合わせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 export interface RescheduleEmailData {
   bookingNumber: string;
   spaceName: string;

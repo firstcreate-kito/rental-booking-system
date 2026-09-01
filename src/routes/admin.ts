@@ -115,7 +115,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { buildWeeklyReports, runWeeklyReport } from '../lib/weekly-report';
@@ -1017,6 +1017,22 @@ app.post('/bookings/:number/refund', async (c) => {
   const mode = refundModeFor(g.payment_method, stripeType);
   const now = nowJST();
 
+  // 返金完了をお客様へメールで通知（実際に返金が確定したときのみ）。
+  const sendRefundMail = async (method: 'card' | 'paypal' | 'bank') => {
+    if (!g.customer_id) return;
+    const [prof, sp] = await Promise.all([getCustomerProfile(db, g.customer_id), getSpaceById(db, g.space_id)]);
+    const to = prof?.email ? String(prof.email) : '';
+    if (!to) return;
+    const mail = refundEmail({
+      bookingNumber: g.booking_number,
+      spaceName: sp?.name ?? '',
+      customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+      amount,
+      method,
+    });
+    await sendEmail(c.env, { to, ...mail });
+  };
+
   // 手動返金（銀行振込・コンビニ・請求書）：実送金は管理者。記録のみ。
   if (mode === 'manual') {
     const status = body.markManualDone ? 'manual_done' : 'manual_pending';
@@ -1032,6 +1048,8 @@ app.post('/bookings/:number/refund', async (c) => {
       try {
         await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（銀行振込・手動）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
       } catch { /* 履歴記録の失敗は返金処理に影響させない */ }
+      // 実際に振込済みとして記録したときのみ、お客様へ返金完了メールを送信。
+      c.executionCtx.waitUntil(sendRefundMail('bank'));
     }
     return c.json({
       ok: true,
@@ -1072,6 +1090,8 @@ app.post('/bookings/:number/refund', async (c) => {
   try {
     await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（${mode === 'auto_paypal' ? 'PayPal' : 'カード'}・自動）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
   } catch { /* 履歴記録の失敗は返金処理に影響させない */ }
+  // お客様へ返金完了メールを送信（カード/PayPal）。
+  c.executionCtx.waitUntil(sendRefundMail(mode === 'auto_paypal' ? 'paypal' : 'card'));
   return c.json({ ok: true, mode, status: 'done', refundId, refundedTotal: refunded + amount, message: `¥${amount.toLocaleString()} を返金しました。` });
 });
 

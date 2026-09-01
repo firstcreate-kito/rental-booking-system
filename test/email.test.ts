@@ -4,6 +4,7 @@ import {
   escapeHtml,
   bookingConfirmationEmail,
   cancellationEmail,
+  refundEmail,
   adminNewBookingEmail,
   rescheduleEmail,
   adminRescheduleEmail,
@@ -438,5 +439,30 @@ describe('email - お問い合わせ（公式サイト /contact/）テンプレ�
   it('未知の用件は「その他」に丸める', () => {
     const m = contactReceivedEmail({ ...base, type: 'unknown-xyz', lang: 'ja' });
     expect(m.html).toContain('その他');
+  });
+});
+
+describe('email - refundEmail（返金完了のお知らせ）', () => {
+  const base = { bookingNumber: '20260910-001', spaceName: '名駅フリースペース', customerName: '山田太郎', amount: 3300 };
+  it('件名・予約番号・返金額を含む', () => {
+    const m = refundEmail({ ...base, method: 'card' });
+    expect(m.subject).toContain('ご返金のお知らせ');
+    expect(m.subject).toContain('20260910-001');
+    expect(m.text).toContain('¥3,300');
+    expect(m.html).toContain('¥3,300');
+  });
+  it('カードはカード明細への反映案内を含む', () => {
+    const m = refundEmail({ ...base, method: 'card' });
+    expect(m.text).toContain('クレジットカード');
+    expect(m.text).toContain('明細');
+  });
+  it('PayPalはPayPalの案内を含む', () => {
+    const m = refundEmail({ ...base, method: 'paypal' });
+    expect(m.text).toContain('PayPal');
+  });
+  it('銀行振込は振込返金の案内を含む', () => {
+    const m = refundEmail({ ...base, method: 'bank' });
+    expect(m.text).toContain('銀行振込');
+    expect(m.text).toContain('口座');
   });
 });

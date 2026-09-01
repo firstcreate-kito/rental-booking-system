@@ -25,6 +25,10 @@
   .btn.danger { background:var(--bad); }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  /* フォームのセクション見出し（入力項目が多いフォームを機能ごとに区切る） */
+  .sect { font-size:13px; font-weight:700; color:var(--brand); margin:18px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--line); }
+  .sect:first-of-type { margin-top:4px; }
+  .sect .h { font-weight:400; color:var(--muted); font-size:12px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
   th { color:var(--muted); font-weight:600; font-size:12px; }
@@ -445,17 +449,20 @@
       <div id="spForm" class="card hidden" style="margin-top:16px;background:#fafbff">
         <h2 id="spFormTitle">スペースを追加</h2>
         <input type="hidden" id="sp_editing" />
+        <div class="sect">基本情報 <span class="h">スペースの名前・URL・貸し方</span></div>
         <div class="grid">
           <div><label>スペース名 *</label><input id="sp_name" /></div>
           <div><label>スラッグ（URL用・任意 例:albehall）</label><input id="sp_slug" placeholder="英小文字・数字・-" /></div>
           <div><label>課金タイプ</label><select id="sp_billing"><option value="hourly">時間貸し</option><option value="block">1日単位専用</option></select></div>
         </div>
+        <div class="sect">カレンダー連携 <span class="h">Googleカレンダーとの予約同期</span></div>
         <div><label>GoogleカレンダーID（連携用・任意）</label>
           <div class="row" style="gap:8px">
             <input id="sp_gcal" placeholder="例）xxxxx@group.calendar.google.com" style="flex:1" />
             <button type="button" class="btn ghost sm" onclick="testCalendar()">接続テスト</button>
           </div>
         </div>
+        <div class="sect">通知メール <span class="h">予約通知・週次まとめの送り先</span></div>
         <div><label>通知先メールアドレス（任意・提携店など）</label>
           <input id="sp_notify" type="email" placeholder="例）partnerA@space-albe.com" />
           <div class="muted" style="font-size:12px;margin-top:2px">このスペースの予約・変更・キャンセル通知を、本部（rental@space-albe.com）に加えてこのアドレスにも送ります。複数人へ配りたい場合は、このアドレス宛の転送設定をメールサーバー側で行ってください。空欄なら本部のみに通知します。</div>
@@ -465,11 +472,11 @@
           <button type="button" class="btn ghost sm" onclick="addWeeklyRow('')" style="margin-top:4px">＋宛先を追加</button>
           <div class="muted" style="font-size:12px;margin-top:2px">毎週月曜の朝に「このスペースの翌週（月〜日）の予約一覧」をここに登録した宛先へ送ります（スペースオーナー向け）。空欄なら上の「通知先メールアドレス」にフォールバックし、それも空なら送信しません。</div>
         </div>
+        <div class="sect">表示・空き状況ページ <span class="h">写真と /availability/ 一覧での見え方</span></div>
         <div><label>サムネイル画像URL（任意）</label>
           <input id="sp_image" type="url" placeholder="例）https://space-albe.com/wp-content/uploads/2020/10/free-img-01.jpg" />
           <div class="muted" style="font-size:12px;margin-top:2px">予約トップの「スペースを選択」カードと空き状況ページ（/availability/）の各行の左側に表示する部屋写真のURL。公式サイト等の公開画像URL（https）を貼り付けてください。空欄なら写真枠（プレースホルダ）を表示します。同型グループ（防音室A/B等）は代表部屋の画像を使います。</div>
         </div>
-        <div class="muted" style="margin-top:6px;font-size:12px;font-weight:600">空き状況ページ（/availability/）の設定</div>
         <div class="grid">
           <div><label>エリア</label>
             <select id="sp_area">
@@ -488,17 +495,20 @@
           <div><label>当日締切（開始の何時間前まで）</label><input id="sp_cutoff" type="number" min="0" value="1" /></div>
           <div><label>「今日」タブ並び順（小さいほど上）</label><input id="sp_prio" type="number" value="100" /></div>
         </div>
+        <div class="sect">料金 <span class="h">時間単価・1日料金の設定</span></div>
         <div class="grid">
           <div><label>平日 1時間単価（空欄=平日貸出なし）</label><input id="sp_wd" type="number" /></div>
           <div><label>土日祝 1時間単価（空欄=貸出なし）</label><input id="sp_we" type="number" /></div>
           <div><label>1日料金の時間数（空欄=なし。例:13）</label><input id="sp_drh" type="number" /></div>
         </div>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:8px 0 0"><input type="checkbox" id="sp_weekend_day_only" style="margin-top:3px"> <span>土日祝は「1日料金のみ」にする（#18）<br><span class="muted" style="font-size:12px">複数日利用が多い施設（例：アルベホール名古屋）向け。ONにすると土日祝は入退時刻に関わらず1日料金になります（時間料金は出しません）。平日は従来どおり時間料金＋1日料金。※1日料金の時間数の設定が必要です。</span></span></label>
+        <div class="sect">営業時間 <span class="h">受付する時間帯と最低利用時間</span></div>
         <div class="grid">
           <div><label>営業開始 *</label><input id="sp_open" placeholder="08:00" /></div>
           <div><label>営業終了 *</label><input id="sp_close" placeholder="22:00" /></div>
           <div><label>最低利用時間</label><input id="sp_min" type="number" value="1" /></div>
         </div>
+        <div class="sect">予約受付 <span class="h">受付期間・締切・公開/曜日の可否</span></div>
         <div class="grid">
           <div><label>予約可能期間（ネット予約・日先まで）</label><input id="sp_horizon" type="number" value="180" /></div>
           <div><label>閲覧可能期間（空き表示・日先まで）</label><input id="sp_view" type="number" value="180" /></div>
@@ -515,7 +525,8 @@
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_wea" checked> 土日祝に予約可</label>
           <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="sp_active" checked> 公開する</label>
         </div>
-        <label style="margin-top:10px">お支払い方法（プリセット）</label>
+        <div class="sect">お支払い方法 <span class="h">利用できる決済手段のプリセット</span></div>
+        <label>プリセット</label>
         <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
           <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_only" style="margin-top:3px"> <span>① クレジットカード決済のみ<br><span class="muted" style="font-size:12px">カード（Stripe）＋PayPal。直前まで予約可。</span></span></label>
           <label style="display:flex;gap:6px;align-items:flex-start;margin:0"><input type="radio" name="sp_paymode" value="card_bank" checked style="margin-top:3px"> <span>② ＋銀行振込（Stripe収納代行）<br><span class="muted" style="font-size:12px">銀行振込は利用7日前まで（直前は非表示）。</span></span></label>
@@ -524,7 +535,7 @@
         <div class="muted" style="font-size:12px;margin-top:4px">※PayPal・クレジットカードは全プリセット共通で利用できます。銀行振込・コンビニは入金確認後に予約確定・領収書を自動発行します（コンビニは利用5日前まで、銀行振込は利用7日前までの受付）。</div>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_manual_invoice" style="margin-top:3px"> <span>請求書払い（手動・自社口座／Stripe非経由）を受け付ける<br><span class="muted" style="font-size:12px">後日こちらから請求書を発行→お客様がお振込→管理画面で「入金済み」にすると確定＆領収書発行。会員のみ・利用7日前まで。</span></span></label>
         <label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0"><input type="checkbox" id="sp_inquiry_only" style="margin-top:3px"> <span>申込は「お問い合わせのみ」にする（ネット直接予約を停止）<br><span class="muted" style="font-size:12px">ONにすると、予約カレンダーは空き状況（◯△✕）を今までどおり表示しますが、どの日程をクリックしても時間選択に進まず<b>お問い合わせフォームへ誘導</b>します。空き状況だけ見せて申込は問い合わせで受ける施設向け。</span></span></label>
-        <label style="margin-top:12px">キャンセルポリシー（このスペース）</label>
+        <div class="sect">キャンセルポリシー <span class="h">このスペースのキャンセル料区分</span></div>
         <select id="sp_cancel_policy">
           <option value="standard">標準（共通：31日前まで無料／30〜15日前50%／14日前〜前日80%／当日100%）</option>
           <option value="piano">ピアノ練習室特別（8日以上前=無料／2〜7日前=50%／前日・当日=100%）</option>
@@ -1648,10 +1659,12 @@ function fillSpaceForm(s) {
   if (s) loadSpaceCancelPolicy(s.id);
   document.getElementById('spMsg').textContent = '';
   // クリックしたスペース行の直下にフォームを展開する（編集時）。新規はテーブル下の元位置に表示。
+  // スペース編集フォームは項目が多いため、幅広（横スクロール）のテーブル行内に押し込むと
+  // 枠からはみ出す。テーブル下の元位置（家）に全幅カードとして表示し、スクロールで見せる。
   const spForm = document.getElementById('spForm');
-  const spBody = document.getElementById('spBody');
-  const rowEl = s ? spBody.querySelector('tr[data-space="' + s.id + '"]') : null;
-  expandPanelUnderRow(spBody, rowEl, spForm, 8);
+  restorePanel(spForm);
+  spForm.classList.remove('hidden');
+  spForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function loadSpaceCancelPolicy(id) {
   const { ok, body } = await api('/api/admin/spaces/' + id + '/cancel-policy');
@@ -3031,7 +3044,7 @@ function ensurePanelHome(panel) {
 function restorePanel(panel) {
   if (!panel) return;
   // 行直下展開時に付けた固定表示スタイルを解除（家＝全幅カードに戻すため）
-  panel.style.position = ''; panel.style.left = ''; panel.style.width = ''; panel.style.boxSizing = '';
+  panel.style.position = ''; panel.style.left = ''; panel.style.width = ''; panel.style.maxWidth = ''; panel.style.boxSizing = '';
   const a = ensurePanelHome(panel);
   a.parentNode.insertBefore(panel, a.nextSibling);
 }
@@ -3049,9 +3062,12 @@ function expandPanelUnderRow(tbody, rowEl, panel, colspan) {
     // （保存/閉じる）が画面右外に隠れてしまう。パネルを可視領域の左に固定し幅を収めて防ぐ。
     const scroller = tbody.closest('.tablewrap');
     if (scroller) {
+      // 可視領域（スクローラー幅）とビューポート幅の小さい方に収め、はみ出し・見切れを防ぐ。
+      const vw = document.documentElement.clientWidth || scroller.clientWidth;
       panel.style.position = 'sticky';
       panel.style.left = '0';
-      panel.style.width = Math.max(280, scroller.clientWidth - 8) + 'px';
+      panel.style.width = Math.max(280, Math.min(scroller.clientWidth, vw - 24)) + 'px';
+      panel.style.maxWidth = '100%';
       panel.style.boxSizing = 'border-box';
     }
   }
@@ -3202,7 +3218,7 @@ function vwCard(r) {
     const idj = JSON.stringify(r.id);
     actions =
       '<div style="margin-top:10px;display:flex;justify-content:flex-end">' +
-        '<button class="btn sm ghost" onclick="vwMarkHandled(' + idj + ')">対応済みにする</button>' +
+        '<button class="btn sm ghost" onclick=\'vwMarkHandled(' + idj + ')\'>対応済みにする</button>' +
       '</div>';
   } else {
     actions = r.staffNote ? '<div class="muted" style="margin-top:4px">' + crEsc(r.staffNote) + '</div>' : '';

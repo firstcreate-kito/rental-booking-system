@@ -495,6 +495,7 @@ app.get('/bookings', async (c) => {
     to: c.req.query('to'),
     spaceId: c.req.query('spaceId'),
     status: c.req.query('status'),
+    payment: c.req.query('payment'), // 'unpaid' で未入金の本予約のみを一覧
     view,
     todayYmd: todayJST(), // b.date は 'YYYY-MM-DD' 形式なので同形式で比較する
   });

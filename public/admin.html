@@ -168,6 +168,7 @@
       </div>
       <div class="row" style="gap:8px;margin:8px 0 4px">
         <button id="bv-active" class="btn sm" onclick="setBookingView('active')">予約中</button>
+        <button id="bv-unpaid" class="btn ghost sm" onclick="setBookingView('unpaid')">未入金</button>
         <button id="bv-past" class="btn ghost sm" onclick="setBookingView('past')">利用済み（過去）</button>
         <button id="bv-archive" class="btn ghost sm" onclick="setBookingView('archive')">キャンセル済み（アーカイブ）</button>
       </div>
@@ -1339,9 +1340,10 @@ let bookingView = 'active';
 function setBookingView(v) {
   bookingView = v;
   document.getElementById('bv-active').className = 'btn sm' + (v === 'active' ? '' : ' ghost');
+  document.getElementById('bv-unpaid').className = 'btn sm' + (v === 'unpaid' ? '' : ' ghost');
   document.getElementById('bv-past').className = 'btn sm' + (v === 'past' ? '' : ' ghost');
   document.getElementById('bv-archive').className = 'btn sm' + (v === 'archive' ? '' : ' ghost');
-  // 状態フィルタは「予約中」でのみ有効（利用済み・キャンセル済みは対象が固定）
+  // 状態フィルタは「予約中」でのみ有効（未入金・利用済み・キャンセル済みは対象が固定）
   document.getElementById('f_status_wrap').style.display = v === 'active' ? '' : 'none';
   loadBookings();
 }
@@ -1355,8 +1357,13 @@ async function loadBookings() {
   const sp = document.getElementById('f_space').value, st = document.getElementById('f_status').value;
   if (from) q.set('from', from); if (to) q.set('to', to);
   if (sp) q.set('spaceId', sp);
-  q.set('view', bookingView);
-  if (bookingView === 'active' && st) q.set('status', st);
+  if (bookingView === 'unpaid') {
+    // 未入金一覧：本予約かつ未入金のみ（全期間）。view の日付フィルタは付けない。
+    q.set('payment', 'unpaid');
+  } else {
+    q.set('view', bookingView);
+    if (bookingView === 'active' && st) q.set('status', st);
+  }
   const { body } = await api('/api/admin/bookings?' + q.toString());
   const rows = body.bookings || [];
   document.getElementById('listEmpty').textContent = rows.length ? '' : '該当する予約はありません';

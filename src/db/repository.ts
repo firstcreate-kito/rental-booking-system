@@ -1377,7 +1377,7 @@ export async function deleteAdminSession(db: D1Database, token: string): Promise
 /** 管理者向け予約一覧（フィルタ: 期間・スペース・ステータス） */
 export async function listBookingsForAdmin(
   db: D1Database,
-  filters: { from?: string; to?: string; spaceId?: string; status?: string; view?: 'active' | 'archive' | 'past'; todayYmd?: string },
+  filters: { from?: string; to?: string; spaceId?: string; status?: string; payment?: string; view?: 'active' | 'archive' | 'past'; todayYmd?: string },
 ) {
   const conds: string[] = [];
   const binds: unknown[] = [];
@@ -1396,7 +1396,12 @@ export async function listBookingsForAdmin(
   const today = filters.todayYmd;
   // 決済先行の pending / 不成立 failed は一覧に出さない（#68）
   conds.push("b.status NOT IN ('pending','failed')");
-  if (filters.status) {
+  if (filters.payment === 'unpaid') {
+    // 未入金の一覧：本予約かつ未入金のみ（利用日は問わず＝過去の入金漏れも拾う）。
+    // view の日付フィルタは適用しない（未入金の督促向けに全期間を一覧）。
+    conds.push("b.status = 'confirmed'");
+    conds.push("bg.payment_status = 'unpaid'");
+  } else if (filters.status) {
     // 明示的なステータス指定が最優先（後方互換）
     conds.push('b.status = ?');
     binds.push(filters.status);

@@ -30,7 +30,9 @@ function nextWeekend(today: string): string {
 export const availabilityApi = new Hono<AppBindings>();
 availabilityApi.get('/', async (c) => {
   const q = c.req.query('date');
-  const date = isYmd(q) ? q : todayJST();
+  const today = todayJST();
+  // 過去日は空き状況を引かない（本日にクランプ）。
+  const date = isYmd(q) && q >= today ? q : today;
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
   c.header('Cache-Control', 'public, max-age=300'); // 同期間隔と同じ5分
   return c.json(data);
@@ -40,7 +42,8 @@ availabilityApi.get('/', async (c) => {
 export async function availabilityPage(c: import('hono').Context<AppBindings>): Promise<Response> {
   const q = c.req.query('date');
   const today = todayJST();
-  const date = isYmd(q) ? q : today;
+  // 過去日は空き状況を引かない（本日にクランプ）。
+  const date = isYmd(q) && q >= today ? q : today;
   const embed = c.req.query('embed') === '1'; // WEBサイト等への iframe 埋め込み（#19）
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
   const contactUrl = (await getSystemSetting(c.env.DB, 'contact_url')) ?? '/';

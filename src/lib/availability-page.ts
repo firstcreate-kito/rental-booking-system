@@ -206,7 +206,7 @@ ${embed ? '' : `<header class="albe-topbar">
 <section class="datebar" aria-label="日付の選択">
   <span class="dlabel">日付</span>
   <div class="dchips">${dchip('今日', ctx.today)}${dchip('明日', ctx.tomorrow)}${dchip('今週末', ctx.weekend)}</div>
-  <div class="dpick"><input type="date" id="dinput" value="${data.date}" aria-label="日付を指定"></div>
+  <div class="dpick"><input type="date" id="dinput" value="${data.date}" min="${ctx.today}" aria-label="日付を指定"></div>
 </section>
 
 <div class="frow"><span class="flabel">用途</span><div class="chips">${chipRow('use', uses, data.filters.use)}</div></div>

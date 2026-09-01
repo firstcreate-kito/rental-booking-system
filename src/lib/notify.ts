@@ -17,12 +17,19 @@ import {
   adminTicketPurchaseEmail,
 } from './email';
 
+/** 管理者通知の既定宛先（MAIL_ADMIN 未設定時のフォールバック・本部）。未入金アラートCronと統一。 */
+const DEFAULT_ADMIN_EMAIL = 'rental@space-albe.com';
+
 /**
  * 管理者通知の宛先一覧（#72）。本部（MAIL_ADMIN）＋スペース別の通知先メールを重複なく返す。
  * spaceId 未指定/該当なしなら本部のみ。複数人への配信はメールサーバーの転送で行う想定。
  */
 export async function adminRecipients(env: Env, spaceId?: string | null): Promise<string[]> {
   const set = new Set<string>();
+  // 本部（rental@space-albe.com）は常に宛先に含める。MAIL_ADMIN 未設定でも管理者メールが
+  // 宛先ゼロで無送信になるのを防ぐ（未入金アラートCronと同じ既定）。MAIL_ADMIN が本部と
+  // 同一なら Set で重複排除される。
+  set.add(DEFAULT_ADMIN_EMAIL);
   if (env.MAIL_ADMIN) set.add(env.MAIL_ADMIN.trim());
   if (spaceId) {
     const row = await env.DB.prepare('SELECT notify_email FROM spaces WHERE id = ?')

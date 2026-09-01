@@ -160,6 +160,14 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
   if (!summary) return;
   const { email, name, phone } = await customerContact(env, groupId);
   const origin = env.PUBLIC_BASE_URL || '';
+  // 予約フォームの追加項目をメールにも記載（新規予約時の即時確認メールと揃える）
+  const extras = [
+    { label: '利用目的', value: summary.purpose ?? '' },
+    { label: '利用人数', value: summary.headcount ? `${summary.headcount}名` : '' },
+    { label: '過去のご利用実績', value: summary.pastUse ?? '' },
+    { label: 'ALBEを知ったきっかけ', value: summary.referralSource ?? '' },
+    { label: 'ご要望・メッセージ', value: summary.customerMessage ?? '' },
+  ].filter((e) => e.value);
   const data = {
     bookingNumber: summary.bookingNumber,
     spaceName: summary.spaceName,
@@ -168,6 +176,7 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     days: summary.items,
     total: summary.total,
     status: 'confirmed' as const,
+    extras,
     mypageUrl: origin ? `${origin}/mypage.html` : undefined,
     changeUrl: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
     isInvoice: false,

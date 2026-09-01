@@ -1642,6 +1642,9 @@ export interface BookingGroupRow {
   invoice_name: string | null;
   payment_status: string;
   note: string | null;
+  purpose: string | null;
+  headcount: number | null;
+  customer_message: string | null; // 予約時にお客様が入力したご要望・メッセージ（任意）
 }
 
 export interface BookingRow {
@@ -2543,11 +2546,17 @@ export async function createBookingPayment(
 export async function getBookingSummaryForGroup(db: D1Database, groupId: string) {
   const g = await db
     .prepare(
-      `SELECT bg.booking_number, bg.total_amount, bg.payment_method, bg.event_name, s.name AS space_name
+      `SELECT bg.booking_number, bg.total_amount, bg.payment_method, bg.event_name,
+              bg.purpose, bg.headcount, bg.past_use, bg.referral_source, bg.customer_message,
+              s.name AS space_name
        FROM booking_groups bg LEFT JOIN spaces s ON s.id = bg.space_id WHERE bg.id = ?`,
     )
     .bind(groupId)
-    .first<{ booking_number: string; total_amount: number; payment_method: string | null; event_name: string; space_name: string | null }>();
+    .first<{
+      booking_number: string; total_amount: number; payment_method: string | null; event_name: string;
+      purpose: string | null; headcount: number | null; past_use: string | null;
+      referral_source: string | null; customer_message: string | null; space_name: string | null;
+    }>();
   if (!g) return null;
   const { results } = await db
     .prepare('SELECT date, start_time, end_time FROM bookings WHERE group_id = ? ORDER BY date, start_time')
@@ -2559,6 +2568,11 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
     eventName: g.event_name,
     total: g.total_amount,
     paymentMethod: g.payment_method,
+    purpose: g.purpose,
+    headcount: g.headcount,
+    pastUse: g.past_use,
+    referralSource: g.referral_source,
+    customerMessage: g.customer_message,
     items: (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
   };
 }

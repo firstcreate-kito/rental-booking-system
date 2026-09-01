@@ -201,6 +201,11 @@
           <button class="btn ghost sm" onclick="closeReschedule()">✕</button>
         </div>
         <div class="muted" id="rsInfo" style="margin:6px 0 10px"></div>
+        <!-- 予約時にお客様が入力したご要望・メッセージ（読み取り専用） -->
+        <div id="rsCustMsgWrap" class="hidden" style="margin:6px 0 10px;padding:10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">お客様からのご要望・メッセージ</div>
+          <div id="rsCustMsg" style="font-size:13px;white-space:pre-wrap;word-break:break-word"></div>
+        </div>
         <!-- 予約情報の編集（サイネージ表示名＝イベント名・お客様連絡先）#110 -->
         <div style="margin:6px 0 12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fafbfc">
           <div style="font-weight:600;font-size:13px;margin-bottom:6px">予約情報（サイネージ表示名・お客様連絡先）</div>
@@ -2765,6 +2770,10 @@ async function openReschedule(number, prefillItems) {
   // 予約情報の編集欄に現在値を反映（#110）
   document.getElementById('rs_event').value = body.eventName || '';
   document.getElementById('rs_note').value = body.note || '';
+  // 予約時のお客様メッセージ（あれば表示）
+  const _custMsg = (body.customerMessage || '').trim();
+  document.getElementById('rsCustMsg').textContent = _custMsg;
+  document.getElementById('rsCustMsgWrap').classList.toggle('hidden', !_custMsg);
   const _cst = body.customer || {};
   document.getElementById('rs_contact').value = _cst.contactName || '';
   document.getElementById('rs_phone').value = _cst.phone || '';

@@ -131,6 +131,8 @@ interface CreateBookingBody {
   referralSource?: string;
   /** ご利用規約への同意（必須・trueのみ受付）#60 */
   termsAgreed?: boolean;
+  /** ご要望・メッセージ（任意・お客様→運営への自由記述） */
+  customerMessage?: string;
 }
 
 /**
@@ -309,6 +311,8 @@ app.post('/', async (c) => {
   const headcount = Number.isFinite(headcountNum) && headcountNum > 0 ? Math.floor(headcountNum) : null;
   const pastUse = String(body.pastUse ?? '').trim() || null;
   const referralSource = String(body.referralSource ?? '').trim() || null;
+  // ご要望・メッセージ（任意・自由記述）。長すぎる入力は保存前に丸める（安全側）。
+  const customerMessage = String(body.customerMessage ?? '').trim().slice(0, 2000) || null;
   if (!purpose) return c.json({ error: '利用目的を選択してください' }, 400);
   if (!headcount) return c.json({ error: '利用人数を入力してください' }, 400);
   if (body.termsAgreed !== true) return c.json({ error: 'ご利用規約への同意が必要です' }, 400);
@@ -518,10 +522,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, customer_message, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, totals.total, originalDate, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, initialStatus, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, totals.total, originalDate, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, customerMessage, initialStatus, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -708,6 +712,7 @@ app.post('/', async (c) => {
     { label: '利用人数', value: headcount ? `${headcount}名` : '' },
     { label: '過去のご利用実績', value: pastUse ?? '' },
     { label: 'ALBEを知ったきっかけ', value: referralSource ?? '' },
+    { label: 'ご要望・メッセージ', value: customerMessage ?? '' },
   ].filter((e) => e.value);
   const emailData = {
     bookingNumber,

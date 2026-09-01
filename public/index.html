@@ -430,6 +430,8 @@
     <input id="f_phone" inputmode="tel" placeholder="例）052-485-5975（海外は国番号から）" />
     <label>会社名 <span class="opt">任意</span></label>
     <input id="f_company" />
+    <label>ご要望・メッセージ <span class="opt">任意</span></label>
+    <textarea id="f_message" rows="3" placeholder="ご要望やご質問などがあればご記入ください（任意）" style="width:100%;resize:vertical"></textarea>
     <div id="f_questions"></div>
     <!-- お支払い方法（#38） -->
     <div class="card" id="paymentSection" style="margin-top:14px">
@@ -835,7 +837,7 @@ function saveDraft() {
         event: g('f_event'), purpose: g('f_purpose'), headcount: g('f_headcount'),
         pastUse: g('f_pastuse'), referral: g('f_referral'),
         lastName: g('f_lastName'), firstName: g('f_firstName'),
-        email: g('f_email'), phone: g('f_phone'), company: g('f_company'), invoiceName: g('f_invoiceName'),
+        email: g('f_email'), phone: g('f_phone'), company: g('f_company'), message: g('f_message'), invoiceName: g('f_invoiceName'),
       },
       answers: draftAnswers(),
     }));
@@ -892,7 +894,7 @@ async function restoreDraft(d) {
   set('f_event', f.event); set('f_purpose', f.purpose); set('f_headcount', f.headcount);
   set('f_pastuse', f.pastUse); set('f_referral', f.referral);
   set('f_lastName', f.lastName); set('f_firstName', f.firstName);
-  set('f_email', f.email); set('f_phone', f.phone); set('f_company', f.company); set('f_invoiceName', f.invoiceName);
+  set('f_email', f.email); set('f_phone', f.phone); set('f_company', f.company); set('f_message', f.message); set('f_invoiceName', f.invoiceName);
   const ans = d.answers || {};
   document.querySelectorAll('#f_questions .q-input').forEach((el) => { const id = el.getAttribute('data-qid'); if (id && ans[id] != null) el.value = ans[id]; });
   try { recomputeSummary(); } catch (e) {}
@@ -2057,6 +2059,7 @@ async function submitBooking() {
   const email = document.getElementById('f_email').value.trim();
   const phone = document.getElementById('f_phone').value.trim();
   const company = document.getElementById('f_company').value.trim();
+  const customerMessage = document.getElementById('f_message').value.trim();
   const pastUse = document.getElementById('f_pastuse').value;
   const referralSource = document.getElementById('f_referral').value;
   const termsAgreed = document.getElementById('f_terms').checked;
@@ -2090,7 +2093,7 @@ async function submitBooking() {
   }
   document.getElementById('submitBtn').disabled = true;
   const { ok, body } = await api('/api/bookings', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-    body: JSON.stringify({ spaceId: S.space.id, eventName: event, purpose, headcount, pastUse, referralSource, termsAgreed, customer: { contactName: name, email, phone, companyName: company }, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
+    body: JSON.stringify({ spaceId: S.space.id, eventName: event, purpose, headcount, pastUse, referralSource, termsAgreed, customer: { contactName: name, email, phone, companyName: company }, customerMessage, items: S.cart, options: optionsPayload(), answers, paymentMethod, invoiceName, ...discountPayload() }) });
   document.getElementById('submitBtn').disabled = false;
   if (!ok) { msg.textContent = body.error || '予約に失敗しました'; msg.classList.remove('hidden'); return; }
   // オンライン決済（Stripe / PayPal）の場合は決済ページへ移動

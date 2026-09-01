@@ -1151,6 +1151,9 @@ app.get('/bookings/:number', async (c) => {
     status: g.status,
     eventName: g.event_name,
     note: g.note ?? '',
+    customerMessage: g.customer_message ?? '', // 予約時のお客様メッセージ（読み取り専用）
+    purpose: g.purpose ?? '',
+    headcount: g.headcount ?? null,
     customer: prof
       ? { id: String(prof.id), contactName: prof.contact_name ? String(prof.contact_name) : '', email: prof.email ? String(prof.email) : '', phone: prof.phone ? String(prof.phone) : '' }
       : null,

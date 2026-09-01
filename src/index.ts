@@ -16,6 +16,7 @@ import { availabilityApi, availabilityPage, sitemapXml } from './routes/availabi
 import guestChange from './routes/guest-change';
 import viewing from './routes/viewing';
 import contact from './routes/contact';
+import { embedCalendar } from './routes/embed';
 import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
@@ -183,6 +184,10 @@ app.route('/api/contact', contact);
 app.get('/availability', availabilityPage);
 app.get('/availability/', availabilityPage);
 app.get('/sitemap.xml', sitemapXml);
+
+// 施設単位の月間カレンダー埋め込み（#19・外部サイトに iframe で貼る）。静的アセットより先に登録。
+app.get('/embed/calendar', embedCalendar);
+app.get('/embed/calendar/', embedCalendar);
 
 // ゲスト予約の変更ページ（公開・#75）。Workerが直接HTMLを返す（両スラッシュとも200）。
 const serveBookingChange = (c: import('hono').Context<AppBindings>) => c.html(BOOKING_CHANGE_HTML);

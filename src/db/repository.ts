@@ -44,6 +44,7 @@ export interface SpaceRow {
   closing_date: string | null; // 予約受付最終日（この日まで予約可・NULL=なし）
   inquiry_only: number; // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）#移行
   image_url: string | null; // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）#74拡張
+  email_note: string | null; // お客様宛メールに差し込む案内文（入室方法・解錠番号など・任意）
 }
 
 /** 支払いモード（#67） */
@@ -94,6 +95,8 @@ export interface SpaceInput {
   inquiryOnly?: boolean;
   /** サムネイル画像URL（空き状況ページ・予約トップのカードに表示）。空欄=画像なし */
   imageUrl?: string | null;
+  /** お客様宛メールに差し込む案内文（入室方法・解錠番号など）。予約確定/入金確認/利用前リマインダーに差し込む。空欄=差し込みなし */
+  emailNote?: string | null;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -150,6 +153,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.inquiryOnly ? 1 : 0,
     s.weeklyReportRecipients ?? null,
     s.imageUrl ?? null,
+    s.emailNote ?? null,
   ];
 }
 
@@ -161,8 +165,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -176,7 +180,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -2553,7 +2557,7 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
     .prepare(
       `SELECT bg.booking_number, bg.total_amount, bg.payment_method, bg.event_name,
               bg.purpose, bg.headcount, bg.past_use, bg.referral_source, bg.customer_message,
-              s.name AS space_name
+              s.name AS space_name, s.email_note AS space_email_note
        FROM booking_groups bg LEFT JOIN spaces s ON s.id = bg.space_id WHERE bg.id = ?`,
     )
     .bind(groupId)
@@ -2561,6 +2565,7 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
       booking_number: string; total_amount: number; payment_method: string | null; event_name: string;
       purpose: string | null; headcount: number | null; past_use: string | null;
       referral_source: string | null; customer_message: string | null; space_name: string | null;
+      space_email_note: string | null;
     }>();
   if (!g) return null;
   const { results } = await db
@@ -2578,6 +2583,7 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
     pastUse: g.past_use,
     referralSource: g.referral_source,
     customerMessage: g.customer_message,
+    spaceEmailNote: g.space_email_note,
     items: (results ?? []).map((r) => ({ date: r.date, startTime: r.start_time, endTime: r.end_time })),
   };
 }
@@ -3001,6 +3007,8 @@ export interface CronEmailBookingRow {
   space_name: string | null;
   contact_name: string | null;
   email: string;
+  /** スペースの案内文（入室方法など・任意）。リマインダーで差し込む。SELECTしないクエリでは undefined */
+  email_note?: string | null;
 }
 
 /** 送信済みフラグを立てる（column は内部固定の列名のみを渡すこと） */
@@ -3084,7 +3092,7 @@ export async function getBookingsForUseDateReminder(
   const { results } = await db
     .prepare(
       `SELECT bg.id, bg.booking_number, bg.event_name, bg.total_amount,
-              s.name AS space_name, c.contact_name, c.email
+              s.name AS space_name, s.email_note, c.contact_name, c.email
        FROM booking_groups bg
        JOIN spaces s ON s.id = bg.space_id
        JOIN customers c ON c.id = bg.customer_id

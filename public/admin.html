@@ -541,6 +541,9 @@
           <option value="piano">ピアノ練習室特別（8日以上前=無料／2〜7日前=50%／前日・当日=100%）</option>
         </select>
         <div class="muted" style="font-size:12px;margin-top:4px">直前予約・変更が多いスペース（防音室・ピアノ練習室など）向けの特別設定。日時変更は空き次第で無料のままです。</div>
+        <div class="sect">メール差し込み案内文 <span class="h">入室方法・解錠番号などをお客様メールに自動追記</span></div>
+        <textarea id="sp_email_note" rows="6" style="width:100%;resize:vertical" placeholder="例）&#10;【解錠方法】&#10;土日祝／早朝／深夜はセキュリティのためロックされています。&#10;スマートキーのロック解除番号：48240319&#10;&#10;【当日の入退出について】&#10;平日昼間は開錠された状態です。お時間になりましたらご利用いただき、レンタル時間内にご退出をお願いいたします。"></textarea>
+        <div class="muted" style="font-size:12px;margin-top:4px">このスペース固有の案内文を、お客様宛の<b>予約確定メール・入金確認メール・利用前リマインダー（3日前/1日前）</b>に自動で差し込みます。改行はそのまま反映されます。空欄なら何も差し込みません。<b>入室方法・解錠番号など、確定したお客様にのみ伝えたい情報</b>向けです（商談中の仮予約メールには出しません）。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="collapseSpaceForm()">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -1636,6 +1639,7 @@ function fillSpaceForm(s) {
   g('sp_name', s?.name); g('sp_slug', s?.slug); g('sp_gcal', s?.google_calendar_id); g('sp_notify', s?.notify_email); g('sp_wd', s?.weekday_rate); g('sp_we', s?.weekend_rate);
   setWeeklyRows(s?.weekly_report_recipients || '');
   g('sp_image', s?.image_url);
+  g('sp_email_note', s?.email_note);
   g('sp_area', s?.area); g('sp_use', s?.use_category); g('sp_group', s?.room_group);
   g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
   g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
@@ -1708,6 +1712,7 @@ async function saveSpace() {
     inquiryOnly: document.getElementById('sp_inquiry_only').checked,
     weekendDayRateOnly: document.getElementById('sp_weekend_day_only').checked,
     closingDate: v('sp_closing') || null,
+    emailNote: v('sp_email_note') || null,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing

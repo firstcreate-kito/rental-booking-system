@@ -139,6 +139,7 @@ export async function notifyPaymentConfirmed(
         days: summary.items,
         total: summary.total,
         receiptUrl,
+        spaceNote: summary.spaceEmailNote,
       }),
     });
   }
@@ -187,6 +188,7 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     mypageUrl: origin ? `${origin}/mypage.html` : undefined,
     changeUrl: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
     isInvoice: false,
+    spaceNote: summary.spaceEmailNote,
   };
   if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data) });
   const admins = await adminRecipients(env, await groupSpaceId(env, groupId));

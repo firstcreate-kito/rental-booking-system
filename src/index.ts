@@ -274,6 +274,7 @@ async function runUseDateReminders(env: AppBindings['Bindings']): Promise<void> 
           days: dayList,
           daysBefore: days,
           changeUrl: (env.PUBLIC_BASE_URL || '') ? `${env.PUBLIC_BASE_URL}/booking-change/?num=${encodeURIComponent(r.booking_number)}` : undefined,
+          spaceNote: r.email_note ?? undefined,
         }),
       });
       sent.push(r.id);

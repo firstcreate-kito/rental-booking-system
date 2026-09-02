@@ -89,6 +89,36 @@ describe('email - 予約確認テンプレート', () => {
     });
     expect(m.subject).toContain('仮予約');
   });
+  it('スペース案内文（spaceNote）: 本予約では差し込む・改行保持・エスケープ', () => {
+    const note = '【解錠方法】\nスマートキー番号：48240319\n<b>タグ</b>';
+    const m = bookingConfirmationEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 1000, status: 'confirmed', spaceNote: note,
+    });
+    expect(m.text).toContain('ご利用スペースからのご案内');
+    expect(m.text).toContain('48240319');
+    expect(m.text).toContain('【解錠方法】');
+    expect(m.html).toContain('ご利用スペースからのご案内');
+    expect(m.html).toContain('48240319');
+    expect(m.html).toContain('&lt;b&gt;'); // エスケープ済み
+    expect(m.html).not.toContain('<b>タグ</b>');
+  });
+  it('スペース案内文（spaceNote）: 商談中（tentative）には出さない', () => {
+    const m = bookingConfirmationEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 1000, status: 'tentative', spaceNote: 'スマートキー番号：48240319',
+    });
+    expect(m.text).not.toContain('48240319');
+    expect(m.text).not.toContain('ご利用スペースからのご案内');
+  });
+  it('スペース案内文（spaceNote）: 空欄なら差し込まない', () => {
+    const m = bookingConfirmationEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 1000, status: 'confirmed', spaceNote: '   ',
+    });
+    expect(m.text).not.toContain('ご利用スペースからのご案内');
+    expect(m.html).not.toContain('ご利用スペースからのご案内');
+  });
 });
 
 describe('email - キャンセル/管理者通知テンプレート', () => {

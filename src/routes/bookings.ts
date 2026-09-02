@@ -729,6 +729,8 @@ app.post('/', async (c) => {
     // ご予約の確認・変更ページ（#75。ゲスト・会員問わず番号プリフィルで案内）
     changeUrl: `${origin}/booking-change/?num=${encodeURIComponent(bookingNumber)}`,
     isInvoice: paymentMethod === 'invoice',
+    // スペース固有の案内文（入室方法・解錠番号など・任意）。確定メールに差し込む。
+    spaceNote: space.email_note ?? undefined,
   };
   // 予約確認メールの送信可否。
   //  - pending（カード/PayPal）… 入金確定時に送る（ここでは送らない）

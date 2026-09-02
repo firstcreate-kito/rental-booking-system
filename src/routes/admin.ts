@@ -724,6 +724,7 @@ async function prepareAdminBooking(
       days: body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime })),
       total: group.spaceTotal,
       status: 'confirmed',
+      spaceNote: space.email_note ?? undefined,
     });
     c.executionCtx.waitUntil(sendEmail(c.env, { to: body.customer.email, ...mail }));
   }
@@ -1884,6 +1885,11 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       const v = String(body.imageUrl ?? '').trim();
       if (!v) return null;
       return /^(https?:\/\/|\/)/i.test(v) ? v : null;
+    })(),
+    // お客様宛メールに差し込む案内文（入室方法・解錠番号など・任意）。最大2000文字。空欄=差し込みなし。
+    emailNote: (() => {
+      const v = String(body.emailNote ?? '').trim();
+      return v ? v.slice(0, 2000) : null;
     })(),
   };
   return { input };

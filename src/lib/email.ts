@@ -210,6 +210,26 @@ export interface BookingEmailData {
   isInvoice?: boolean;
   /** 予約フォームの追加項目（利用目的・人数・過去利用・きっかけ 等）#60 */
   extras?: ReadonlyArray<{ label: string; value: string }>;
+  /** スペース固有の案内文（入室方法・解錠番号など・任意）。差し込みブロックとして表示する */
+  spaceNote?: string | null;
+}
+
+/**
+ * スペース固有の案内文（入室方法・解錠番号など）を差し込むブロック。
+ * 管理画面でスペースごとに設定した自由記述を、改行を保ったまま目立つ枠で表示する。
+ * 空欄・未設定なら何も出さない。可変値はエスケープ。
+ */
+function spaceNoteBlockText(note?: string | null): string {
+  const t = String(note ?? '').trim();
+  if (!t) return '';
+  return `\n─────────────────────\n■ ご利用スペースからのご案内\n${t}\n─────────────────────\n`;
+}
+function spaceNoteBlockHtml(note?: string | null): string {
+  const t = String(note ?? '').trim();
+  if (!t) return '';
+  return `<div style="margin:14px 0;padding:12px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
+<p style="margin:0 0 6px;font-weight:700;color:#92400e">■ ご利用スペースからのご案内</p>
+<p style="margin:0;white-space:pre-wrap;color:#1f2937">${escapeHtml(t)}</p></div>`;
 }
 
 function daysBlockText(days: BookingEmailData['days']): string {
@@ -238,6 +258,9 @@ function extrasRowsHtml(extras?: BookingEmailData['extras']): string {
 /** 予約確認メール（お客様宛） */
 export function bookingConfirmationEmail(d: BookingEmailData): { subject: string; html: string; text: string } {
   const label = d.status === 'tentative' ? '仮予約（商談中）' : 'ご予約';
+  // 入室方法・解錠番号などの案内は「本予約（confirmed）」のみ差し込む（商談中の仮押さえには出さない）
+  const noteText = d.status === 'tentative' ? '' : spaceNoteBlockText(d.spaceNote);
+  const noteHtml = d.status === 'tentative' ? '' : spaceNoteBlockHtml(d.spaceNote);
   const subject = `【レンタルスペースALBE】${label}を承りました（${d.bookingNumber}）`;
   const text = `${d.customerName} 様
 
@@ -250,7 +273,7 @@ export function bookingConfirmationEmail(d: BookingEmailData): { subject: string
 日時:
 ${daysBlockText(d.days)}
 合計金額（税込）: ${yen(d.total)}
-${
+${noteText}${
   d.mypageUrl
     ? `\n${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。\n${d.mypageUrl}\n`
     : ''
@@ -268,6 +291,7 @@ ${extrasRowsHtml(d.extras)}
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${noteHtml}
 ${
   d.mypageUrl
     ? `<p style="margin:14px 0;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
@@ -716,6 +740,8 @@ export function paymentConfirmedEmail(d: {
   days: DaysList['days'];
   total: number;
   receiptUrl?: string;
+  /** スペース固有の案内文（入室方法・解錠番号など・任意） */
+  spaceNote?: string | null;
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】ご入金を確認し、ご予約が確定しました（${d.bookingNumber}）`;
   const receiptText = d.receiptUrl ? `\n領収書はこちらからダウンロードいただけます。\n${d.receiptUrl}\n` : '';
@@ -729,7 +755,7 @@ export function paymentConfirmedEmail(d: {
 日時:
 ${daysBlockText(d.days)}
 合計金額（税込）: ${yen(d.total)}
-${receiptText}
+${spaceNoteBlockText(d.spaceNote)}${receiptText}
 当日のご来店をお待ちしております。`;
   const receiptHtml = d.receiptUrl
     ? `<p style="margin:14px 0;padding:12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px">📄 領収書をご用意しました。<br><a href="${escapeHtml(d.receiptUrl)}" style="color:#047857;font-weight:700">領収書を表示・保存する ▶</a></p>`
@@ -745,6 +771,7 @@ ${receiptText}
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${spaceNoteBlockHtml(d.spaceNote)}
 ${receiptHtml}
 <p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。</p>
 </div>`;
@@ -1391,6 +1418,8 @@ export function bookingReminderEmail(d: {
   daysBefore: number;
   /** ご予約の確認・変更ページURL（#75・番号プリフィル込み） */
   changeUrl?: string;
+  /** スペース固有の案内文（入室方法・解錠番号など・任意）。利用直前の案内に有効 */
+  spaceNote?: string | null;
 }): { subject: string; html: string; text: string } {
   const whenSubject = d.daysBefore === 1 ? '明日ご利用' : `ご利用${d.daysBefore}日前`;
   const subject = `【レンタルスペースALBE】${whenSubject}のご予約リマインダー（${d.bookingNumber}）`;
@@ -1411,7 +1440,7 @@ ${leadText}
 イベント名: ${d.eventName}
 日時:
 ${daysBlockText(d.days)}
-${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセルのご相談）はこちら:\n${d.changeUrl}\n` : ''}
+${spaceNoteBlockText(d.spaceNote)}${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセルのご相談）はこちら:\n${d.changeUrl}\n` : ''}
 当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
@@ -1423,6 +1452,7 @@ ${d.changeUrl ? `\nご予約の確認・変更（日時変更・キャンセル�
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+${spaceNoteBlockHtml(d.spaceNote)}
 ${d.changeUrl ? `<p style="margin:12px 0;font-size:14px">ご予約の確認・変更（日時変更・キャンセルのご相談）は<a href="${escapeHtml(d.changeUrl)}" style="color:#1d4ed8;font-weight:700">こちら ▶</a></p>` : ''}
 <p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。ご不明な点がございましたらお問い合わせください。</p>
 </div>`;

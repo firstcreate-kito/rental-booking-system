@@ -1525,6 +1525,44 @@ export async function getSalesSummaryForExport(db: D1Database, f: ExportFilters)
   return results ?? [];
 }
 
+/**
+ * チケット販売（オンライン購入）エクスポート（#71拡張）。
+ * サイトでの Stripe 決済による購入（ticket_purchases・入金済み paid のみ）を対象。
+ * 手動発行・Bookly移行分（購入記録なし）は含めない。期間は購入日（paid_at・無ければ created_at）基準。
+ * spaceId 指定時は、その購入した商品が対象スペースに含まれるものだけに絞る。
+ * 発行済みチケット（tickets）の有効期限・残時間も添える。
+ */
+export async function getTicketSalesForExport(db: D1Database, f: ExportFilters) {
+  const conds = ["tp.status = 'paid'"];
+  const binds: unknown[] = [];
+  if (f.from) { conds.push("date(COALESCE(tp.paid_at, tp.created_at)) >= ?"); binds.push(f.from); }
+  if (f.to) { conds.push("date(COALESCE(tp.paid_at, tp.created_at)) <= ?"); binds.push(f.to); }
+  if (f.spaceId) {
+    conds.push('EXISTS (SELECT 1 FROM ticket_product_spaces tps2 WHERE tps2.product_id = tp.product_id AND tps2.space_id = ?)');
+    binds.push(f.spaceId);
+  }
+  const { results } = await db
+    .prepare(
+      `SELECT COALESCE(tp.paid_at, tp.created_at) AS purchased_at,
+              c.contact_name, c.company_name, c.email, c.phone,
+              COALESCE(p.name, t.name) AS product_name,
+              tp.amount, tp.status,
+              (SELECT group_concat(s.name, '、') FROM ticket_product_spaces tps
+                 JOIN spaces s ON s.id = tps.space_id WHERE tps.product_id = tp.product_id) AS space_names,
+              COALESCE(t.total_hours, p.total_hours) AS total_hours,
+              t.valid_until, t.remaining_hours
+       FROM ticket_purchases tp
+       JOIN customers c ON c.id = tp.customer_id
+       LEFT JOIN ticket_products p ON p.id = tp.product_id
+       LEFT JOIN tickets t ON t.id = tp.ticket_id
+       WHERE ${conds.join(' AND ')}
+       ORDER BY purchased_at DESC`,
+    )
+    .bind(...binds)
+    .all<Record<string, unknown>>();
+  return results ?? [];
+}
+
 // --- カレンダー管理（休業日・祝日） ---
 export interface HolidayRow {
   id: string;

@@ -555,7 +555,7 @@
     <!-- データエクスポート（#71） -->
     <section id="view-export" class="card hidden">
       <h2>データのエクスポート（Excel）</h2>
-      <div class="muted">予約・顧客・売上のデータを Excel（.xlsx）で書き出します。期間・スペースで絞り込めます（未指定なら全期間・全スペース）。</div>
+      <div class="muted">予約・顧客・売上・チケット販売のデータを Excel（.xlsx）で書き出します。期間・スペースで絞り込めます（未指定なら全期間・全スペース）。チケット販売は一般予約とは別ファイルで出力します。</div>
       <div class="grid" style="margin-top:12px;max-width:640px">
         <div><label>期間（開始）</label><input id="exp_from" type="date" /></div>
         <div><label>期間（終了）</label><input id="exp_to" type="date" /></div>
@@ -565,11 +565,13 @@
         <button class="btn" onclick="exportData('bookings')">📋 予約一覧を書き出す</button>
         <button class="btn" onclick="exportData('customers')">👤 顧客一覧を書き出す</button>
         <button class="btn" onclick="exportData('sales')">💰 売上集計を書き出す</button>
+        <button class="btn" onclick="exportData('tickets')">🎫 チケット販売を書き出す</button>
       </div>
       <div class="muted" style="font-size:12px;margin-top:10px">
         ・予約一覧＝利用日ごとの明細（キャンセル含む・未確定/不成立は除く）。期間・スペースで絞り込み。<br>
         ・顧客一覧＝お客様の連絡先・ポイント残高など（期間＝登録日で絞り込み、スペース指定は無視）。<br>
-        ・売上集計＝「確定・入金済み」の予約を 月×スペース で集計（利用開始月に計上）。
+        ・売上集計＝「確定・入金済み」の予約を 月×スペース で集計（利用開始月に計上）。<br>
+        ・チケット販売＝サイトでの<b>オンライン購入（入金済み）</b>のみ。期間＝購入日で絞り込み、スペース指定はその商品が対象に含むもの。手動発行・移行分は含みません。
       </div>
       <div class="msg" id="expMsg"></div>
     </section>

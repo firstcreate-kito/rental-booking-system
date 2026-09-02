@@ -12,6 +12,7 @@ import {
   getBookingsForExport,
   getCustomersForExport,
   getSalesSummaryForExport,
+  getTicketSalesForExport,
   getAllSpaces,
   insertSpace,
   updateSpace,
@@ -2626,6 +2627,19 @@ app.get('/export/:type', requireRole('owner', 'manager'), async (c) => {
     const count = rows.reduce((s, r) => s + Number(r.cnt), 0);
     sheet = { name: '売上集計', rows: [header, ...data, [], ['合計', '', count, total]] };
     base = 'sales';
+  } else if (type === 'tickets') {
+    // チケット販売（オンライン購入・入金済みのみ）#71拡張。手動発行・移行分は含めない。
+    const rows = await getTicketSalesForExport(c.env.DB, f);
+    const header = ['購入日時', 'お客様名', '会社名', 'メール', '電話', '商品名', '金額(税込)', '決済状況', '対象スペース', '付与時間', '有効期限', '残時間'];
+    const data = rows.map((r) => [
+      str(r.purchased_at), str(r.contact_name), str(r.company_name), str(r.email), str(r.phone),
+      str(r.product_name), yen(r.amount), PS[str(r.status)] || str(r.status), str(r.space_names),
+      r.total_hours == null ? '' : Number(r.total_hours), str(r.valid_until),
+      r.remaining_hours == null ? '' : Number(r.remaining_hours),
+    ]);
+    const total = rows.reduce((s, r) => s + yen(r.amount), 0);
+    sheet = { name: 'チケット販売', rows: [header, ...data, [], ['合計', '', '', '', '', '', total]] };
+    base = 'ticket-sales';
   } else {
     return c.json({ error: 'unknown export type' }, 400);
   }

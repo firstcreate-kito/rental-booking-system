@@ -1552,7 +1552,7 @@ async function loadSpacesAdmin() {
       '<td class="drag-handle" title="ドラッグで並べ替え" aria-label="ドラッグで並べ替え">⋮⋮</td>' +
       '<td>' + s.name + '</td><td>' + (s.slug || '<span class="muted">' + s.id + '</span>') + '</td><td>' +
       wd + ' / ' + we + '</td><td>' + day + '</td><td>' + s.open_time + '–' + s.close_time + '</td><td>' + pub +
-      '</td><td><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
+      '</td><td class="act"><button class="btn ghost sm" onclick="editSpace(\'' + s.id + '\')">編集</button></td></tr>';
   }).join('');
   bindSpaceDnD();
 }

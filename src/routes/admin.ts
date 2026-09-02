@@ -116,6 +116,7 @@ import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
 import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
+import { bookingIcsAttachment } from '../lib/ics';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
 import { buildWeeklyReports, runWeeklyReport } from '../lib/weekly-report';
@@ -726,7 +727,13 @@ async function prepareAdminBooking(
       status: 'confirmed',
       spaceNote: space.email_note ?? undefined,
     });
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: body.customer.email, ...mail }));
+    const proxyIcs = bookingIcsAttachment({
+      bookingNumber: inserted.bookingNumber,
+      spaceName: space.name,
+      days: body.items.map((i) => ({ date: i.date, startTime: i.startTime, endTime: i.endTime })),
+      url: `${adminOrigin}/booking-change/?num=${encodeURIComponent(inserted.bookingNumber)}`,
+    });
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: body.customer.email, ...mail, ...(proxyIcs ? { attachments: [proxyIcs] } : {}) }));
   }
 
   return {
@@ -1592,7 +1599,11 @@ app.post('/bookings/:number/reschedule', async (c) => {
   const anyChange = daysChanged || optionsChanged || amountChanged;
   const custEmail = cust?.email ? String(cust.email) : '';
   if (anyChange && custEmail) {
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
+    // 本予約の日時変更：新しい日時の .ics を添付（同一UID・より大きいSEQUENCEで既存予定を更新）。
+    const rsIcs = !isTentative && daysChanged
+      ? bookingIcsAttachment({ bookingNumber: number, spaceName: space.name, days: newDays, url: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/booking-change/?num=${encodeURIComponent(number)}` })
+      : null;
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData), ...(rsIcs ? { attachments: [rsIcs] } : {}) }));
   }
   const rsAdmins = await adminRecipients(c.env, g.space_id);
   if (anyChange && rsAdmins.length) {

@@ -38,6 +38,11 @@ export interface EmailMessage {
    * 管理者宛の内部通知は宛先で自動判定するため、通常このフラグは不要。
    */
   internal?: boolean;
+  /**
+   * 添付ファイル（.ics カレンダー等）。content は base64 文字列（Resendの attachments 形式）。
+   * お客様が予約をカレンダーへ追加できるよう、予約確定メール等に booking.ics を添える。
+   */
+  attachments?: Array<{ filename: string; content: string; contentType?: string }>;
 }
 
 export interface SendResult {
@@ -99,6 +104,15 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
         text: msg.text,
         ...(replyTo ? { reply_to: replyTo } : {}),
         ...(bcc.length ? { bcc } : {}),
+        ...(msg.attachments?.length
+          ? {
+              attachments: msg.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+                ...(a.contentType ? { content_type: a.contentType } : {}),
+              })),
+            }
+          : {}),
       }),
     });
     if (!res.ok) {

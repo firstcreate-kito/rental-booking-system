@@ -4,6 +4,7 @@
  */
 import type { Env } from '../types';
 import { getBookingSummaryForGroup, getCustomerProfile } from '../db/repository';
+import { bookingIcsAttachment } from './ics';
 import {
   sendEmail,
   paymentConfirmedEmail,
@@ -129,6 +130,13 @@ export async function notifyPaymentConfirmed(
   const receiptUrl = receiptPath ? (origin ? origin + receiptPath : receiptPath) : undefined;
 
   if (email) {
+    // 予約が確定したので、お客様がカレンダーへ追加できるよう .ics を添付する。
+    const ics = bookingIcsAttachment({
+      bookingNumber: summary.bookingNumber,
+      spaceName: summary.spaceName,
+      days: summary.items,
+      url: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
+    });
     await sendEmail(env, {
       to: email,
       ...paymentConfirmedEmail({
@@ -141,6 +149,7 @@ export async function notifyPaymentConfirmed(
         receiptUrl,
         spaceNote: summary.spaceEmailNote,
       }),
+      ...(ics ? { attachments: [ics] } : {}),
     });
   }
   const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
@@ -190,7 +199,13 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     isInvoice: false,
     spaceNote: summary.spaceEmailNote,
   };
-  if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data) });
+  const estIcs = bookingIcsAttachment({
+    bookingNumber: summary.bookingNumber,
+    spaceName: summary.spaceName,
+    days: summary.items,
+    url: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
+  });
+  if (email) await sendEmail(env, { to: email, ...bookingConfirmationEmail(data), ...(estIcs ? { attachments: [estIcs] } : {}) });
   const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
   if (admins.length) {
     await sendEmail(env, { to: admins, ...adminNewBookingEmail({ ...data, customerEmail: email || '', customerPhone: phone }) });

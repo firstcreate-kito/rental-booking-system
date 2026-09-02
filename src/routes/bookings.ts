@@ -63,6 +63,7 @@ import {
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
 import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, paymentPendingBookingEmail } from '../lib/email';
+import { bookingIcsAttachment } from '../lib/ics';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions, retrieveCheckoutSession } from '../lib/stripe';
 import { settlePaidBookingSession } from '../lib/settle-booking';
@@ -756,7 +757,14 @@ app.post('/', async (c) => {
       c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...pend }));
     } else {
       const confirm = bookingConfirmationEmail(emailData);
-      c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm }));
+      // 予約確定：お客様がカレンダーへ追加できるよう .ics を添付する。
+      const ics = bookingIcsAttachment({
+        bookingNumber,
+        spaceName: space.name,
+        days: mailDays,
+        url: `${origin}/booking-change/?num=${encodeURIComponent(bookingNumber)}`,
+      });
+      c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...confirm, ...(ics ? { attachments: [ics] } : {}) }));
     }
     // 管理者宛の新規予約通知（請求書払いは入金確認を手動で行うため必ず通知する）
     const admins = await adminRecipients(c.env, space.id);
@@ -1399,7 +1407,11 @@ app.post('/:number/reschedule', async (c) => {
   };
   const custEmail = cust?.email ? String(cust.email) : '';
   if (custEmail) {
-    c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData) }));
+    // 本予約の日時変更：新しい日時の .ics を添付（同一UID・より大きいSEQUENCEで既存予定を更新）。
+    const rsIcs = g.status !== 'tentative'
+      ? bookingIcsAttachment({ bookingNumber: number, spaceName: space.name, days: newDays, url: `${c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin}/booking-change/?num=${encodeURIComponent(number)}` })
+      : null;
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: custEmail, ...rescheduleEmail(mailData), ...(rsIcs ? { attachments: [rsIcs] } : {}) }));
   }
   const rsAdmins = await adminRecipients(c.env, space.id);
   if (rsAdmins.length) {

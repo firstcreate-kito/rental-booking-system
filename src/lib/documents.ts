@@ -8,6 +8,24 @@
 
 export type DocumentType = 'invoice' | 'receipt';
 
+/**
+ * 請求書・領収書の宛名を決める（#41 A案）。
+ * 優先順：① 請求書宛名（invoice_name・指定時のみ）→ ② 会社名 → ③ お名前 → ④「お客様」。
+ * 会社名を入力しているお客様は会社名宛、未入力なら個人名宛になる。
+ */
+export function pickRecipientName(
+  invoiceName?: string | null,
+  companyName?: string | null,
+  contactName?: string | null,
+): string {
+  return (
+    (invoiceName || '').trim() ||
+    (companyName || '').trim() ||
+    (contactName || '').trim() ||
+    'お客様'
+  );
+}
+
 export interface IssuerInfo {
   name: string; // 事業者名（会社名）
   zip?: string; // 郵便番号

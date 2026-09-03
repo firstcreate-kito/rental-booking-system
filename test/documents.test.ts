@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { taxBreakdown, renderDocumentHtml, type DocumentData } from '../src/lib/documents';
+import { taxBreakdown, renderDocumentHtml, pickRecipientName, type DocumentData } from '../src/lib/documents';
+
+describe('pickRecipientName（宛名の優先順・#41 A案）', () => {
+  it('請求書宛名があれば最優先', () => {
+    expect(pickRecipientName('株式会社ALBE（宛名）', '株式会社サンプル', '山田 太郎')).toBe('株式会社ALBE（宛名）');
+  });
+  it('請求書宛名が空なら会社名を使う（A案の要点）', () => {
+    expect(pickRecipientName('', '株式会社サンプル', '山田 太郎')).toBe('株式会社サンプル');
+    expect(pickRecipientName(null, '株式会社サンプル', '山田 太郎')).toBe('株式会社サンプル');
+  });
+  it('請求書宛名・会社名が空ならお名前を使う', () => {
+    expect(pickRecipientName('', '', '山田 太郎')).toBe('山田 太郎');
+    expect(pickRecipientName(null, null, '山田 太郎')).toBe('山田 太郎');
+  });
+  it('すべて空なら「お客様」', () => {
+    expect(pickRecipientName('', '', '')).toBe('お客様');
+    expect(pickRecipientName(null, null, null)).toBe('お客様');
+  });
+  it('前後の空白はトリムする', () => {
+    expect(pickRecipientName('  ', '  株式会社サンプル  ', '山田 太郎')).toBe('株式会社サンプル');
+  });
+});
 
 describe('taxBreakdown', () => {
   it('税込から10%を割り戻す', () => {

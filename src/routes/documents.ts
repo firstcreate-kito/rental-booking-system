@@ -6,7 +6,7 @@ import {
   getCustomerProfile,
   getIssuerInfo,
 } from '../db/repository';
-import { renderDocumentHtml, type DocumentData } from '../lib/documents';
+import { renderDocumentHtml, pickRecipientName, type DocumentData } from '../lib/documents';
 import { sendEmail, documentEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
@@ -47,12 +47,8 @@ app.get('/:token', async (c) => {
     .bind(doc.group_id)
     .first<{ invoice_name: string | null }>();
   const cust = customer as { company_name?: string; contact_name?: string } | null;
-  // 宛名：請求書名（指定時）> 申込者の個人名（未指定時の既定）> 会社名 の順（#41）
-  const recipientName =
-    (invoiceName?.invoice_name || '').trim() ||
-    (cust?.contact_name || '').trim() ||
-    (cust?.company_name || '').trim() ||
-    'お客様';
+  // 宛名：請求書名（指定時）> 会社名 > 申込者の個人名 の順（#41・A案）
+  const recipientName = pickRecipientName(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
 
   const data: DocumentData = {
     type: doc.type,
@@ -158,11 +154,7 @@ app.post('/:token/email', async (c) => {
   const invoiceName = await c.env.DB.prepare('SELECT invoice_name FROM booking_groups WHERE id = ?')
     .bind(doc.group_id)
     .first<{ invoice_name: string | null }>();
-  const recipientName =
-    (invoiceName?.invoice_name || '').trim() ||
-    (cust?.contact_name || '').trim() ||
-    (cust?.company_name || '').trim() ||
-    'お客様';
+  const recipientName = pickRecipientName(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
 
   const requested = String((body.email as string) || '').trim();
   const target = requested || (cust?.email || '').trim();

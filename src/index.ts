@@ -34,6 +34,8 @@ import {
   getPointHoldersWithActivity,
   expireCustomerPoints,
   markPointExpiryNotified,
+  getTicketsForExpiryNotice,
+  markTicketExpiryNoticeStage,
   setSystemSetting,
 } from './db/repository';
 import { pointsForAmount, pointExpiryStatus } from './lib/points';
@@ -43,6 +45,7 @@ import {
   bookingReminderEmail,
   thankYouEmail,
   pointExpiryNoticeEmail,
+  ticketExpiryNoticeEmail,
   unpaidCustomerReminderEmail,
   type OverdueBooking,
 } from './lib/email';
@@ -365,6 +368,53 @@ async function runPointExpiry(env: AppBindings['Bindings']): Promise<void> {
   console.log(`[point-expiry] holders=${holders.length} expired=${expired} notified=${notified}`);
 }
 
+/**
+ * 定期処理：回数券（チケット）の有効期限接近メール（#112）。
+ * 有効・残時間ありの回数券について、残り約2か月（60日以内）と約1か月（30日以内）の
+ * 2段階でお客様へお知らせする。二重送信は tickets.expiry_notice_stage で防ぐ
+ * （60=2か月前送信済み／30=1か月前送信済み）。
+ */
+async function runTicketExpiryNotice(env: AppBindings['Bindings']): Promise<void> {
+  const origin = env.PUBLIC_BASE_URL || '';
+  const today = todayJST();
+  const horizon = addDaysJST(today, 60);
+  const rows = await getTicketsForExpiryNotice(env.DB, today, horizon);
+  const dayMs = 86400000;
+  const daysLeft = (ymd: string) =>
+    Math.round((Date.parse(ymd + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / dayMs);
+  const to60: string[] = [];
+  const to30: string[] = [];
+  for (const t of rows) {
+    const left = daysLeft(t.valid_until);
+    if (left <= 0) continue; // 当日・期限切れは接近通知の対象外
+    let stage = 0;
+    let label = '';
+    if (left <= 30) {
+      if (t.expiry_notice_stage === 30) continue; // 1か月前は送信済み
+      stage = 30; label = '約1か月';
+    } else {
+      // 31〜60日：2か月前の通知（未送信のときだけ）
+      if (t.expiry_notice_stage !== 0) continue;
+      stage = 60; label = '約2か月';
+    }
+    await sendEmail(env, {
+      to: t.email,
+      ...ticketExpiryNoticeEmail({
+        customerName: t.contact_name || 'お客様',
+        ticketName: t.name,
+        remainingHours: t.remaining_hours,
+        validUntil: t.valid_until,
+        daysLabel: label,
+        bookingUrl: origin ? origin + '/' : undefined,
+      }),
+    });
+    (stage === 30 ? to30 : to60).push(t.id);
+  }
+  await markTicketExpiryNoticeStage(env.DB, to60, 60);
+  await markTicketExpiryNoticeStage(env.DB, to30, 30);
+  console.log(`[ticket-expiry] candidates=${rows.length} notified_2m=${to60.length} notified_1m=${to30.length}`);
+}
+
 /** 定期メール：顧客向け未入金リマインダー（#50） */
 async function runUnpaidCustomerReminder(env: AppBindings['Bindings']): Promise<void> {
   const cutoff = addDaysJST(todayJST(), -UNPAID_CUSTOMER_REMINDER_DAYS);
@@ -407,6 +457,8 @@ export default {
           await runPointExpiry(env).catch(() => {});
         })(),
       );
+      // 回数券の有効期限接近メール（#112・残り約2か月／約1か月の2段階）
+      ctx.waitUntil(runTicketExpiryNotice(env).catch(() => {}));
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
       ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
     }

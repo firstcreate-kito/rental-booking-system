@@ -1582,6 +1582,45 @@ ${btn}
   return withSignature({ subject, html, text });
 }
 
+/** チケット（回数券）有効期限接近のお知らせ（お客様宛）#112 */
+export function ticketExpiryNoticeEmail(d: {
+  customerName: string;
+  ticketName: string;
+  remainingHours: number;
+  validUntil: string; // 'YYYY-MM-DD'
+  /** 「約2か月」「約1か月」など、残り期間の表示ラベル */
+  daysLabel: string;
+  bookingUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const [y, m, day] = d.validUntil.split('-');
+  const dateLabel = `${y}年${Number(m)}月${Number(day)}日`;
+  const subject = `【レンタルスペースALBE】回数券の有効期限が近づいています（${dateLabel}まで・残り${d.remainingHours}時間）`;
+  const text = `${d.customerName} 様
+
+ご購入いただいた回数券の有効期限が${d.daysLabel}後に迫っております。期限を過ぎた回数券はご利用いただけなくなりますので、お早めのご利用をおすすめいたします。
+
+回数券: ${d.ticketName}
+残り時間: ${d.remainingHours}時間
+有効期限: ${dateLabel} まで
+${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
+ご不明な点がございましたら、お気軽にお問い合わせください。`;
+  const btn = d.bookingUrl
+    ? `<p style="margin:16px 0"><a href="${escapeHtml(d.bookingUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">ご予約はこちら</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご購入いただいた回数券の有効期限が<strong>${escapeHtml(d.daysLabel)}後</strong>に迫っております。期限を過ぎた回数券はご利用いただけなくなりますので、お早めのご利用をおすすめいたします。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">回数券</td><td><strong>${escapeHtml(d.ticketName)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">残り時間</td><td>${d.remainingHours}時間</td></tr>
+</table>
+<div style="background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:15px;color:#8a5a00">有効期限：<strong>${dateLabel}</strong> まで</div>
+${btn}
+<p style="color:#6b7280;font-size:13px">ご不明な点がございましたら、お気軽にお問い合わせください。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 // ---------------------------------------------------------------------------
 // 予約変更リクエスト（マイページ発／管理者承認制）#54
 // ---------------------------------------------------------------------------

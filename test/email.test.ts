@@ -16,6 +16,7 @@ import {
   adminLatePaymentOnReleasedEmail,
   contactReceivedEmail,
   adminContactEmail,
+  ticketExpiryNoticeEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -494,5 +495,29 @@ describe('email - refundEmail（返金完了のお知らせ）', () => {
     const m = refundEmail({ ...base, method: 'bank' });
     expect(m.text).toContain('銀行振込');
     expect(m.text).toContain('口座');
+  });
+});
+
+describe('email - ticketExpiryNoticeEmail（回数券 有効期限接近・#112）', () => {
+  const base = { customerName: '山田太郎', ticketName: 'ピアノ10時間券', remainingHours: 6, validUntil: '2026-11-30' };
+  it('件名に期限日・残り時間、本文に回数券名を含む', () => {
+    const m = ticketExpiryNoticeEmail({ ...base, daysLabel: '約1か月' });
+    expect(m.subject).toContain('2026年11月30日');
+    expect(m.subject).toContain('残り6時間');
+    expect(m.text).toContain('ピアノ10時間券');
+    expect(m.html).toContain('ピアノ10時間券');
+  });
+  it('残り期間ラベルを本文に反映（2か月／1か月）', () => {
+    expect(ticketExpiryNoticeEmail({ ...base, daysLabel: '約2か月' }).text).toContain('約2か月後');
+    expect(ticketExpiryNoticeEmail({ ...base, daysLabel: '約1か月' }).text).toContain('約1か月後');
+  });
+  it('期限日を和暦表記（YYYY年M月D日）で表示', () => {
+    const m = ticketExpiryNoticeEmail({ ...base, daysLabel: '約1か月' });
+    expect(m.text).toContain('2026年11月30日 まで');
+  });
+  it('可変値（回数券名）をHTMLエスケープする', () => {
+    const m = ticketExpiryNoticeEmail({ ...base, ticketName: '<b>券</b>', daysLabel: '約1か月' });
+    expect(m.html).toContain('&lt;b&gt;');
+    expect(m.html).not.toContain('<b>券</b>');
   });
 });

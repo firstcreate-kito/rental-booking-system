@@ -3241,6 +3241,53 @@ export async function getTicketForCustomer(db: D1Database, ticketId: string, cus
   return db.prepare('SELECT * FROM tickets WHERE id = ? AND customer_id = ?').bind(ticketId, customerId).first<TicketRow>();
 }
 
+/** チケット有効期限接近メール（#112）用の行 */
+export interface TicketExpiryNoticeRow {
+  id: string;
+  name: string;
+  remaining_hours: number;
+  valid_until: string; // 'YYYY-MM-DD'
+  expiry_notice_stage: number; // 0 / 60 / 30（送信済み段階）
+  email: string;
+  contact_name: string | null;
+}
+
+/**
+ * 有効期限が接近している回数券を取り出す（#112）。
+ * 有効・残時間あり・会員メールあり で、有効期限が「本日〜horizon（本日+約2か月）」にあるもの。
+ * 実際にどの段階（2か月前／1か月前）を送るかは呼び出し側で残り日数と expiry_notice_stage から判定する。
+ */
+export async function getTicketsForExpiryNotice(
+  db: D1Database,
+  today: string,
+  horizon: string,
+): Promise<TicketExpiryNoticeRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT t.id, t.name, t.remaining_hours, t.valid_until, t.expiry_notice_stage,
+              c.email, c.contact_name
+       FROM tickets t
+       JOIN customers c ON c.id = t.customer_id
+       WHERE t.status = 'active' AND t.remaining_hours > 0
+         AND c.email IS NOT NULL AND c.email <> ''
+         AND t.valid_until >= ? AND t.valid_until <= ?
+       ORDER BY t.valid_until`,
+    )
+    .bind(today, horizon)
+    .all<TicketExpiryNoticeRow>();
+  return results ?? [];
+}
+
+/** 接近通知の送信段階を記録する（#112）。stage は 60（2か月前送信済み）/ 30（1か月前送信済み）。 */
+export async function markTicketExpiryNoticeStage(db: D1Database, ids: string[], stage: number): Promise<void> {
+  if (!ids.length) return;
+  const placeholders = ids.map(() => '?').join(',');
+  await db
+    .prepare(`UPDATE tickets SET expiry_notice_stage = ? WHERE id IN (${placeholders})`)
+    .bind(stage, ...ids)
+    .run();
+}
+
 /**
  * 予約グループがチケットで支払われているかを検出（予約内容変更時の再計算用）#24
  * ticket_usage を現在のグループの予約行に結び付けて取得する。

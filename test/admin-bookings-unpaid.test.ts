@@ -32,6 +32,8 @@ function makeDb() {
     source TEXT, customer_id TEXT, payment_method TEXT, payment_status TEXT);`);
   db.db.exec(`CREATE TABLE bookings (id TEXT PRIMARY KEY, group_id TEXT, space_id TEXT,
     date TEXT, start_time TEXT, end_time TEXT, status TEXT, price REAL, billing_mode TEXT);`);
+  // 追加請求バッジ用の集計（kind='additional'）に必要。空でも存在すればサブクエリが通る。
+  db.db.exec(`CREATE TABLE booking_payments (id TEXT PRIMARY KEY, group_id TEXT, kind TEXT DEFAULT 'booking', status TEXT DEFAULT 'pending');`);
   db.db.prepare("INSERT INTO spaces VALUES ('s1','名駅フリースペース')").run();
   db.db.prepare("INSERT INTO customers VALUES ('c1','山田太郎','')").run();
   // g1: 本予約・未入金・未来日 → 対象
@@ -68,5 +70,22 @@ d('予約一覧の未入金フィルタ（listBookingsForAdmin）', () => {
     // 過去の未入金 B002 は出ない ＝ 未入金タブでしか拾えない。
     expect(nums).toEqual(['B001', 'B003', 'B004']);
     expect(nums).not.toContain('B002');
+  });
+
+  it('追加請求の入金状況（addl_pending/addl_paid）を集計して返す', async () => {
+    const db = makeDb() as any;
+    // g1 に未入金の追加請求、g3 に入金済みの追加請求（＋通常決済は集計対象外）を投入
+    db.db.prepare("INSERT INTO booking_payments VALUES ('p1','g1','additional','pending')").run();
+    db.db.prepare("INSERT INTO booking_payments VALUES ('p2','g3','additional','paid')").run();
+    db.db.prepare("INSERT INTO booking_payments VALUES ('p3','g3','booking','paid')").run();
+    const rows = await listBookingsForAdmin(db, { view: 'active', todayYmd: '2026-09-01' });
+    const byNum: Record<string, any> = {};
+    for (const r of rows) byNum[r.booking_number] = r;
+    expect(Number(byNum['B001'].addl_pending)).toBe(1);
+    expect(Number(byNum['B001'].addl_paid)).toBe(0);
+    expect(Number(byNum['B003'].addl_pending)).toBe(0);
+    expect(Number(byNum['B003'].addl_paid)).toBe(1); // 通常決済(kind='booking')は数えない
+    expect(Number(byNum['B004'].addl_pending)).toBe(0);
+    expect(Number(byNum['B004'].addl_paid)).toBe(0);
   });
 });

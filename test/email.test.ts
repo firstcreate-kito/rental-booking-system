@@ -17,6 +17,8 @@ import {
   contactReceivedEmail,
   adminContactEmail,
   ticketExpiryNoticeEmail,
+  additionalPaidConfirmedEmail,
+  adminAdditionalPaidEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -519,5 +521,52 @@ describe('email - ticketExpiryNoticeEmail（回数券 有効期限接近・#112�
     const m = ticketExpiryNoticeEmail({ ...base, ticketName: '<b>券</b>', daysLabel: '約1か月' });
     expect(m.html).toContain('&lt;b&gt;');
     expect(m.html).not.toContain('<b>券</b>');
+  });
+});
+
+describe('email - 追加請求の入金確定（顧客／管理者）', () => {
+  const custBase = {
+    customerName: '山内 みなみ',
+    bookingNumber: '20260901-003',
+    spaceName: '名駅和室スペース',
+    eventName: '山内みなみヨガWS',
+    days: sampleDays,
+    addedAmount: 3300,
+    newTotal: 12540,
+  };
+  it('顧客向け：件名に「確定」、本文に追加分・変更後合計を表示', () => {
+    const m = additionalPaidConfirmedEmail(custBase);
+    expect(m.subject).toContain('ご予約が確定');
+    expect(m.subject).toContain('20260901-003');
+    expect(m.text).toContain('¥3,300');
+    expect(m.text).toContain('¥12,540');
+    expect(m.html).toContain('¥12,540');
+  });
+  it('顧客向け：mypageUrl があれば領収書導線、spaceNote を差し込む', () => {
+    const m = additionalPaidConfirmedEmail({ ...custBase, mypageUrl: 'https://booking.space-albe.com/mypage.html', spaceNote: '解錠番号は 1234 です' });
+    expect(m.text).toContain('https://booking.space-albe.com/mypage.html');
+    expect(m.text).toContain('解錠番号は 1234 です');
+    expect(m.html).toContain('解錠番号は 1234 です');
+  });
+  it('顧客向け：可変値をHTMLエスケープ', () => {
+    const m = additionalPaidConfirmedEmail({ ...custBase, customerName: '<b>x</b>' });
+    expect(m.html).toContain('&lt;b&gt;');
+    expect(m.html).not.toContain('<b>x</b>');
+  });
+  it('管理者向け：件名に「追加入金確認」、本文に金額・お客様・管理画面リンク', () => {
+    const m = adminAdditionalPaidEmail({
+      bookingNumber: '20260901-003',
+      spaceName: '名駅和室スペース',
+      customerName: '山内 みなみ',
+      customerEmail: 'pyonpyon19@example.com',
+      addedAmount: 3300,
+      newTotal: 12540,
+      adminUrl: 'https://booking.space-albe.com/admin.html?booking=20260901-003',
+    });
+    expect(m.subject).toContain('追加入金確認');
+    expect(m.text).toContain('¥3,300');
+    expect(m.text).toContain('¥12,540');
+    expect(m.text).toContain('pyonpyon19@example.com');
+    expect(m.html).toContain('admin.html?booking=20260901-003');
   });
 });

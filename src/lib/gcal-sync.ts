@@ -255,6 +255,10 @@ export function buildCalendarDescription(data: BookingCalendarData, origin: stri
   const eventName = data.eventName || '';
   const head = data.headcount != null ? String(data.headcount) : '';
   const adminUrl = origin ? `${origin}/admin.html?booking=${encodeURIComponent(data.bookingNumber)}` : '';
+  // 支払い状況（本体＋追加請求）。管理者がカレンダー上で入金の有無を把握できるようにする。
+  const payStatusLabel =
+    data.paymentStatus === 'paid' ? '入金済み' : data.paymentStatus === 'unpaid' ? '未入金' : data.paymentStatus === 'invoice' ? '請求書払い' : data.paymentStatus || '—';
+  const addlLabel = data.addlPending > 0 ? '追加請求：未入金あり（要確認）' : data.addlPaid > 0 ? '追加請求：入金済み' : '';
   const lines = [
     // 上段：サイネージが読み取る [キー]：値 ブロック（全角コロン）
     `[スペース名]：${space}`,
@@ -275,8 +279,10 @@ export function buildCalendarDescription(data: BookingCalendarData, origin: stri
     `利用人数：${head}`,
     `オプション：${opt}`,
     `ご利用金額：${yenFmt(data.total)}`,
+    `お支払い状況：${payStatusLabel}`,
     `利用実績：${data.repeatCustomer ? '利用経験あり' : '初回利用'}`,
   ];
+  if (addlLabel) lines.push(addlLabel);
   if (adminUrl) lines.push('', `管理画面リンク：${adminUrl}`);
   return lines.join('\n');
 }

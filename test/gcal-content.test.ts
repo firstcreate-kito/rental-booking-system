@@ -17,6 +17,8 @@ const base: BookingCalendarData = {
   total: 20240,
   paymentStatus: 'paid',
   paymentMethod: 'stripe',
+  addlPending: 0,
+  addlPaid: 0,
   repeatCustomer: true,
   options: [{ name: 'テーブル', quantity: 5 }, { name: '椅子', quantity: 10 }],
   rows: [{ id: 'b1', date: '2026-09-01', start_time: '13:00', end_time: '16:00', google_event_id: null }],
@@ -58,6 +60,19 @@ describe('カレンダー 説明欄（サイネージ書式・Bookly互換）', 
     expect(d).toContain('ご利用金額：¥20,240');
     expect(d).toContain('利用実績：利用経験あり');
     expect(d).toContain('管理画面リンク：https://space-albe.com/admin.html?booking=20260901-007');
+  });
+  it('支払い状況を説明欄に出力（本体＋追加請求）', () => {
+    // 入金済み・追加請求なし
+    expect(d).toContain('お支払い状況：入金済み');
+    expect(d).not.toContain('追加請求：');
+    // 未入金
+    expect(buildCalendarDescription({ ...base, paymentStatus: 'unpaid' }, '')).toContain('お支払い状況：未入金');
+    // 追加請求：未入金あり（要確認）を優先表示
+    const dPending = buildCalendarDescription({ ...base, addlPending: 1, addlPaid: 0 }, '');
+    expect(dPending).toContain('追加請求：未入金あり（要確認）');
+    // 追加請求：入金済み
+    const dPaid = buildCalendarDescription({ ...base, addlPending: 0, addlPaid: 1 }, '');
+    expect(dPaid).toContain('追加請求：入金済み');
   });
   it('初回利用・オプションなし・未入力項目は空欄。originなしなら管理画面リンクなし', () => {
     const d2 = buildCalendarDescription(

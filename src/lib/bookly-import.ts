@@ -244,6 +244,8 @@ export async function runBooklyImport(env: Env, opts: BooklyImportOptions): Prom
           total: amount,
           paymentStatus: 'paid',
           paymentMethod: null,
+          addlPending: 0,
+          addlPaid: 0,
           repeatCustomer: !!slot.repeatCustomer,
           options: slot.options ?? [],
           rows: [{ id: bookingId, date: slot.date, start_time: slot.startTime, end_time: slot.endTime, google_event_id: null }],

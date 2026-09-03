@@ -1422,8 +1422,14 @@ async function loadBookings() {
       : (b.payment_method === 'invoice' && b.status === 'confirmed')
       ? ' <span class="pill" style="background:#e0e7ff;color:#3730a3">請求書</span>'
       : '';
+    // 追加請求（変更差額）の入金状況バッジ：未入金が最優先、無ければ入金済みを表示（無い場合は非表示）
+    const addlBadge = (Number(b.addl_pending) > 0)
+      ? ' <span class="pill cancelled" title="追加請求が未入金です">追加請求 未入金</span>'
+      : (Number(b.addl_paid) > 0)
+      ? ' <span class="pill" style="background:#dcfce7;color:#166534" title="追加請求は入金済みです">追加請求 入金済</span>'
+      : '';
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
-      '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + '</td><td>' + b.booking_number +
+      '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + addlBadge + '</td><td>' + b.booking_number +
       '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td class="act">' + actions + '</td></tr>';
   }).join('');
   // カレンダーの「管理画面リンク」から ?booking=番号 で開いた場合、その予約の詳細を自動で開く（#54関連・初回のみ）

@@ -16,6 +16,8 @@ import {
   adminLatePaymentOnReleasedEmail,
   ticketPurchaseEmail,
   adminTicketPurchaseEmail,
+  additionalPaidConfirmedEmail,
+  adminAdditionalPaidEmail,
 } from './email';
 
 /** 管理者通知の既定宛先（MAIL_ADMIN 未設定時のフォールバック・本部）。未入金アラートCronと統一。 */
@@ -163,6 +165,59 @@ export async function notifyPaymentConfirmed(
         paymentMethodLabel: PAY_LABEL[summary.paymentMethod || ''] || summary.paymentMethod || '—',
         customerName: name,
         customerEmail: email || undefined,
+      }),
+    });
+  }
+}
+
+/**
+ * 追加請求（予約内容変更の差額）の入金が確認できたときの通知（お客様＋管理者）。
+ * - お客様：追加分の入金確認＆変更後の内容で予約確定のご案内（領収書はマイページ）。
+ * - 管理者：追加入金の確認通知（一覧・カレンダーを見に行かなくても把握できるように）。
+ * addedAmount は今回入金された追加分。合計（変更後）は予約グループの現在値を使う。
+ */
+export async function notifyAdditionalPaid(env: Env, groupId: string, addedAmount: number): Promise<void> {
+  const summary = await getBookingSummaryForGroup(env.DB, groupId);
+  if (!summary) return;
+  const row = await env.DB.prepare('SELECT customer_id FROM booking_groups WHERE id = ?')
+    .bind(groupId)
+    .first<{ customer_id: string | null }>();
+  let email = '';
+  let name = 'お客様';
+  if (row?.customer_id) {
+    const prof = (await getCustomerProfile(env.DB, row.customer_id)) as { email?: string; contact_name?: string } | null;
+    email = prof?.email ? String(prof.email) : '';
+    name = prof?.contact_name ? String(prof.contact_name) : 'お客様';
+  }
+  const origin = env.PUBLIC_BASE_URL || '';
+  if (email) {
+    await sendEmail(env, {
+      to: email,
+      ...additionalPaidConfirmedEmail({
+        customerName: name,
+        bookingNumber: summary.bookingNumber,
+        spaceName: summary.spaceName,
+        eventName: summary.eventName,
+        days: summary.items,
+        addedAmount,
+        newTotal: summary.total,
+        mypageUrl: origin ? `${origin}/mypage.html` : undefined,
+        spaceNote: summary.spaceEmailNote,
+      }),
+    });
+  }
+  const admins = await adminRecipients(env, await groupSpaceId(env, groupId));
+  if (admins.length) {
+    await sendEmail(env, {
+      to: admins,
+      ...adminAdditionalPaidEmail({
+        bookingNumber: summary.bookingNumber,
+        spaceName: summary.spaceName,
+        customerName: name,
+        customerEmail: email || undefined,
+        addedAmount,
+        newTotal: summary.total,
+        adminUrl: origin ? `${origin}/admin.html?booking=${encodeURIComponent(summary.bookingNumber)}` : undefined,
       }),
     });
   }

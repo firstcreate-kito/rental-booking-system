@@ -914,6 +914,105 @@ ${reasonHtml}
   return withSignature({ subject, html, text });
 }
 
+/**
+ * 追加料金の入金確認＆予約確定メール（顧客向け）。
+ * 予約内容変更で発生した差額（追加請求リンク）の入金が確認できたときに送る。
+ * 領収書は最終金額で自動再発行されるため、マイページから取得いただく導線を案内する。
+ */
+export function additionalPaidConfirmedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  eventName?: string;
+  days: DaysList['days'];
+  /** 今回入金された追加分（税込） */
+  addedAmount: number;
+  /** 変更後の合計金額（税込） */
+  newTotal: number;
+  mypageUrl?: string;
+  /** スペース固有の案内文（入室方法・解錠番号など・任意） */
+  spaceNote?: string | null;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】追加のお支払いを確認し、ご予約が確定しました（${d.bookingNumber}）`;
+  const eventText = d.eventName ? `イベント名: ${d.eventName}\n` : '';
+  const mypageText = d.mypageUrl ? `\n更新後の領収書はマイページからダウンロードいただけます:\n${d.mypageUrl}\n` : '';
+  const text = `${d.customerName} 様
+
+追加のお支払いを確認いたしました。変更後の内容でご予約が正式に確定しました。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+${eventText}日時:
+${daysBlockText(d.days)}
+今回のお支払い（追加分・税込）: ${yen(d.addedAmount)}
+変更後の合計金額（税込）: ${yen(d.newTotal)}
+${spaceNoteBlockText(d.spaceNote)}${mypageText}
+当日のご来店をお待ちしております。`;
+  const eventHtml = d.eventName
+    ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>`
+    : '';
+  const mypageHtml = d.mypageUrl
+    ? `<p style="margin:12px 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページで更新後の領収書を確認する ▶</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>追加のお支払いを確認いたしました。変更後の内容で<strong>ご予約が正式に確定</strong>しました。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+${eventHtml}
+</table>
+<p style="margin:6px 0;color:#6b7280">日時</p>
+<ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
+<p style="margin:4px 0">今回のお支払い（追加分・税込）: <strong>${yen(d.addedAmount)}</strong></p>
+<p style="font-size:18px;margin:4px 0">変更後の合計金額（税込）: <strong>${yen(d.newTotal)}</strong></p>
+${spaceNoteBlockHtml(d.spaceNote)}
+${mypageHtml}
+<p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 追加料金の入金確認 管理者通知メール（追加請求リンクの入金があったとき） */
+export function adminAdditionalPaidEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  customerName: string;
+  customerEmail?: string;
+  /** 今回入金された追加分（税込） */
+  addedAmount: number;
+  /** 変更後の合計金額（税込） */
+  newTotal: number;
+  adminUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【追加入金確認】${d.spaceName}（${d.bookingNumber}）`;
+  const adminText = d.adminUrl ? `\n管理画面: ${d.adminUrl}` : '';
+  const text = `追加請求分の入金が確認されました。変更後の内容で予約が確定しています。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+今回の入金（追加分）: ${yen(d.addedAmount)}
+変更後の合計: ${yen(d.newTotal)}
+お客様: ${d.customerName}${d.customerEmail ? '（' + d.customerEmail + '）' : ''}
+※領収書は最終金額で自動再発行済みです。${adminText}`;
+  const adminHtml = d.adminUrl
+    ? `<p style="margin:12px 0"><a href="${escapeHtml(d.adminUrl)}" style="color:#0068b7;font-weight:700">管理画面でこの予約を開く ▶</a></p>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>追加請求分の入金が確認されました。</strong>変更後の内容で予約が確定しています。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">今回の入金（追加分）</td><td><strong>${yen(d.addedAmount)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">変更後の合計</td><td>${yen(d.newTotal)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}${d.customerEmail ? '（' + escapeHtml(d.customerEmail) + '）' : ''}</td></tr>
+</table>
+<p style="color:#6b7280;font-size:13px">※領収書は最終金額で自動再発行済みです。</p>
+${adminHtml}
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 入金確認 管理者通知メール #49 */
 export function adminPaymentConfirmedEmail(d: {
   bookingNumber: string;

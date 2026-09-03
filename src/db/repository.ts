@@ -1433,6 +1433,8 @@ export async function listBookingsForAdmin(
       `SELECT b.date, b.start_time, b.end_time, b.status, b.price, b.billing_mode,
               bg.booking_number, bg.event_name, bg.source, s.name AS space_name, b.space_id,
               bg.payment_method, bg.payment_status,
+              (SELECT COUNT(*) FROM booking_payments ap WHERE ap.group_id = bg.id AND ap.kind = 'additional' AND ap.status = 'pending') AS addl_pending,
+              (SELECT COUNT(*) FROM booking_payments ap WHERE ap.group_id = bg.id AND ap.kind = 'additional' AND ap.status = 'paid') AS addl_paid,
               c.contact_name, c.company_name
        FROM bookings b
        JOIN booking_groups bg ON bg.id = b.group_id
@@ -2485,6 +2487,10 @@ export interface BookingCalendarData {
   total: number;
   paymentStatus: string;
   paymentMethod: string | null;
+  /** 追加請求（変更差額）の未入金件数（>0 なら未回収あり） */
+  addlPending: number;
+  /** 追加請求（変更差額）の入金済み件数 */
+  addlPaid: number;
   repeatCustomer: boolean;
   options: Array<{ name: string; quantity: number }>;
   rows: Array<{ id: string; date: string; start_time: string; end_time: string; google_event_id: string | null }>;
@@ -2551,6 +2557,16 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
     repeatCustomer = (cnt?.n ?? 0) > 0;
   }
 
+  // 追加請求（変更差額）の入金状況をカレンダー表示に反映するため集計する。
+  const addl = await db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) AS paid
+         FROM booking_payments WHERE group_id = ? AND kind = 'additional'`,
+    )
+    .bind(groupId)
+    .first<{ pending: number; paid: number }>();
+
   return {
     calendarId: g.google_calendar_id,
     bookingNumber: g.booking_number,
@@ -2566,6 +2582,8 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
     total: g.total_amount,
     paymentStatus: g.payment_status,
     paymentMethod: g.payment_method,
+    addlPending: Number(addl?.pending ?? 0),
+    addlPaid: Number(addl?.paid ?? 0),
     repeatCustomer,
     options: (opts ?? []).map((o) => ({ name: o.name, quantity: Number(o.quantity) })),
     rows: rows ?? [],

@@ -12,7 +12,7 @@ import {
   getBookingCalendarData,
 } from '../db/repository';
 import { refundPayment } from './stripe';
-import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed, notifyLatePaymentOnReleased } from './notify';
+import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed, notifyLatePaymentOnReleased, notifyAdditionalPaid } from './notify';
 import { finalizeImmediateBooking } from './finalize';
 import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
 import { sendEmail, paymentPendingBookingEmail } from './email';
@@ -61,6 +61,9 @@ export async function settlePaidBookingSession(
     } catch {
       /* 領収書再発行・履歴記録の失敗は決済処理に影響させない */
     }
+    // Googleカレンダーの支払い状況（追加請求：入金済み）を反映し、お客様・管理者へ入金確定を通知。
+    bg(syncBookingCalendarEvents(env, ar.groupId!, origin));
+    bg(notifyAdditionalPaid(env, ar.groupId!, bookingPay.amount));
     return { ok: true, additional: true, groupId: ar.groupId! };
   }
 

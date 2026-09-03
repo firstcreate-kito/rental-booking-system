@@ -120,6 +120,11 @@
 </main>
 <script>
 const T = { token: null, member: null, spaces: {}, products: [], paymentEnabled: false };
+const SS_KEY = 'albe_my_session'; // マイページ・予約フロー・見学と共有（localStorage・ログイン継続）
+const MEMBER_IDLE_MS = 30 * 24 * 60 * 60 * 1000; // 無操作30日（サーバ側と一致）
+function saveMemberSession() {
+  try { localStorage.setItem(SS_KEY, JSON.stringify({ token: T.token, member: T.member, at: Date.now() })); } catch (e) {}
+}
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
@@ -147,7 +152,7 @@ async function login() {
   const { ok, body } = await api('/api/auth/login', jsonBody({ email, password }));
   if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
   T.token = body.token; T.member = body.customer;
-  try { sessionStorage.setItem('albe_member_token', body.token); } catch (e) {}
+  saveMemberSession(); // マイページ・予約フロー・見学と共有（サイト全体でログイン継続）
   enterShop();
 }
 function enterShop() {
@@ -157,13 +162,23 @@ function enterShop() {
   loadProducts();
 }
 async function restoreSession() {
-  let tok = null;
-  try { tok = sessionStorage.getItem('albe_member_token'); } catch (e) {}
-  if (!tok) return false;
-  T.token = tok;
+  // サイト共通の会員セッション（localStorage・無操作30日のスライディング）を使う。
+  // 予約フロー／マイページ／見学でログイン済みなら、チケット購入でも再ログイン不要。
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(SS_KEY) || 'null'); } catch (e) {}
+  // 旧版（sessionStorage）で既にログイン中のタブがあれば引き継ぐ（後方互換）。
+  if ((!s || !s.token)) {
+    let legacy = null;
+    try { legacy = sessionStorage.getItem('albe_member_token'); } catch (e) {}
+    if (legacy) s = { token: legacy, at: Date.now() };
+  }
+  if (!s || !s.token) return false;
+  if (Date.now() - (s.at || 0) > MEMBER_IDLE_MS) { try { localStorage.removeItem(SS_KEY); } catch (e) {} return false; }
+  T.token = s.token;
   const { ok, body } = await api('/api/mypage/profile');
-  if (!ok || !body.profile) { T.token = null; try { sessionStorage.removeItem('albe_member_token'); } catch(e){} return false; }
+  if (!ok || !body.profile) { T.token = null; try { localStorage.removeItem(SS_KEY); } catch(e){} return false; }
   T.member = { contactName: body.profile.contact_name, email: body.profile.email };
+  saveMemberSession(); // 最終アクセス時刻を更新（スライディング延長）
   enterShop();
   return true;
 }

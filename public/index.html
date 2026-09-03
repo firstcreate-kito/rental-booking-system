@@ -383,8 +383,8 @@
       </div>
     </div>
 
-    <label>イベント名 <span class="req">必須</span></label>
-    <input id="f_event" placeholder="例）撮影会 / セミナー" />
+    <label>イベント名 <span class="opt">任意</span></label>
+    <input id="f_event" placeholder="例）撮影会 / セミナー（任意）" />
     <label>利用目的 <span class="req">必須</span></label>
     <select id="f_purpose">
       <option value="">選択してください</option>
@@ -2065,7 +2065,6 @@ async function submitBooking() {
   const termsAgreed = document.getElementById('f_terms').checked;
   const msg = document.getElementById('submitMsg');
   const showErr = t => { msg.textContent = t; msg.classList.remove('hidden'); };
-  if (!event) return showErr('イベント名を入力してください');
   if (!purpose) return showErr('利用目的を選択してください');
   if (!headcount) return showErr('利用人数を入力してください');
   if (!lastName || !firstName) return showErr('お名前（姓・名）を入力してください');

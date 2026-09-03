@@ -237,10 +237,12 @@ app.post('/', async (c) => {
     return c.json({ error: 'invalid JSON body' }, 400);
   }
 
-  // 入力の基本チェック
-  if (!body.spaceId || !body.eventName || !body.customer || !Array.isArray(body.items) || body.items.length === 0) {
-    return c.json({ error: 'spaceId, eventName, customer, items は必須です' }, 400);
+  // 入力の基本チェック（イベント名は任意）
+  if (!body.spaceId || !body.customer || !Array.isArray(body.items) || body.items.length === 0) {
+    return c.json({ error: 'spaceId, customer, items は必須です' }, 400);
   }
+  // イベント名は任意。未入力でも受け付け、以降は空文字として扱う。
+  body.eventName = (body.eventName ?? '').toString().trim();
   const { contactName, email, phone, companyName } = body.customer ?? {};
   if (!contactName || !email || !phone) {
     return c.json({ error: 'お名前・メール・電話は必須です' }, 400);

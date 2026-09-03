@@ -1421,6 +1421,14 @@ app.post('/bookings/:number/reschedule', async (c) => {
   const g = await getBookingGroupByNumber(db, number);
   if (!g) return c.json({ error: 'booking not found' }, 404);
   if (g.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約は変更できません' }, 400);
+  // 未入金（入金前）の本予約は内容変更を禁止（金額不整合の防止・銀行振込/コンビニ等）。
+  // キャンセルとお客様情報の変更（別エンドポイント）は引き続き可能。商談中は対象外。
+  if (g.status !== 'tentative' && g.payment_status === 'unpaid') {
+    return c.json(
+      { error: 'この予約は入金前です。入金確認後に内容変更を行ってください。（キャンセル・お客様情報の変更は可能です）', code: 'UNPAID_LOCKED' },
+      409,
+    );
+  }
   const space = await getSpaceById(db, g.space_id);
   if (!space) return c.json({ error: 'space not found' }, 404);
 

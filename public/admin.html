@@ -2916,6 +2916,16 @@ async function openReschedule(number, prefillItems) {
       : '<input type="number" class="rs-opt" data-oid="' + o.id + '" min="0"' + (cap != null ? ' max="' + cap + '"' : '') + ' value="' + cur + '" style="width:64px" oninput="if(this.max&&Number(this.value)>Number(this.max))this.value=this.max">';
     return '<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 0"><div>' + o.name + ' <span class="muted">' + price + (cap != null ? '（上限' + cap + '）' : '') + '</span></div><div>' + ctrl + '</div></div>';
   }).join('') : '<div class="muted">このスペースに選べるオプションはありません</div>';
+  // 未入金（入金前）の本予約は内容変更を不可にする（金額不整合の防止）。
+  // お客様情報の保存・キャンセル・支払いステータス変更は引き続き可能。
+  const unpaidLocked = body.status === 'confirmed' && body.paymentStatus === 'unpaid';
+  const rsSubmitBtn = document.getElementById('rsSubmit');
+  rsSubmitBtn.disabled = unpaidLocked;
+  rsSubmitBtn.title = unpaidLocked ? '入金前のため内容変更はできません（入金確認後に可能）' : '';
+  rsSubmitBtn.style.opacity = unpaidLocked ? '0.5' : '';
+  if (unpaidLocked) {
+    document.getElementById('rsMsg').innerHTML = '<span style="color:var(--bad)">この予約は<strong>入金前（未入金）</strong>です。金額不整合を防ぐため、日時・オプションの<strong>内容変更は入金確認後</strong>に行ってください。<br>※お客様情報の保存・キャンセルは可能です。上の「支払いステータス」を入金済みにすると変更できます。</span>';
+  }
 }
 function closeReschedule() {
   document.getElementById('rsOverlay').style.display = 'none';

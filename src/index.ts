@@ -307,6 +307,7 @@ async function runThanks(env: AppBindings['Bindings']): Promise<void> {
         bookingUrl: origin ? origin + '/' : undefined,
         pointsEarned: earned > 0 ? earned : undefined,
         pointBalance: balance,
+        reviewUrl: r.google_review_url ?? undefined,
       }),
     });
     sent.push(r.id);

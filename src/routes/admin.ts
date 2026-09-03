@@ -1954,6 +1954,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       const v = String(body.emailNote ?? '').trim();
       return v ? v.slice(0, 2000) : null;
     })(),
+    // Google口コミ投稿URL（スペース別・任意）。http(s)のみ許可・最大500文字。空欄=載せない。
+    googleReviewUrl: (() => {
+      const v = String(body.googleReviewUrl ?? '').trim();
+      if (!v) return null;
+      return /^https?:\/\//i.test(v) ? v.slice(0, 500) : null;
+    })(),
   };
   return { input };
 }

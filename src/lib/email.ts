@@ -1705,8 +1705,20 @@ export function thankYouEmail(d: {
   pointsEarned?: number;
   /** 付与後の保有ポイント */
   pointBalance?: number;
+  /** Google口コミ投稿URL（スペース別・任意）。指定時のみ口コミのお願いを表示 */
+  reviewUrl?: string;
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】ご利用ありがとうございました`;
+  const reviewUrl = (d.reviewUrl ?? '').trim();
+  const reviewText = reviewUrl
+    ? `\n──────────\nもしよろしければ、Googleでのクチコミ投稿にご協力いただけますと励みになります。\n下記より、星評価・ご感想をお寄せいただけます（1分ほどで完了します）。\n▼クチコミを投稿する\n${reviewUrl}\n──────────\n`
+    : '';
+  const reviewHtml = reviewUrl
+    ? `<div style="background:#fff8e6;border:1px solid #f0d98a;border-radius:8px;padding:14px 16px;margin:16px 0">
+<p style="margin:0 0 8px;font-weight:700;color:#8a6d1f">★ クチコミのお願い</p>
+<p style="margin:0 0 12px;font-size:14px;color:#5f5326">もしよろしければ、Googleでのクチコミ投稿にご協力いただけますと励みになります（1分ほどで完了します）。</p>
+<a href="${escapeHtml(reviewUrl)}" style="display:inline-block;background:#f6b400;color:#1f2937;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:700">★ クチコミを投稿する</a></div>`
+    : '';
   const showPoints = typeof d.pointsEarned === 'number' && d.pointsEarned > 0;
   const balanceText = typeof d.pointBalance === 'number' ? `（現在の保有ポイント：${d.pointBalance}P）` : '';
   const pointsText = showPoints
@@ -1717,7 +1729,7 @@ export function thankYouEmail(d: {
 
 先日は「${d.spaceName}」をご利用いただき、誠にありがとうございました。
 またのご利用を心よりお待ちしております。
-${pointsText}${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
+${pointsText}${reviewText}${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : ''}
 ご意見・ご要望がございましたら、お気軽にお問い合わせください。`;
   const pointsHtml = showPoints
     ? `<div style="background:#eef6ee;border:1px solid #cfe6cf;border-radius:8px;padding:12px 14px;margin:14px 0;font-size:14px;color:#166534">今回のご利用で <strong>${d.pointsEarned}ポイント</strong> を付与いたしました。${typeof d.pointBalance === 'number' ? `<br>現在の保有ポイント：<strong>${d.pointBalance}P</strong>` : ''}<br><span style="color:#3f6b47">1ポイント=1円で、次回以降のご予約にご利用いただけます。</span></div>`
@@ -1728,7 +1740,7 @@ ${pointsText}${d.bookingUrl ? `\nご予約はこちら：\n${d.bookingUrl}\n` : 
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>先日は「<strong>${escapeHtml(d.spaceName)}</strong>」をご利用いただき、誠にありがとうございました。<br>またのご利用を心よりお待ちしております。</p>
-${pointsHtml}${btn}
+${pointsHtml}${reviewHtml}${btn}
 <p style="color:#6b7280;font-size:13px">ご意見・ご要望がございましたら、お気軽にお問い合わせください。</p>
 </div>`;
   return withSignature({ subject, html, text });

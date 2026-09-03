@@ -22,6 +22,7 @@ import {
   refundAccountRequestEmail,
   paymentConfirmedEmail,
   paymentMethodJp,
+  thankYouEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -675,5 +676,26 @@ describe('email - お支払い方法の表示', () => {
     });
     expect(m.text).toContain('お支払い方法: コンビニ払い');
     expect(m.html).toContain('コンビニ払い');
+  });
+});
+
+describe('email - お礼メールのGoogle口コミ導線（#53拡張）', () => {
+  it('reviewUrl 指定時はクチコミ投稿の案内とURLを表示', () => {
+    const url = 'https://g.page/r/ABCDEFG/review';
+    const m = thankYouEmail({ customerName: '山田太郎', spaceName: 'アルベホール', reviewUrl: url });
+    expect(m.text).toContain('クチコミ');
+    expect(m.text).toContain(url);
+    expect(m.html).toContain('クチコミを投稿する');
+    expect(m.html).toContain(url);
+  });
+  it('reviewUrl 未指定なら口コミ導線を出さない', () => {
+    const m = thankYouEmail({ customerName: '山田太郎', spaceName: 'アルベホール' });
+    expect(m.text).not.toContain('クチコミ');
+    expect(m.html).not.toContain('クチコミを投稿する');
+  });
+  it('reviewUrl 内の可変値はHTMLエスケープされる', () => {
+    const m = thankYouEmail({ customerName: 'N', spaceName: 'S', reviewUrl: 'https://x.test/?a=1&b=2' });
+    expect(m.html).toContain('https://x.test/?a=1&amp;b=2');
+    expect(m.html).not.toContain('a=1&b=2"');
   });
 });

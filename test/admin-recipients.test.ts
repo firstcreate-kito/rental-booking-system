@@ -9,7 +9,7 @@ let sqliteOk = true;
 try { ({ DatabaseSync } = createRequire(import.meta.url)('node:sqlite')); } catch { sqliteOk = false; }
 const d = sqliteOk ? describe : describe.skip;
 
-const { adminRecipients } = await import('../src/lib/notify');
+const { adminRecipients, headOfficeRecipients } = await import('../src/lib/notify');
 
 class Stmt {
   private params: unknown[] = [];
@@ -61,5 +61,19 @@ d('管理者通知の宛先解決（adminRecipients）', () => {
     const env = { DB: makeDb() } as any;
     const to = await adminRecipients(env, null);
     expect(to).toEqual(['rental@space-albe.com']);
+  });
+});
+
+d('本部のみの宛先（headOfficeRecipients・見学申込用）', () => {
+  it('既定は本部（rental@space-albe.com）のみ', () => {
+    expect(headOfficeRecipients({} as any)).toEqual(['rental@space-albe.com']);
+  });
+  it('MAIL_ADMIN が別アドレスなら本部と両方（スペース通知先は含めない）', () => {
+    const to = headOfficeRecipients({ MAIL_ADMIN: 'ops@x.com' } as any);
+    expect(to).toContain('rental@space-albe.com');
+    expect(to).toContain('ops@x.com');
+  });
+  it('MAIL_ADMIN が本部と同一なら重複しない', () => {
+    expect(headOfficeRecipients({ MAIL_ADMIN: 'rental@space-albe.com' } as any)).toEqual(['rental@space-albe.com']);
   });
 });

@@ -27,6 +27,18 @@ const DEFAULT_ADMIN_EMAIL = 'rental@space-albe.com';
  * 管理者通知の宛先一覧（#72）。本部（MAIL_ADMIN）＋スペース別の通知先メールを重複なく返す。
  * spaceId 未指定/該当なしなら本部のみ。複数人への配信はメールサーバーの転送で行う想定。
  */
+/**
+ * 本部（管理者）のみの宛先。スペース別の通知先（notify_email）は含めない。
+ * 見学申込など「本部だけに届けたい」通知で使う。
+ * 既定の本部 rental@space-albe.com ＋ MAIL_ADMIN（設定があれば）。
+ */
+export function headOfficeRecipients(env: Env): string[] {
+  const set = new Set<string>();
+  set.add(DEFAULT_ADMIN_EMAIL);
+  if (env.MAIL_ADMIN) set.add(env.MAIL_ADMIN.trim());
+  return [...set].filter(Boolean);
+}
+
 export async function adminRecipients(env: Env, spaceId?: string | null): Promise<string[]> {
   const set = new Set<string>();
   // 本部（rental@space-albe.com）は常に宛先に含める。MAIL_ADMIN 未設定でも管理者メールが

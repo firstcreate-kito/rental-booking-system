@@ -21,7 +21,7 @@ import {
 import { isClosed, getDayType } from '../lib/calendar';
 import { getOptionalCustomer } from '../middleware/auth';
 import { todayJST, nowJST, addDaysJST } from '../lib/clock';
-import { adminRecipients } from '../lib/notify';
+import { headOfficeRecipients } from '../lib/notify';
 import {
   commonViewingStartTimes,
   VIEWING_DURATION_MIN,
@@ -285,13 +285,9 @@ app.post('/requests', async (c) => {
       ...viewingReceivedEmail({ customerName: contactName, spaceNames, mode, choices, desiredPeriod: desiredPeriod ?? undefined, purpose, phone, note: note ?? undefined }),
     }),
   );
-  // スタッフ宛：全選択施設の通知先を集約
-  const recipientSet = new Set<string>();
-  for (const s of spacesResolved) {
-    const rs = await adminRecipients(c.env, s.id);
-    rs.forEach((r) => recipientSet.add(r));
-  }
-  const admins = [...recipientSet];
+  // スタッフ宛：見学申込は本部（rental@space-albe.com）のみに送る。
+  // スペース別の通知先（notify_email）には送らない（運用方針）。
+  const admins = headOfficeRecipients(c.env);
   if (admins.length > 0) {
     c.executionCtx.waitUntil(
       sendEmail(c.env, {

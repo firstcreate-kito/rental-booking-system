@@ -18,7 +18,7 @@ import {
   getActiveSpaces,
   getViewingExtraSpaces,
 } from '../db/repository';
-import { isClosed } from '../lib/calendar';
+import { isClosed, getDayType } from '../lib/calendar';
 import { getOptionalCustomer } from '../middleware/auth';
 import { todayJST, nowJST, addDaysJST } from '../lib/clock';
 import { adminRecipients } from '../lib/notify';
@@ -62,6 +62,8 @@ async function computeCommonSlots(
   if (spaceIds.length === 0) return { error: 'スペースを1つ以上選択してください', status: 400 };
 
   const holidays = await getHolidays(env.DB, date, date);
+  // その日の曜日区分（平日/土日祝）。営業曜日（weekday_available/weekend_available）の判定に使う。
+  const dayType = getDayType(date, holidays);
   const inputs: SpaceDayInput[] = [];
   const spaces: ResolvedSpace[] = [];
   for (const id of spaceIds) {
@@ -69,7 +71,10 @@ async function computeCommonSlots(
     if (!s || !s.is_active) return { error: `スペースが見つかりません（${id}）`, status: 404 };
     spaces.push({ id: s.id, name: s.name });
     const closures = await getSpaceClosures(env.DB, s.id, date, date);
-    const closed = isClosed(date, { holidays, spaceClosureDates: closures });
+    // その施設がこの曜日区分で営業しているか（例：土日祝のみ営業＝平日は対象外）。
+    // 通常予約と同じく、対象外の曜日は見学も休業扱いにして枠を出さない。
+    const dayUnavailable = dayType === 'weekend' ? !s.weekend_available : !s.weekday_available;
+    const closed = dayUnavailable || isClosed(date, { holidays, spaceClosureDates: closures });
     const bookings = await getSpaceBookingsOnDate(env.DB, s.id, date);
     inputs.push({
       occupying: bookings.map((b) => ({ startTime: b.start_time, endTime: b.end_time, status: b.status })),

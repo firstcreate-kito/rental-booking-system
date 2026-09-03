@@ -39,6 +39,7 @@ const OAUTH_RETURN_PATHS: Record<string, string> = {
   booking: '/',
   viewing: '/viewing.html',
   mypage: '/mypage.html',
+  tickets: '/tickets.html',
 };
 export function resolveOauthReturn(key: string | undefined | null): string {
   return OAUTH_RETURN_PATHS[(key ?? '').trim()] ?? '/mypage.html';
@@ -213,7 +214,7 @@ app.post('/password-reset/confirm', async (c) => {
  */
 app.post('/magic-link/request', async (c) => {
   const db = c.env.DB;
-  let body: { email?: string };
+  let body: { email?: string; return?: string };
   try { body = await c.req.json(); } catch { return c.json({ error: 'invalid JSON body' }, 400); }
   const email = (body.email ?? '').trim();
   if (!email || !isValidEmail(email)) return c.json({ error: '有効なメールアドレスを入力してください' }, 400);
@@ -223,7 +224,8 @@ app.post('/magic-link/request', async (c) => {
     const expiresAt = nowJST(Date.now() + 30 * 60 * 1000); // 30分
     await createLoginChallenge(db, { id: crypto.randomUUID(), email, secret, kind: 'link', expiresAt }, now);
     const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
-    const loginUrl = `${origin}/mypage.html?magic=${secret}`;
+    // 戻り先ページ（既知キーのみ・未指定はマイページ）。チケット購入等から呼ぶと当該ページへ戻す。
+    const loginUrl = `${origin}${resolveOauthReturn(body.return)}?magic=${secret}`;
     // 認証系はログイントークンを含むため、控え(MAIL_BCC)への複製対象から除外（#106）。
     c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...magicLinkEmail({ loginUrl, expiresLabel: '30分' }), internal: true }));
   }

@@ -96,6 +96,30 @@
       <button class="btn" onclick="login()">ログイン</button>
     </div>
     <div class="msg bad" id="loginMsg"></div>
+    <!-- 1タップログイン（Google/LINE）：設定済みの事業者のみ表示（#91） -->
+    <div id="oauthBox" class="hidden" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      <button class="btn ghost hidden" id="googleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="location.href='/api/auth/google/start?return=tickets'">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-2.8-.4-4.1H24v7.7h12.4c-.3 2.1-1.6 5.2-4.6 7.3l7.1 5.5c4.2-3.9 6.9-9.6 6.9-16.4z"/><path fill="#FBBC05" d="M10.5 28.3c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.1C1 16.5 0 20.1 0 23.8s1 7.3 2.6 10.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.1-5.5c-2 1.4-4.6 2.3-8.8 2.3-6.3 0-11.6-3.7-13.5-8.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+        Googleでログイン
+      </button>
+      <button class="btn ghost hidden" id="lineBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px" onclick="location.href='/api/auth/line/start?return=tickets'">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#06C755" d="M24 4C12.4 4 3 11.6 3 21c0 8.4 7.5 15.4 17.6 16.7.7.1 1.6.4 1.9 1 .2.5.1 1.3.1 1.8l-.3 1.9c-.1.6-.4 2.2 1.9 1.2s12.6-7.4 17.2-12.7C45.5 27.4 45 24.3 45 21 45 11.6 35.6 4 24 4z"/><path fill="#fff" d="M18.9 16.9h-1.5c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm10.3 0h-1.5c-.2 0-.4.2-.4.4v5.5l-4.3-5.7s0-.1-.1-.1h-1.7c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h1.5c.2 0 .4-.2.4-.4v-5.5l4.3 5.8.1.1h1.7c.2 0 .4-.2.4-.4v-9.3c0-.2-.2-.4-.4-.4zm-13.9 8.2h-4.1v-7.8c0-.2-.2-.4-.4-.4H9.3c-.2 0-.4.2-.4.4v9.3c0 .1 0 .2.1.3.1.1.2.1.3.1h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4zm22.6-8.2h-6c-.2 0-.4.2-.4.4v9.3c0 .2.2.4.4.4h6c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4h-4.1v-1.6h4.1c.2 0 .4-.2.4-.4v-1.5c0-.2-.2-.4-.4-.4z"/></svg>
+        LINEでログイン
+      </button>
+    </div>
+    <!-- パスワードなしでログイン（6桁コード）：この画面のまま入力できるため、
+         メールアプリ内ブラウザ問題（別ブラウザへ引き継がれない）を回避できる。 -->
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      <div style="font-weight:600;font-size:14px;margin-bottom:4px">パスワードなしでログイン</div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">上の「メールアドレス」を入れて下のボタンを押すと、メールに<strong>6桁コード</strong>が届きます。<strong>この画面のまま</strong>コードを入力するとログインできます（パスワード不要／はじめての方もそのままご利用いただけます）。</div>
+      <button class="btn ghost" id="codeReqBtn" style="width:100%" onclick="requestLoginCode()">メールで6桁コードを送る</button>
+      <div id="codeEntry" class="hidden" style="margin-top:10px">
+        <label>確認コード（6桁）</label>
+        <input id="l_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="______" onkeydown="if(event.key==='Enter')verifyLoginCode()" />
+        <button class="btn" style="width:100%;margin-top:8px" onclick="verifyLoginCode()">コードでログイン</button>
+      </div>
+      <div class="msg" id="codeMsg" style="font-size:13px"></div>
+    </div>
   </section>
 
   <!-- 商品一覧 -->
@@ -289,8 +313,75 @@ async function handleReturn() {
   }
 }
 
+// 利用可能な外部ログイン（Google/LINE）ボタンを表示（設定済みの事業者のみ・#91）
+async function loadProviders() {
+  try {
+    const { ok, body } = await api('/api/auth/providers');
+    if (!ok) return;
+    if (body.google) document.getElementById('googleBtn').classList.remove('hidden');
+    if (body.line) document.getElementById('lineBtn').classList.remove('hidden');
+    if (body.google || body.line) document.getElementById('oauthBox').classList.remove('hidden');
+  } catch (e) {}
+}
+// パスワードなしログイン（6桁コード）：この画面のまま入力できるので、
+// メールアプリ内ブラウザで開いても別ブラウザへ引き継がれない問題が起きない。
+async function requestLoginCode() {
+  const email = document.getElementById('l_email').value.trim();
+  const msg = document.getElementById('codeMsg');
+  if (!email) { msg.className = 'msg bad'; msg.textContent = '上の「メールアドレス」を入力してください'; return; }
+  const btn = document.getElementById('codeReqBtn');
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = '送信中…';
+  const { ok, body } = await api('/api/auth/login-code/request', jsonBody({ email }));
+  btn.disabled = false;
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '送信に失敗しました'; return; }
+  document.getElementById('codeEntry').classList.remove('hidden');
+  msg.className = 'msg ok'; msg.textContent = email + ' に6桁コードを送りました（有効期限10分）。この画面のままコードを入力してください。';
+  document.getElementById('l_code').focus();
+}
+async function verifyLoginCode() {
+  const email = document.getElementById('l_email').value.trim();
+  const code = document.getElementById('l_code').value.trim();
+  const msg = document.getElementById('codeMsg');
+  if (!code) { msg.className = 'msg bad'; msg.textContent = 'コードを入力してください'; return; }
+  const { ok, body } = await api('/api/auth/login-code/verify', jsonBody({ email, code }));
+  if (!ok || !body.token) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || 'ログインに失敗しました'; return; }
+  T.token = body.token; T.member = body.customer;
+  saveMemberSession(); // サイト共通セッションへ保存（他ページとログイン継続）
+  enterShop();
+}
+// ?magic=<token>（メールのログインリンク／Google・LINEログインからの戻り）でログインを確定
+async function consumeMagicIfPresent() {
+  const q = new URLSearchParams(location.search);
+  const token = q.get('magic');
+  if (!token) return false;
+  const { ok, body } = await api('/api/auth/magic-link/consume', jsonBody({ token }));
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  if (!ok || !body.token) { const m = document.getElementById('loginMsg'); if (m) m.textContent = (body && body.error) || 'ログインリンクが無効でした。もう一度お試しください。'; return false; }
+  T.token = body.token; T.member = body.customer;
+  saveMemberSession(); // サイト共通セッションへ保存（他ページとログイン継続）
+  enterShop();
+  return true;
+}
+// Google/LINEログインの失敗時（?login_error=…）にメッセージを表示
+function showLoginErrorIfPresent() {
+  const q = new URLSearchParams(location.search);
+  const e = q.get('login_error');
+  if (!e) return;
+  const map = {
+    google_unconfigured: 'Googleログインは現在ご利用いただけません。',
+    line_unconfigured: 'LINEログインは現在ご利用いただけません。',
+    line_no_email: 'LINEアカウントにメールアドレスが登録されていないため、ログインできませんでした。別の方法（Google・メール）でお試しください。',
+  };
+  const m = document.getElementById('loginMsg');
+  if (m) m.textContent = map[e] || 'ログインに失敗しました。もう一度お試しください。';
+  try { history.replaceState(null, '', location.pathname); } catch (err) {}
+}
+
 (async function init() {
-  const restored = await restoreSession();
+  loadProviders();
+  showLoginErrorIfPresent();
+  const magicOk = await consumeMagicIfPresent(); // メールリンク／OAuthからの戻り
+  if (!magicOk) await restoreSession();
   await handleReturn(); // ログイン済みなら購入結果を反映
 })();
 </script>

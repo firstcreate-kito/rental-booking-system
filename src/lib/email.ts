@@ -1013,6 +1013,64 @@ ${adminHtml}
   return withSignature({ subject, html, text });
 }
 
+/**
+ * 返金先口座のご連絡のお願い（顧客向け）。
+ * 銀行振込・コンビニ払いの予約でキャンセル/減額により返金が生じる場合、
+ * お客様に返金先の口座情報を折り返しご連絡いただくために送る。
+ * カード/PayPal は元の決済手段へ自動返金するため、このメールは送らない。
+ */
+export function refundAccountRequestEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  /** 返金予定額（税込） */
+  refundAmount: number;
+  /** 発生要因：'cancel'=キャンセル / 'reschedule'=予約内容の変更（減額） */
+  context: 'cancel' | 'reschedule';
+  /** 連絡先（返信先）メールアドレス。既定は本部。 */
+  replyTo?: string;
+}): { subject: string; html: string; text: string } {
+  const reason = d.context === 'cancel' ? 'ご予約のキャンセル' : 'ご予約内容の変更（減額）';
+  const replyTo = d.replyTo || 'rental@space-albe.com';
+  const subject = `【レンタルスペースALBE】ご返金先口座のご連絡のお願い（${d.bookingNumber}）`;
+  const text = `${d.customerName} 様
+
+${reason}に伴い、下記の通りご返金がございます。
+お支払い方法が銀行振込／コンビニ払いのため、ご返金先の口座情報をご連絡いただく必要がございます。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+ご返金予定額（税込）: ${yen(d.refundAmount)}
+
+お手数ですが、${replyTo} 宛に、下記をご返信ください。
+　・銀行名
+　・支店名
+　・預金種別（普通／当座）
+　・口座番号
+　・口座名義（カタカナ）
+
+口座情報を確認のうえ、ご登録の口座へお振込みにて返金いたします。
+※振込手数料は当方が負担いたします。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>${escapeHtml(reason)}に伴い、下記の通りご返金がございます。<br>お支払い方法が<strong>銀行振込／コンビニ払い</strong>のため、ご返金先の口座情報をご連絡いただく必要がございます。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金予定額（税込）</td><td style="font-size:18px"><strong>${yen(d.refundAmount)}</strong></td></tr>
+</table>
+<div style="margin:14px 0;padding:14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+<div style="font-weight:700;margin-bottom:6px">ご返信のお願い</div>
+<p style="margin:0 0 6px">お手数ですが、<a href="mailto:${escapeHtml(replyTo)}" style="color:#0068b7;font-weight:700">${escapeHtml(replyTo)}</a> 宛に、下記をご返信ください。</p>
+<ul style="margin:6px 0 0;padding-left:18px">
+<li>銀行名</li><li>支店名</li><li>預金種別（普通／当座）</li><li>口座番号</li><li>口座名義（カタカナ）</li>
+</ul>
+</div>
+<p style="color:#6b7280;font-size:13px">口座情報を確認のうえ、ご登録の口座へお振込みにて返金いたします。<br>※振込手数料は当方が負担いたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /** 入金確認 管理者通知メール #49 */
 export function adminPaymentConfirmedEmail(d: {
   bookingNumber: string;

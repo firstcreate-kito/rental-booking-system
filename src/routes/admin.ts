@@ -116,7 +116,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, refundAccountRequestEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { bookingIcsAttachment } from '../lib/ics';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
@@ -831,6 +831,41 @@ app.get('/bookings/:number/cancel-preview', async (c) => {
   return c.json({ bookingNumber: g.booking_number, status: g.status, totalFee: ticketPlan ? 0 : totalFee, breakdown, ticket });
 });
 
+/**
+ * 手動返金（銀行振込・コンビニ）でお客様へ返金する場合に、返金先口座を伺うメールを送る。
+ * - カード/PayPal は元の決済手段へ自動返金するため送らない。
+ * - 未入金（入金前）は実返金が発生しないため送らない（返金額0）。
+ * キャンセル（context='cancel'）・減額（'reschedule'）の両方から呼ぶ。
+ */
+async function requestRefundAccountIfManual(
+  env: AppBindings['Bindings'],
+  g: { id: string; booking_number: string; space_id: string; customer_id: string | null; payment_method: string | null; payment_status: string },
+  refundAmount: number,
+  context: 'cancel' | 'reschedule',
+): Promise<void> {
+  if (!g.customer_id || g.payment_status !== 'paid' || !(refundAmount > 0)) return;
+  // 返金方法を判定（Stripeはコンビニのみ手動＝口座が必要。カードは自動返金で口座不要）。
+  let stripeType: string | null = null;
+  if (g.payment_method === 'stripe' && env.STRIPE_SECRET_KEY) {
+    const pay = await getRefundablePaymentForGroup(env.DB, g.id);
+    if (pay?.stripe_payment_intent) stripeType = await retrievePaymentIntentMethodType(env.STRIPE_SECRET_KEY, pay.stripe_payment_intent);
+  }
+  if (refundModeFor(g.payment_method, stripeType) !== 'manual') return;
+  const [prof, sp] = await Promise.all([getCustomerProfile(env.DB, g.customer_id), getSpaceById(env.DB, g.space_id)]);
+  const to = prof?.email ? String(prof.email) : '';
+  if (!to) return;
+  await sendEmail(env, {
+    to,
+    ...refundAccountRequestEmail({
+      customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+      bookingNumber: g.booking_number,
+      spaceName: sp?.name ?? '',
+      refundAmount,
+      context,
+    }),
+  });
+}
+
 /** POST /api/admin/bookings/:number/cancel 本予約のキャンセル（キャンセル料計算・記録） */
 app.post('/bookings/:number/cancel', async (c) => {
   const db = c.env.DB;
@@ -895,6 +930,9 @@ app.post('/bookings/:number/cancel', async (c) => {
       const mail = cancellationEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, cancelFee: totalFee });
       c.executionCtx.waitUntil(sendEmail(c.env, { to, ...mail }));
     }
+    // 手動返金（銀行振込・コンビニ）で返金が生じる場合、お客様へ返金先口座を伺うメールを送る。
+    const refundDueCust = Math.max(0, (g.payment_status === 'paid' ? g.total_amount : 0) - totalFee);
+    c.executionCtx.waitUntil(requestRefundAccountIfManual(c.env, g, refundDueCust, 'cancel'));
     const admins = await adminRecipients(c.env, g.space_id);
     if (admins.length) {
       const adminMail = adminCancellationEmail({
@@ -1629,6 +1667,11 @@ app.post('/bookings/:number/reschedule', async (c) => {
       });
       c.executionCtx.waitUntil(sendEmail(c.env, { to: rsAdmins, ...alert }));
     }
+  }
+  // 減額（返金が生じる）変更で、手動返金（銀行振込・コンビニ）の場合はお客様へ返金先口座を伺う。
+  // 管理者宛先の有無に関わらずお客様へは送る（rsAdmins のブロック外で実行）。
+  if (adjustment && adjustment.type === 'refund') {
+    c.executionCtx.waitUntil(requestRefundAccountIfManual(c.env, g, adjustment.amount, 'reschedule'));
   }
 
   // 変更履歴に記録（金額が変わった場合はその旨も）#93

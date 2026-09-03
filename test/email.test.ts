@@ -19,6 +19,7 @@ import {
   ticketExpiryNoticeEmail,
   additionalPaidConfirmedEmail,
   adminAdditionalPaidEmail,
+  refundAccountRequestEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -568,5 +569,37 @@ describe('email - 追加請求の入金確定（顧客／管理者）', () => {
     expect(m.text).toContain('¥12,540');
     expect(m.text).toContain('pyonpyon19@example.com');
     expect(m.html).toContain('admin.html?booking=20260901-003');
+  });
+});
+
+describe('email - 返金先口座のご連絡のお願い（顧客向け）', () => {
+  const base = {
+    customerName: '山内 みなみ',
+    bookingNumber: '20260901-003',
+    spaceName: '名駅和室スペース',
+    refundAmount: 9240,
+  };
+  it('件名・返金額・口座の依頼文を含む（キャンセル）', () => {
+    const m = refundAccountRequestEmail({ ...base, context: 'cancel' });
+    expect(m.subject).toContain('ご返金先口座');
+    expect(m.subject).toContain('20260901-003');
+    expect(m.text).toContain('キャンセル');
+    expect(m.text).toContain('¥9,240');
+    expect(m.text).toContain('口座名義');
+    expect(m.text).toContain('rental@space-albe.com');
+  });
+  it('減額（reschedule）は理由文が変わる', () => {
+    const m = refundAccountRequestEmail({ ...base, context: 'reschedule' });
+    expect(m.text).toContain('変更（減額）');
+  });
+  it('返信先（replyTo）を差し替えできる', () => {
+    const m = refundAccountRequestEmail({ ...base, context: 'cancel', replyTo: 'owner@example.com' });
+    expect(m.text).toContain('owner@example.com');
+    expect(m.html).toContain('mailto:owner@example.com');
+  });
+  it('可変値をHTMLエスケープ', () => {
+    const m = refundAccountRequestEmail({ ...base, customerName: '<b>x</b>', context: 'cancel' });
+    expect(m.html).toContain('&lt;b&gt;');
+    expect(m.html).not.toContain('<b>x</b>');
   });
 });

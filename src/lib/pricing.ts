@@ -60,6 +60,13 @@ export interface SeasonalRule {
    * surchargePct と併用可（1日料金へ季節割増も加算される）。既定 false。
    */
   dayRateOnly?: boolean;
+  /**
+   * この期間の1日料金を「実額（円）」で固定する（#18拡張）。
+   * 値があり、かつその日が1日料金（billingMode==='day'）になる場合、単価×時間や
+   * 割増率%の計算を上書きしてこの額を1日料金として用いる。NULL/未指定なら従来計算。
+   * 主に1スペース対象のルールで使う想定（対象スペースの選択は季節料金側で制御）。
+   */
+  dayRateAmount?: number | null;
 }
 
 /** 計算の外部データ */
@@ -112,14 +119,44 @@ export function findSeasonalPct(dateISO: string, rules?: readonly SeasonalRule[]
 export function findSeasonalMatch(
   dateISO: string,
   rules?: readonly SeasonalRule[],
-): { surchargePct: number; name: string | null; dayRateOnly: boolean } | null {
+): { surchargePct: number; name: string | null; dayRateOnly: boolean; dayRateAmount: number | null } | null {
   if (!rules) return null;
   for (const r of rules) {
     if (dateISO >= r.startDate && dateISO <= r.endDate) {
-      return { surchargePct: r.surchargePct, name: r.name ?? null, dayRateOnly: r.dayRateOnly ?? false };
+      return {
+        surchargePct: r.surchargePct,
+        name: r.name ?? null,
+        dayRateOnly: r.dayRateOnly ?? false,
+        dayRateAmount: r.dayRateAmount ?? null,
+      };
     }
   }
   return null;
+}
+
+/**
+ * その日が「終日1組専有（1日貸切）」になる日か判定する（#101 / #18 Phase2）。
+ *
+ * 1日料金が入退時刻に関わらず適用される日は、当該スペースをその日1組で専有する運用にする。
+ * 発動条件（いずれか）:
+ *   ① billing_type='block'（1日単位専用スペース）
+ *   ② 土日祝 かつ weekendDayRateOnly（土日祝は1日料金のみ設定）
+ *   ③ 季節料金の「1日料金のみ」期間（GW・谷間など。対象スペースの絞り込みは
+ *      呼び出し側が seasonalRules をスペース別に渡すことで担保する）
+ *
+ * ※ 実額指定（dayRateAmount）だけでは専有にならない（1日料金のみ期間か否かで判断）。
+ * ※ fullspan / residence は個別予約の都合であり「日単位の専有」ではないため対象外。
+ */
+export function isExclusiveDay(
+  space: Pick<SpacePricingConfig, 'billingType' | 'weekendDayRateOnly'>,
+  dateISO: string,
+  ctx: PricingContext = {},
+): boolean {
+  if (space.billingType === 'block') return true;
+  const dayType = getDayType(dateISO, ctx.holidays);
+  if (dayType === 'weekend' && space.weekendDayRateOnly === true) return true;
+  if (findSeasonalMatch(dateISO, ctx.seasonalRules)?.dayRateOnly === true) return true;
+  return false;
 }
 
 /**
@@ -209,13 +246,30 @@ export function computeDayPrice(
     }
   }
 
-  const basePrice = billableHours * rate;
+  // 季節料金の「1日料金（実額）」：この期間に固定額が設定されていて、かつこの日が
+  // 1日料金（day）になる場合は、単価×時間・割増率%を上書きしてその実額を採用する（#18拡張）。
+  const seasonalDayAmount = seasonalMatch?.dayRateAmount ?? null;
+  const useFixedDayAmount = billingMode === 'day' && seasonalDayAmount != null && seasonalDayAmount > 0;
 
-  // 季節料金（該当日の金額に加算）※ seasonalMatch は上部で算出済み
-  const seasonalPct = seasonalMatch?.surchargePct ?? 0;
-  const seasonalName = seasonalPct > 0 ? seasonalMatch?.name ?? null : null;
-  const seasonalSurcharge = seasonalPct > 0 ? Math.round((basePrice * seasonalPct) / 100) : 0;
-  const price = basePrice + seasonalSurcharge;
+  let basePrice: number;
+  let seasonalPct: number;
+  let seasonalName: string | null;
+  let seasonalSurcharge: number;
+  let price: number;
+  if (useFixedDayAmount) {
+    basePrice = seasonalDayAmount as number;
+    seasonalPct = 0;
+    seasonalName = null; // 割増率は使わないため表示なし（理由は dayRateReason/dayRateName で表現）
+    seasonalSurcharge = 0;
+    price = seasonalDayAmount as number;
+  } else {
+    basePrice = billableHours * rate;
+    // 季節料金（該当日の金額に加算）※ seasonalMatch は上部で算出済み
+    seasonalPct = seasonalMatch?.surchargePct ?? 0;
+    seasonalName = seasonalPct > 0 ? seasonalMatch?.name ?? null : null;
+    seasonalSurcharge = seasonalPct > 0 ? Math.round((basePrice * seasonalPct) / 100) : 0;
+    price = basePrice + seasonalSurcharge;
+  }
 
   return {
     date: booking.date,

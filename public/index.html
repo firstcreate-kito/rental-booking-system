@@ -93,6 +93,7 @@
   .f2 { font-size: 9px; line-height: 1.5; padding: 0 5px; border-radius: var(--r-pill); border: 1px solid currentColor; white-space: nowrap; }
   .f-season { color: var(--full); }
   .f-talk { color: var(--few); }
+  .f-day { color: #1e40af; }
   /* スマホ: 7列を狭い画面に収めるため、季節料金/商談中バッジを小さく＆セル左右余白を詰める（見切れ防止） */
   @media (max-width: 640px) {
     .f2 { font-size: 8px; padding: 0 3px; letter-spacing: -.03em; }
@@ -491,6 +492,10 @@
 <div class="modal-bg" id="modal">
   <div class="modal">
     <h2 id="modalDate"></h2>
+    <!-- #101: 終日1組貸切日の案内（1日料金・利用時間は目安） -->
+    <div class="hidden" id="mExclusiveNote" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px;line-height:1.6">
+      <strong>この日は1日貸切です。</strong><br>当日はスペースを1組で終日ご利用いただけます（<strong>1日料金</strong>）。ご希望の利用時間をお選びください（何時間でも料金は1日料金です）。
+    </div>
     <div class="slotlegend">
       <span class="sw"><span class="chip c-free"></span>空き</span><span class="sw"><span class="chip c-booked"></span>予約済み</span><span class="sw"><span class="chip c-tent"></span>商談中</span><span class="sw"><span class="chip c-end"></span>終了専用の時刻</span>
     </div>
@@ -1157,6 +1162,7 @@ function dayCellHtml(d) {
   }
   const flags = [];
   if (d.isSeasonal) flags.push('<span class="f2 f-season">季節料金</span>');
+  if (d.exclusive) flags.push('<span class="f2 f-day">1日貸切</span>'); // #101: 終日1組専有日
   if (d.hasTentative) flags.push('<span class="f2 f-talk">商談中</span>');
   if (flags.length) inner += '<span class="flagline">' + flags.join('') + '</span>';
   return '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' + inner + '</div>';
@@ -1483,6 +1489,9 @@ async function openModal(date) {
   S.selectedDate = date;
   S.pastCutoffMin = -1;
   document.getElementById('modalDate').textContent = date + ' の時間を選択';
+  // #101: 終日1組貸切日は案内を表示（1日料金・利用時間は目安）
+  const dInfo = S.daysByDate && S.daysByDate[date];
+  document.getElementById('mExclusiveNote').classList.toggle('hidden', !(dInfo && dInfo.exclusive));
   buildTimeOptions();
   document.getElementById('mPreview').textContent = '';
   document.getElementById('mWarn').classList.add('hidden');

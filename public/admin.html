@@ -847,6 +847,7 @@
           <div id="se_spaces" class="row" style="gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;max-height:130px;overflow:auto"></div>
           <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="se_active" checked /> 有効</label>
           <label style="display:flex;gap:6px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="se_day_only" style="margin-top:3px" /> <span>この期間は「1日料金のみ」にする（#18）<br><span class="muted" style="font-size:12px">GW・その谷間など。対象スペースの平日でも入退時刻に関わらず1日料金になります（対象スペース未選択なら全スペース）。割増率と併用可。</span></span></label>
+          <div style="margin-top:8px"><label>1日料金（実額・円）</label><input id="se_day_amount" type="number" min="0" placeholder="例）141570（空欄なら通常計算）" /><span class="muted" style="font-size:12px;display:block">金額を入れると、その日は rate×時間 と割増率(%) を使わず、この固定額を1日料金として課金します（#119）。1スペース対象の特定期間向け。空欄なら従来どおり rate×時間＋割増率で算出。</span></div>
           <div class="row" style="margin-top:10px;justify-content:flex-end;gap:8px">
             <button class="btn ghost sm" onclick="toggleSeasonalForm(false)">キャンセル</button>
             <button class="btn" onclick="submitSeasonal()">保存</button>
@@ -1792,7 +1793,7 @@ function toggleSeasonalForm(show) {
   const willShow = show === undefined ? f.classList.contains('hidden') : show;
   if (willShow) {
     document.getElementById('se_id').value = '';
-    ['se_name','se_pct','se_from','se_to'].forEach(i => document.getElementById(i).value = '');
+    ['se_name','se_pct','se_from','se_to','se_day_amount'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('se_active').checked = true;
     document.getElementById('se_day_only').checked = false;
     document.querySelectorAll('.se-space').forEach(el => el.checked = false);
@@ -1808,7 +1809,7 @@ async function loadSeasonal() {
   const { body } = await api('/api/admin/seasonal');
   const rows = body.seasonal || [];
   document.getElementById('seasonalBody').innerHTML = rows.length ? rows.map(s =>
-    '<tr><td>' + s.name + (s.day_rate_only ? ' <span class="pill" style="background:#fef3c7;color:#92400e">1日料金のみ</span>' : '') + '</td><td>' + s.start_date + ' 〜 ' + s.end_date + '</td><td>' + (s.surcharge_pct > 0 ? '+' + s.surcharge_pct + '%' : (s.day_rate_only ? '—' : '+0%')) + '</td>' +
+    '<tr><td>' + s.name + (s.day_rate_only ? ' <span class="pill" style="background:#fef3c7;color:#92400e">1日料金のみ</span>' : '') + (s.day_rate_amount != null ? ' <span class="pill" style="background:#dbeafe;color:#1e40af">1日料金 ¥' + Number(s.day_rate_amount).toLocaleString() + '</span>' : '') + '</td><td>' + s.start_date + ' 〜 ' + s.end_date + '</td><td>' + (s.day_rate_amount != null ? '¥' + Number(s.day_rate_amount).toLocaleString() + '/日' : (s.surcharge_pct > 0 ? '+' + s.surcharge_pct + '%' : (s.day_rate_only ? '—' : '+0%'))) + '</td>' +
     '<td>' + spaceNames(s.space_ids) + '</td>' +
     '<td><span class="pill ' + (s.is_active ? 'confirmed' : 'cancelled') + '">' + (s.is_active ? '有効' : '無効') + '</span></td>' +
     '<td style="white-space:nowrap"><button class="btn ghost sm" onclick=\'editSeasonal(' + JSON.stringify(s) + ')\'>編集</button> ' +
@@ -1824,6 +1825,7 @@ function editSeasonal(s) {
   document.getElementById('se_to').value = s.end_date;
   document.getElementById('se_active').checked = !!s.is_active;
   document.getElementById('se_day_only').checked = !!s.day_rate_only;
+  document.getElementById('se_day_amount').value = (s.day_rate_amount != null ? s.day_rate_amount : '');
   const ids = s.space_ids || [];
   document.querySelectorAll('.se-space').forEach(el => el.checked = ids.includes(el.value));
 }
@@ -1838,6 +1840,7 @@ async function submitSeasonal() {
     endDate: document.getElementById('se_to').value,
     isActive: document.getElementById('se_active').checked,
     dayRateOnly: document.getElementById('se_day_only').checked,
+    dayRateAmount: document.getElementById('se_day_amount').value.trim() === '' ? null : Number(document.getElementById('se_day_amount').value),
     spaceIds,
   };
   const { ok, body } = await api('/api/admin/seasonal' + (id ? '/' + id : ''), jsonBody(payload, id ? 'PUT' : 'POST'));

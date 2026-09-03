@@ -4,6 +4,7 @@ import {
   computeGroupSpacePrice,
   detectConsecutiveGroups,
   findSeasonalPct,
+  isExclusiveDay,
   PricingError,
   type SpacePricingConfig,
 } from '../src/lib/pricing';
@@ -248,6 +249,81 @@ describe('computeDayPrice - 1日料金のみ課金（#18）', () => {
   });
 });
 
+describe('computeDayPrice - 季節料金の1日料金（実額・#119）', () => {
+  const hallWeekendDayOnly: SpacePricingConfig = { ...hall, weekendDayRateOnly: true };
+
+  it('実額指定＋1日料金の日は rate×時間・割増率を上書きして固定額で課金', () => {
+    // GW谷間の平日を土日祝相当（141,570円）で1日貸切にしたいケース
+    const seasonalRules = [
+      { name: 'GW谷間', startDate: '2026-05-01', endDate: '2026-05-02', surchargePct: 0, dayRateOnly: true, dayRateAmount: 141570 },
+    ];
+    const r = computeDayPrice(
+      hall,
+      { date: '2026-05-01', startTime: '10:00', endTime: '14:00' }, // Fri（平日）4時間
+      { seasonalRules },
+    );
+    expect(r.billingMode).toBe('day');
+    expect(r.price).toBe(141570); // 平日単価94,380ではなく実額
+    expect(r.basePrice).toBe(141570);
+    expect(r.seasonalPct).toBe(0);
+    expect(r.seasonalSurcharge).toBe(0);
+    expect(r.dayRateReason).toBe('period');
+  });
+
+  it('実額指定は割増率(%)を無視する（併記されていても実額が優先）', () => {
+    const seasonalRules = [
+      { name: '特別料金', startDate: '2026-05-01', endDate: '2026-05-02', surchargePct: 50, dayRateOnly: true, dayRateAmount: 141570 },
+    ];
+    const r = computeDayPrice(
+      hall,
+      { date: '2026-05-01', startTime: '10:00', endTime: '18:00' },
+      { seasonalRules },
+    );
+    expect(r.price).toBe(141570); // 94,380×1.5=141,570 だが「実額」を採用（割増計算は行わない）
+    expect(r.seasonalSurcharge).toBe(0);
+  });
+
+  it('実額指定は土日祝1日料金の日にも適用される（対象全スペース想定）', () => {
+    const seasonalRules = [
+      { name: '年末特別', startDate: '2026-05-01', endDate: '2026-05-31', surchargePct: 0, dayRateAmount: 200000 },
+    ];
+    const r = computeDayPrice(
+      hallWeekendDayOnly,
+      { date: '2026-05-02', startTime: '12:00', endTime: '17:00' }, // Sat（期間内）→土日祝1日料金
+      { seasonalRules },
+    );
+    expect(r.billingMode).toBe('day');
+    expect(r.price).toBe(200000); // 通常141,570を実額で上書き
+    expect(r.dayRateReason).toBe('weekend');
+  });
+
+  it('実額指定でも時間料金（hourly）の日には適用しない（1日料金の日だけ）', () => {
+    // hall は weekendDayRateOnly=false。平日・部分利用は時間料金のまま → 実額は無視、割増%のみ効く
+    const seasonalRules = [
+      { name: '実額のみ', startDate: '2026-04-20', endDate: '2026-04-24', surchargePct: 10, dayRateAmount: 141570 },
+    ];
+    const r = computeDayPrice(
+      hall,
+      { date: '2026-04-20', startTime: '10:00', endTime: '14:00' }, // Mon 4時間（時間料金）
+      { seasonalRules },
+    );
+    expect(r.billingMode).toBe('hourly');
+    expect(r.price).toBe(Math.round(4 * 7260 * 1.1)); // 実額は使わず、通常の割増%計算
+  });
+
+  it('実額0や未指定は従来通り rate×時間＋割増率で算出', () => {
+    const seasonalRules = [
+      { name: 'GW', startDate: '2026-04-29', endDate: '2026-05-06', surchargePct: 20, dayRateOnly: true, dayRateAmount: null },
+    ];
+    const r = computeDayPrice(
+      hall,
+      { date: '2026-05-01', startTime: '10:00', endTime: '14:00' },
+      { seasonalRules },
+    );
+    expect(r.price).toBe(94380 + Math.round(94380 * 0.2)); // 従来計算
+  });
+});
+
 describe('computeDayPrice - 提供可否', () => {
   it('倉庫は平日不可 → DAY_UNAVAILABLE', () => {
     expect(() =>
@@ -284,5 +360,49 @@ describe('detectConsecutiveGroups', () => {
   it('順不同・重複を正規化', () => {
     const groups = detectConsecutiveGroups(['2026-04-23', '2026-04-20', '2026-04-20', '2026-04-21']);
     expect(groups).toEqual([['2026-04-20', '2026-04-21'], ['2026-04-23']]);
+  });
+});
+
+describe('isExclusiveDay - 終日1組専有日の判定（#101）', () => {
+  const hallWeekendDayOnly: SpacePricingConfig = { ...hall, weekendDayRateOnly: true };
+
+  it('block課金スペースは常に専有（曜日を問わず）', () => {
+    expect(isExclusiveDay({ billingType: 'block', weekendDayRateOnly: false }, WEEKDAY)).toBe(true);
+    expect(isExclusiveDay({ billingType: 'block', weekendDayRateOnly: false }, SATURDAY)).toBe(true);
+  });
+
+  it('土日祝1日料金のみ設定のスペースは土日祝のみ専有', () => {
+    expect(isExclusiveDay(hallWeekendDayOnly, SATURDAY)).toBe(true);
+    expect(isExclusiveDay(hallWeekendDayOnly, WEEKDAY)).toBe(false);
+  });
+
+  it('祝日(holiday)も土日祝扱いで専有', () => {
+    const holidays = new Map<string, HolidayType>([[WEEKDAY, 'holiday']]);
+    expect(isExclusiveDay(hallWeekendDayOnly, WEEKDAY, { holidays })).toBe(true);
+  });
+
+  it('季節料金「1日料金のみ」期間は平日でも専有', () => {
+    const seasonalRules = [
+      { name: 'GW', startDate: '2026-05-01', endDate: '2026-05-06', surchargePct: 0, dayRateOnly: true },
+    ];
+    expect(isExclusiveDay(hall, '2026-05-01', { seasonalRules })).toBe(true);
+  });
+
+  it('通常の割増のみ（dayRateOnly=false）の季節料金は専有にしない', () => {
+    const seasonalRules = [
+      { name: '繁忙', startDate: '2026-05-01', endDate: '2026-05-06', surchargePct: 30 },
+    ];
+    expect(isExclusiveDay(hall, '2026-05-01', { seasonalRules })).toBe(false);
+  });
+
+  it('実額指定だけ（dayRateOnly無し）では専有にしない', () => {
+    const seasonalRules = [
+      { name: '実額', startDate: '2026-05-01', endDate: '2026-05-06', surchargePct: 0, dayRateAmount: 141570 },
+    ];
+    expect(isExclusiveDay(hall, '2026-05-01', { seasonalRules })).toBe(false);
+  });
+
+  it('通常の時間貸しスペースの平日は専有しない', () => {
+    expect(isExclusiveDay(hall, WEEKDAY)).toBe(false);
   });
 });

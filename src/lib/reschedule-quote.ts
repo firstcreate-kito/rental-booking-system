@@ -67,6 +67,7 @@ export async function quoteReschedule(
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
     dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
   }));
   const dayInputs: DayBookingInput[] = proposedItems.map((i) => ({
     date: i.date,

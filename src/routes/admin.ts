@@ -617,6 +617,7 @@ async function prepareAdminBooking(
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
     dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
   }));
 
   // バリデーション（管理者は受付期間の制約を無視）+ 競合
@@ -1438,7 +1439,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
     getActiveSeasonalRulesForSpace(db, space.id),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
-  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only }));
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only, dayRateAmount: r.day_rate_amount ?? null }));
 
   // 休業日・競合チェック（受付期間の制約は管理者につき無視）
   for (const item of body.items) {
@@ -2465,13 +2466,22 @@ function parseSeasonalInput(b: Record<string, unknown>): { input?: SeasonalInput
   const spaceIds = Array.isArray(b.spaceIds) ? (b.spaceIds as unknown[]).map(String) : [];
   // #18: この期間は1日料金のみ（GW・谷間など）。割増率0でも成立させる。
   const dayRateOnly = !!b.dayRateOnly;
+  // #119: 1日料金（実額・円）。設定時は rate×時間 と 割増率(%) を上書きして固定額で課金する。
+  // 空欄／0／未入力は null（従来どおり rate×時間＋割増率で算出）。
+  const dayRateAmountRaw = b.dayRateAmount;
+  let dayRateAmount: number | null = null;
+  if (dayRateAmountRaw !== undefined && dayRateAmountRaw !== null && String(dayRateAmountRaw).trim() !== '') {
+    const n = Number(dayRateAmountRaw);
+    if (!Number.isFinite(n) || n < 0) return { error: '1日料金（実額）は0以上の金額で入力してください' };
+    dayRateAmount = n > 0 ? Math.round(n) : null;
+  }
   if (!name) return { error: '名称は必須です' };
   if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: '期間は YYYY-MM-DD で入力してください' };
   if (endDate < startDate) return { error: '終了日は開始日以降にしてください' };
   if (!Number.isFinite(surchargePct) || surchargePct < 0) return { error: '割増率（％）は0以上で入力してください' };
-  // 割増なし（0%）は「1日料金のみ」期間のときだけ許可（通常の季節料金は1以上必須）
-  if (surchargePct <= 0 && !dayRateOnly) return { error: '割増率（％）は1以上で入力してください（1日料金のみの期間は0でも可）' };
-  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive, spaceIds, dayRateOnly } };
+  // 割増なし（0%）は「1日料金のみ」期間 or 実額指定のときだけ許可（通常の季節料金は1以上必須）
+  if (surchargePct <= 0 && !dayRateOnly && dayRateAmount === null) return { error: '割増率（％）は1以上で入力してください（1日料金のみの期間は0でも可）' };
+  return { input: { name, startDate, endDate, surchargePct: Math.round(surchargePct), isActive, spaceIds, dayRateOnly, dayRateAmount } };
 }
 
 /** GET /api/admin/seasonal 季節料金一覧 */

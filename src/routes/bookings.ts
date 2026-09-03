@@ -50,6 +50,7 @@ import {
 } from '../lib/cancellation';
 import {
   computeGroupSpacePrice,
+  isExclusiveDay,
   type SpacePricingConfig,
   type SeasonalRule,
   type DayBookingInput,
@@ -335,6 +336,7 @@ app.post('/', async (c) => {
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
     dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
   }));
 
   const valSpace = toValidationSpace(space);
@@ -356,12 +358,20 @@ app.post('/', async (c) => {
     for (const e of itemErrors) errors.push({ index: i, ...e });
 
     // 競合チェック（占有予約と時間帯が重なるか）
+    // #101: 「終日1組専有」日は入退時刻に関わらずその日に予約が1件でもあれば埋まり扱い。
+    const exclusive = isExclusiveDay(toPricingConfig(space), item.date, { holidays: holidayMap, seasonalRules });
     const existing = await getSpaceBookingsOnDate(db, space.id, item.date);
-    const conflict = existing.some((b) =>
-      intervalsOverlap(item.startTime, item.endTime, b.start_time, b.end_time),
-    );
+    const conflict = exclusive
+      ? existing.length > 0
+      : existing.some((b) => intervalsOverlap(item.startTime, item.endTime, b.start_time, b.end_time));
     if (conflict) {
-      errors.push({ index: i, code: 'CONFLICT', message: `${item.date} ${item.startTime}-${item.endTime} は既に予約があります` });
+      errors.push({
+        index: i,
+        code: 'CONFLICT',
+        message: exclusive
+          ? `${item.date} は1日貸切のため既に埋まっています`
+          : `${item.date} ${item.startTime}-${item.endTime} は既に予約があります`,
+      });
     }
   }
 
@@ -534,6 +544,8 @@ app.post('/', async (c) => {
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
       const day = group.days[i];
+      // #101: 終日1組専有日は「その日に予約が1件でもあれば」原子的に弾く（時間帯重複を無視）。
+      const exclusive = isExclusiveDay(toPricingConfig(space), item.date, { holidays: holidayMap, seasonalRules });
       reserveStmts.push(
         db
           .prepare(
@@ -544,7 +556,7 @@ app.post('/', async (c) => {
                SELECT 1 FROM bookings b
                WHERE b.space_id = ? AND b.date = ?
                  AND b.status IN ('confirmed','tentative')
-                 AND ? < b.end_time AND b.start_time < ?
+                 AND (? = 1 OR (? < b.end_time AND b.start_time < ?))
              )`,
           )
           .bind(
@@ -562,6 +574,7 @@ app.post('/', async (c) => {
             initialStatus,
             space.id,
             item.date,
+            exclusive ? 1 : 0,
             item.startTime,
             item.endTime,
           ),
@@ -998,7 +1011,7 @@ app.post('/quote', async (c) => {
     getActiveCampaigns(db),
   ]);
   const holidayMap = holidays as ReadonlyMap<string, HolidayType>;
-  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ name: r.name, startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only }));
+  const seasonalRules: SeasonalRule[] = seasonalRows.map((r) => ({ name: r.name, startDate: r.start_date, endDate: r.end_date, surchargePct: r.surcharge_pct, dayRateOnly: !!r.day_rate_only, dayRateAmount: r.day_rate_amount ?? null }));
 
   // 検証（エラーは warnings として返す。見積り自体は算出）
   const valSpace = toValidationSpace(space);
@@ -1244,6 +1257,7 @@ app.post('/:number/reschedule', async (c) => {
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
     dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
   }));
 
   const valSpace = toValidationSpace(space);
@@ -1262,9 +1276,20 @@ app.post('/:number/reschedule', async (c) => {
       errors.push({ index: i, ...e });
     }
     // 競合（自グループを除く）
+    // #101: 終日1組専有日は自グループ以外の予約が1件でもあれば埋まり扱い。
+    const exclusive = isExclusiveDay(toPricingConfig(space), item.date, { holidays: holidayMap, seasonalRules });
     const existing = await getOccupyingIntervalsExcludingGroup(db, space.id, item.date, g.id);
-    if (existing.some((b) => intervalsOverlap(item.startTime, item.endTime, b.start_time, b.end_time))) {
-      errors.push({ index: i, code: 'CONFLICT', message: `${item.date} ${item.startTime}-${item.endTime} は既に予約があります` });
+    const conflict = exclusive
+      ? existing.length > 0
+      : existing.some((b) => intervalsOverlap(item.startTime, item.endTime, b.start_time, b.end_time));
+    if (conflict) {
+      errors.push({
+        index: i,
+        code: 'CONFLICT',
+        message: exclusive
+          ? `${item.date} は1日貸切のため既に埋まっています`
+          : `${item.date} ${item.startTime}-${item.endTime} は既に予約があります`,
+      });
     }
   }
   if (errors.length > 0) return c.json({ error: 'validation failed', details: errors }, 409);

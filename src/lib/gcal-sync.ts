@@ -4,9 +4,10 @@
  */
 import type { Env } from '../types';
 import type { MissingCalendarBookingRow, BookingCalendarData } from '../db/repository';
-import { getBookingCalendarData, getHolidays } from '../db/repository';
+import { getBookingCalendarData, getHolidays, getActiveSeasonalRulesForSpace } from '../db/repository';
 import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, patchEventContent, listEvents, conflictsWithBusy, rangesOverlap, toJstRfc3339 } from './gcal';
-import { getDayType } from './calendar';
+import { getDayType, type HolidayType } from './calendar';
+import { isExclusiveDay, type SeasonalRule } from './pricing';
 import { toMinutes } from './time';
 
 const TENTATIVE_PREFIX = '【商談中】';
@@ -180,6 +181,9 @@ export async function reconcileMissingCalendarEvents(
   const updates: D1PreparedStatement[] = [];
   // グループの詳細（タイトル・説明の生成に必要）はグループ単位でキャッシュして再取得を避ける
   const dataCache = new Map<string, BookingCalendarData | null>();
+  // #101: 専有判定に使う季節料金（スペース単位）と祝日（日付単位）もキャッシュ
+  const seasonalCache = new Map<string, SeasonalRule[]>();
+  const holidayCache = new Map<string, ReadonlyMap<string, HolidayType>>();
   for (const r of rows) {
     if (!r.google_calendar_id) continue;
     const tentative = r.status === 'tentative';
@@ -192,12 +196,28 @@ export async function reconcileMissingCalendarEvents(
       }
       // 通常同期と同じリッチ形式で作成（取得失敗時のみ簡易形式でフォールバック）
       const summary = data ? buildCalendarTitle(data, tentative) : bookingSummary(r.event_name, name, tentative);
-      const description = data ? buildCalendarDescription(data, origin) : bookingDescription(r.booking_number, name, tentative);
+      let description = data ? buildCalendarDescription(data, origin) : bookingDescription(r.booking_number, name, tentative);
+      // #101(C-1): 終日1組専有日は営業時間いっぱいで作成し、実利用時間は説明欄へ
+      let span: { startTime: string; endTime: string } | null = null;
+      if (data) {
+        let seasonalRules = seasonalCache.get(data.spaceId);
+        if (!seasonalRules) {
+          seasonalRules = toSeasonalRules(await getActiveSeasonalRulesForSpace(env.DB, data.spaceId));
+          seasonalCache.set(data.spaceId, seasonalRules);
+        }
+        let holidays = holidayCache.get(r.date);
+        if (!holidays) {
+          holidays = (await getHolidays(env.DB, r.date, r.date)) as ReadonlyMap<string, HolidayType>;
+          holidayCache.set(r.date, holidays);
+        }
+        span = exclusiveSpan(data, r, holidays, seasonalRules);
+        if (span) description += exclusiveNote(r);
+      }
       const ev = await insertEvent(env, r.google_calendar_id, {
         summary,
         description,
-        startISO: toJstRfc3339(r.date, r.start_time),
-        endISO: toJstRfc3339(r.date, r.end_time),
+        startISO: toJstRfc3339(r.date, span ? span.startTime : r.start_time),
+        endISO: toJstRfc3339(r.date, span ? span.endTime : r.end_time),
       });
       updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id));
       created++;
@@ -287,6 +307,45 @@ export function buildCalendarDescription(data: BookingCalendarData, origin: stri
   return lines.join('\n');
 }
 
+/** SeasonalRuleRow[] → 料金/専有判定用の SeasonalRule[]（bookings.ts と同じ写像） */
+function toSeasonalRules(
+  rows: ReadonlyArray<{ name: string; start_date: string; end_date: string; surcharge_pct: number; day_rate_only?: number; day_rate_amount?: number | null }>,
+): SeasonalRule[] {
+  return rows.map((r) => ({
+    name: r.name,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
+  }));
+}
+
+/**
+ * #101(C-1): その日が終日1組専有なら、カレンダーに書く「営業時間いっぱい」の時間帯を返す。
+ * 専有でない、または営業時間が未設定/ゼロ長なら null（＝実際の利用時間をそのまま使う）。
+ */
+function exclusiveSpan(
+  data: BookingCalendarData,
+  row: { date: string; start_time: string; end_time: string },
+  holidays: ReadonlyMap<string, HolidayType>,
+  seasonalRules: readonly SeasonalRule[],
+): { startTime: string; endTime: string } | null {
+  const exclusive = isExclusiveDay(
+    { billingType: data.billingType, weekendDayRateOnly: data.weekendDayRateOnly },
+    row.date,
+    { holidays, seasonalRules },
+  );
+  if (!exclusive) return null;
+  if (!data.openTime || !data.closeTime || toMinutes(data.openTime) >= toMinutes(data.closeTime)) return null;
+  return { startTime: data.openTime, endTime: data.closeTime };
+}
+
+/** 終日1組専有日のカレンダー説明欄に付ける、実際のご利用予定時間の注記 */
+function exclusiveNote(row: { start_time: string; end_time: string }): string {
+  return `\n\n【1日貸切】この日はスペースを1日1組で貸切です（1日料金）。\nお客様のご利用予定時間：${row.start_time}〜${row.end_time}`;
+}
+
 /**
  * 予約グループのカレンダー予定を最新内容で作成/更新する（リッチ出力・#54関連）。
  * - 未作成の行は insert、作成済みの行は内容を patch（支払い状況の反映など）。
@@ -301,7 +360,11 @@ export async function syncBookingCalendarEvents(env: Env, groupId: string, origi
   try {
     // 各予定は1日分。日ごとに 平日/土日祝 と時間を反映する（サイネージ書式）。
     const dates = data.rows.map((r) => r.date).sort();
-    const holidays = await getHolidays(env.DB, dates[0], dates[dates.length - 1]);
+    const [holidays, seasonalRows] = await Promise.all([
+      getHolidays(env.DB, dates[0], dates[dates.length - 1]),
+      getActiveSeasonalRulesForSpace(env.DB, data.spaceId),
+    ]);
+    const seasonalRules = toSeasonalRules(seasonalRows);
     const spaceLabelFor = (date: string): string => {
       if (!data.spaceName) return '';
       const suffix = getDayType(date, holidays) === 'weekend' ? '土日祝' : '平日';
@@ -312,16 +375,17 @@ export async function syncBookingCalendarEvents(env: Env, groupId: string, origi
       const label = spaceLabelFor(r.date);
       const perRow = { ...data, rows: [r] }; // 当日分の時間だけを表示に使う
       const summary = buildCalendarTitle(perRow, tentative, label);
-      const description = buildCalendarDescription(perRow, origin, label);
+      // #101(C-1): 終日1組専有日は営業時間いっぱいでイベントを作成し、実際の利用時間は説明欄へ。
+      const span = exclusiveSpan(data, r, holidays, seasonalRules);
+      const description = span
+        ? buildCalendarDescription(perRow, origin, label) + exclusiveNote(r)
+        : buildCalendarDescription(perRow, origin, label);
+      const startISO = toJstRfc3339(r.date, span ? span.startTime : r.start_time);
+      const endISO = toJstRfc3339(r.date, span ? span.endTime : r.end_time);
       if (r.google_event_id) {
-        await patchEventContent(env, data.calendarId, r.google_event_id, { summary, description });
+        await patchEventContent(env, data.calendarId, r.google_event_id, { summary, description, startISO, endISO });
       } else {
-        const ev = await insertEvent(env, data.calendarId, {
-          summary,
-          description,
-          startISO: toJstRfc3339(r.date, r.start_time),
-          endISO: toJstRfc3339(r.date, r.end_time),
-        });
+        const ev = await insertEvent(env, data.calendarId, { summary, description, startISO, endISO });
         updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id));
       }
     }

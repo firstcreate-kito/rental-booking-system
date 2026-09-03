@@ -247,16 +247,20 @@ export async function patchEventContent(
   env: GcalEnv,
   calendarId: string,
   eventId: string,
-  fields: { summary: string; description: string },
+  fields: { summary: string; description: string; startISO?: string; endISO?: string },
 ): Promise<void> {
   if (calendarWritesSuppressed(env)) return;
   const token = await getAccessToken(env);
+  // #101: 終日1組専有日は開始/終了も更新して営業時間いっぱいのイベントに揃える。
+  const body: Record<string, unknown> = { summary: fields.summary, description: fields.description };
+  if (fields.startISO) body.start = { dateTime: fields.startISO, timeZone: 'Asia/Tokyo' };
+  if (fields.endISO) body.end = { dateTime: fields.endISO, timeZone: 'Asia/Tokyo' };
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: fields.summary, description: fields.description }),
+      body: JSON.stringify(body),
     },
   );
   if (!res.ok) throw new Error(`patchEventContent error: ${res.status}`);

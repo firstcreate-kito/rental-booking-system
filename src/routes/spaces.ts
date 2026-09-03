@@ -24,7 +24,7 @@ import {
   addDays,
   type HolidayType,
 } from '../lib/calendar';
-import { findSeasonalPct, type SeasonalRule } from '../lib/pricing';
+import { findSeasonalPct, isExclusiveDay, type SeasonalRule } from '../lib/pricing';
 import { computeDayAvailability, statusSymbol } from '../lib/availability';
 import { todayJST, nowJST } from '../lib/clock';
 import { gcalConfigured, freeBusy, busyToDayInterval, toJstRfc3339, type BusyInterval } from '../lib/gcal';
@@ -219,6 +219,8 @@ app.get('/:id/slots', async (c) => {
     startDate: r.start_date,
     endDate: r.end_date,
     surchargePct: r.surcharge_pct,
+    dayRateOnly: !!r.day_rate_only,
+    dayRateAmount: r.day_rate_amount ?? null,
   }));
   const thresholdPct = Number(settings.get('availability_threshold') ?? '50');
   const defaultDeadline = Number(settings.get('default_booking_deadline_days') ?? '0');
@@ -276,6 +278,25 @@ app.get('/:id/slots', async (c) => {
       thresholdPct,
     });
 
+    // #101: 終日1組専有日は「予約が1件でもあれば満枠」の二値（○/×）に丸める（△は出さない）。
+    const exclusive = isExclusiveDay(
+      { billingType: space.billing_type, weekendDayRateOnly: !!space.weekend_day_rate_only },
+      date,
+      { holidays: holidayMap, seasonalRules },
+    );
+    const view =
+      exclusive && avail.status !== 'closed'
+        ? (() => {
+            const occupied = avail.freeSlots < avail.totalSlots || avail.status === 'full';
+            return {
+              status: (occupied ? 'full' : 'available') as typeof avail.status,
+              hasTentative: avail.hasTentative,
+              freeSlots: occupied ? 0 : 1,
+              totalSlots: 1,
+            };
+          })()
+        : avail;
+
     // 予約受付期間内か
     const diff = daysBetween(today, date);
     const deadline = space.booking_deadline_days ?? defaultDeadline;
@@ -283,7 +304,7 @@ app.get('/:id/slots', async (c) => {
     const beyondClosing = !!space.closing_date && date > space.closing_date;
     const withinWindow = diff >= deadline && diff <= space.booking_horizon_days && !beyondClosing;
     const bookable =
-      withinWindow && !closed && dayAvailable && avail.status !== 'full';
+      withinWindow && !closed && dayAvailable && view.status !== 'full';
     // 予約可能期間より先だが閲覧可能期間内 → 空きは見せるがクリック不可（#77）
     const viewOnly =
       !bookable && !beyondClosing && diff > space.booking_horizon_days && diff <= space.view_horizon_days && !closed && diff >= 0;
@@ -291,12 +312,13 @@ app.get('/:id/slots', async (c) => {
     return {
       date,
       dayType,
-      status: avail.status,
-      symbol: statusSymbol(avail.status),
-      hasTentative: avail.hasTentative,
+      status: view.status,
+      symbol: statusSymbol(view.status),
+      hasTentative: view.hasTentative,
       isSeasonal: findSeasonalPct(date, seasonalRules) > 0,
-      freeSlots: avail.freeSlots,
-      totalSlots: avail.totalSlots,
+      exclusive, // #101: 終日1組貸切日（フロントで「1日貸切」表示に使う）
+      freeSlots: view.freeSlots,
+      totalSlots: view.totalSlots,
       bookable,
       viewOnly, // 空き閲覧のみ（予約可能期間超・閲覧可能期間内）（#77）
       closed, // 休業日（祝日休業・全体休業日・個別休業）

@@ -253,11 +253,12 @@ export interface SeasonalRuleRow {
   end_date: string;
   surcharge_pct: number;
   day_rate_only?: number; // この期間は1日料金のみ（#18）
+  day_rate_amount?: number | null; // 1日料金の実額（円・#18拡張）。NULLなら従来計算
 }
 
 export async function getActiveSeasonalRules(db: D1Database): Promise<SeasonalRuleRow[]> {
   const { results } = await db
-    .prepare('SELECT name, start_date, end_date, surcharge_pct, day_rate_only FROM seasonal_pricing WHERE is_active = 1')
+    .prepare('SELECT name, start_date, end_date, surcharge_pct, day_rate_only, day_rate_amount FROM seasonal_pricing WHERE is_active = 1')
     .all<SeasonalRuleRow>();
   return results ?? [];
 }
@@ -272,7 +273,7 @@ export async function getActiveSeasonalRulesForSpace(
 ): Promise<SeasonalRuleRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT sp.name, sp.start_date, sp.end_date, sp.surcharge_pct, sp.day_rate_only
+      `SELECT sp.name, sp.start_date, sp.end_date, sp.surcharge_pct, sp.day_rate_only, sp.day_rate_amount
        FROM seasonal_pricing sp
        WHERE sp.is_active = 1
          AND (
@@ -294,6 +295,7 @@ export interface SeasonalFullRow {
   surcharge_pct: number;
   is_active: number;
   day_rate_only: number; // この期間は1日料金のみ（#18）
+  day_rate_amount: number | null; // 1日料金の実額（円・#18拡張）
 }
 
 export async function getSeasonalAll(
@@ -301,7 +303,7 @@ export async function getSeasonalAll(
 ): Promise<Array<SeasonalFullRow & { space_ids: string[] }>> {
   const [{ results }, links] = await Promise.all([
     db
-      .prepare('SELECT id, name, start_date, end_date, surcharge_pct, is_active, day_rate_only FROM seasonal_pricing ORDER BY start_date')
+      .prepare('SELECT id, name, start_date, end_date, surcharge_pct, is_active, day_rate_only, day_rate_amount FROM seasonal_pricing ORDER BY start_date')
       .all<SeasonalFullRow>(),
     db.prepare('SELECT seasonal_id, space_id FROM seasonal_spaces').all<{ seasonal_id: string; space_id: string }>(),
   ]);
@@ -322,6 +324,7 @@ export interface SeasonalInput {
   isActive: boolean;
   spaceIds: string[]; // 空配列 = 全スペース対象
   dayRateOnly?: boolean; // この期間は1日料金のみ（#18）。既定OFF
+  dayRateAmount?: number | null; // 1日料金の実額（円・#18拡張）。NULL/未指定なら従来計算
 }
 
 async function setSeasonalSpaces(db: D1Database, seasonalId: string, spaceIds: string[]): Promise<void> {
@@ -338,10 +341,10 @@ export async function insertSeasonal(db: D1Database, s: SeasonalInput): Promise<
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO seasonal_pricing (id, name, start_date, end_date, surcharge_pct, is_active, day_rate_only)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO seasonal_pricing (id, name, start_date, end_date, surcharge_pct, is_active, day_rate_only, day_rate_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, s.dayRateOnly ? 1 : 0)
+    .bind(id, s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, s.dayRateOnly ? 1 : 0, s.dayRateAmount ?? null)
     .run();
   await setSeasonalSpaces(db, id, s.spaceIds);
   return id;
@@ -350,9 +353,9 @@ export async function insertSeasonal(db: D1Database, s: SeasonalInput): Promise<
 export async function updateSeasonal(db: D1Database, id: string, s: SeasonalInput): Promise<void> {
   await db
     .prepare(
-      `UPDATE seasonal_pricing SET name = ?, start_date = ?, end_date = ?, surcharge_pct = ?, is_active = ?, day_rate_only = ? WHERE id = ?`,
+      `UPDATE seasonal_pricing SET name = ?, start_date = ?, end_date = ?, surcharge_pct = ?, is_active = ?, day_rate_only = ?, day_rate_amount = ? WHERE id = ?`,
     )
-    .bind(s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, s.dayRateOnly ? 1 : 0, id)
+    .bind(s.name, s.startDate, s.endDate, s.surchargePct, s.isActive ? 1 : 0, s.dayRateOnly ? 1 : 0, s.dayRateAmount ?? null, id)
     .run();
   await setSeasonalSpaces(db, id, s.spaceIds);
 }
@@ -2480,7 +2483,13 @@ export interface BookingCalendarData {
   calendarId: string | null;
   bookingNumber: string;
   status: string;
+  spaceId: string;
   spaceName: string;
+  /** #101: 終日1組専有判定・全日枠表示に使うスペース設定 */
+  billingType: 'hourly' | 'block';
+  weekendDayRateOnly: boolean;
+  openTime: string;
+  closeTime: string;
   customerName: string;
   phone: string | null;
   email: string | null;
@@ -2507,6 +2516,7 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
       `SELECT bg.booking_number, bg.status, bg.event_name, bg.total_amount, bg.payment_status, bg.payment_method,
               bg.purpose, bg.headcount, bg.customer_id, bg.space_id, bg.invoice_name,
               s.name AS space_name, s.google_calendar_id,
+              s.billing_type, s.weekend_day_rate_only, s.open_time, s.close_time,
               c.contact_name, c.phone, c.email
        FROM booking_groups bg
        LEFT JOIN spaces s ON s.id = bg.space_id
@@ -2528,6 +2538,10 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
       invoice_name: string | null;
       space_name: string | null;
       google_calendar_id: string | null;
+      billing_type: 'hourly' | 'block' | null;
+      weekend_day_rate_only: number | null;
+      open_time: string | null;
+      close_time: string | null;
       contact_name: string | null;
       phone: string | null;
       email: string | null;
@@ -2575,7 +2589,12 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
     calendarId: g.google_calendar_id,
     bookingNumber: g.booking_number,
     status: g.status,
+    spaceId: g.space_id,
     spaceName: g.space_name ?? '',
+    billingType: g.billing_type ?? 'hourly',
+    weekendDayRateOnly: !!g.weekend_day_rate_only,
+    openTime: g.open_time ?? '00:00',
+    closeTime: g.close_time ?? '00:00',
     customerName: g.contact_name ?? 'お客様',
     phone: g.phone,
     email: g.email,

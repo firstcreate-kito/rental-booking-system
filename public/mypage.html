@@ -121,11 +121,18 @@
         LINEでログイン
       </button>
     </div>
+    <!-- パスワードなしでログイン（6桁コード）：この画面のまま入力できるため、
+         メールアプリ内ブラウザ問題（別ブラウザへ引き継がれない）を回避できる。 -->
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
       <div style="font-weight:600;font-size:14px;margin-bottom:4px">パスワードなしでログイン</div>
-      <div class="muted" style="font-size:12px;margin-bottom:8px">上の「メールアドレス」を入れて下のボタンを押すと、ログイン用リンクをメールでお送りします。届いたメールのリンクを開くとログインできます（パスワード不要）。はじめての方もそのままご利用いただけます。</div>
-      <button class="btn ghost" style="width:100%" onclick="requestMagicLink()">メールでログイン用リンクを送る</button>
-      <div class="msg" id="magicMsg" style="font-size:13px"></div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">上の「メールアドレス」を入れて下のボタンを押すと、メールに<strong>6桁コード</strong>が届きます。<strong>この画面のまま</strong>コードを入力するとログインできます（パスワード不要／はじめての方もそのままご利用いただけます）。</div>
+      <button class="btn ghost" id="codeReqBtn" style="width:100%" onclick="requestLoginCode()">メールで6桁コードを送る</button>
+      <div id="codeEntry" class="hidden" style="margin-top:10px">
+        <label>確認コード（6桁）</label>
+        <input id="l_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="______" onkeydown="if(event.key==='Enter')verifyLoginCode()" />
+        <button class="btn" style="width:100%;margin-top:8px" onclick="verifyLoginCode()">コードでログイン</button>
+      </div>
+      <div class="msg" id="codeMsg" style="font-size:13px"></div>
     </div>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <a href="javascript:void(0)" onclick="showForgot()" style="font-size:12px;color:var(--brand)">パスワードをお忘れの方はこちら</a>
@@ -506,18 +513,31 @@ async function login() {
   if (!ok) { msg.textContent = body.error || 'ログインに失敗しました'; return; }
   enterLoggedIn(body);
 }
-// メールでログイン（マジックリンク）：リンク送付
-async function requestMagicLink() {
+// パスワードなしログイン（6桁コード）：この画面のまま入力できるので、
+// メールアプリ内ブラウザで開いても別ブラウザへ引き継がれない問題が起きない。
+async function requestLoginCode() {
   const email = document.getElementById('l_email').value.trim();
-  const msg = document.getElementById('magicMsg');
+  const msg = document.getElementById('codeMsg');
   if (!email) { msg.className = 'msg bad'; msg.textContent = '上の「メールアドレス」を入力してください'; return; }
-  msg.className = 'msg'; msg.textContent = '送信中…';
-  const { ok, body } = await api('/api/auth/magic-link/request', jsonBody({ email }));
+  const btn = document.getElementById('codeReqBtn');
+  btn.disabled = true; msg.className = 'msg'; msg.textContent = '送信中…';
+  const { ok, body } = await api('/api/auth/login-code/request', jsonBody({ email }));
+  btn.disabled = false;
   if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '送信に失敗しました'; return; }
-  msg.className = 'msg ok';
-  msg.textContent = 'ログイン用リンクをメールでお送りしました（有効期限30分）。メールを開いてリンクを押してください。';
+  document.getElementById('codeEntry').classList.remove('hidden');
+  msg.className = 'msg ok'; msg.textContent = email + ' に6桁コードを送りました（有効期限10分）。この画面のままコードを入力してください。';
+  document.getElementById('l_code').focus();
 }
-// ?magic=<token> で戻ってきたらログインを確定する
+async function verifyLoginCode() {
+  const email = document.getElementById('l_email').value.trim();
+  const code = document.getElementById('l_code').value.trim();
+  const msg = document.getElementById('codeMsg');
+  if (!code) { msg.className = 'msg bad'; msg.textContent = 'コードを入力してください'; return; }
+  const { ok, body } = await api('/api/auth/login-code/verify', jsonBody({ email, code }));
+  if (!ok || !body.token) { msg.className = 'msg bad'; msg.textContent = (body && body.error) || 'ログインに失敗しました'; return; }
+  enterLoggedIn(body); // resetIdle→saveSession でサイト共通セッションへ保存（他ページとログイン継続）
+}
+// ?magic=<token>（Google・LINEログインからの戻り）でログインを確定する
 async function consumeMagicIfPresent() {
   const q = new URLSearchParams(location.search);
   const token = q.get('magic');

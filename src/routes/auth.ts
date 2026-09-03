@@ -208,7 +208,10 @@ app.post('/password-reset/confirm', async (c) => {
 });
 
 /**
- * POST /api/auth/magic-link/request マジックリンク送付（マイページ用）
+ * POST /api/auth/magic-link/request マジックリンク送付
+ * ※フロント各ページのパスワードなしログインは6桁コード（login-code）に統一済みのため、
+ *   現在この経路はUIからは呼ばれない（後方互換・外部連携用に温存）。OAuth（Google/LINE）は
+ *   別途チャレンジを発行し ?magic= 経由で consume する（この request は経由しない）。
  * body: { email }。未登録メールはログイン成立時にその場で会員登録も兼ねる。
  * 常に { ok:true }（存在の推測を防ぐ）。ブラックリストには送らない。
  */

@@ -20,6 +20,8 @@ import {
   additionalPaidConfirmedEmail,
   adminAdditionalPaidEmail,
   refundAccountRequestEmail,
+  paymentConfirmedEmail,
+  paymentMethodJp,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -621,5 +623,57 @@ describe('email - 管理者向け新規予約通知の入金待ち表記', () =>
     expect(m.subject).toContain('入金待ち');
     expect(m.text).toContain('入金待ち（銀行振込）');
     expect(m.html).toContain('入金待ち（銀行振込）');
+  });
+});
+
+describe('email - お支払い方法の表示', () => {
+  it('paymentMethodJp: 決済方法コードを日本語ラベルへ変換（未知は空文字）', () => {
+    expect(paymentMethodJp('stripe')).toBe('クレジットカード');
+    expect(paymentMethodJp('paypal')).toBe('PayPal');
+    expect(paymentMethodJp('bank_transfer')).toBe('銀行振込');
+    expect(paymentMethodJp('invoice')).toBe('請求書払い');
+    expect(paymentMethodJp('konbini')).toBe('コンビニ払い');
+    expect(paymentMethodJp('')).toBe('');
+    expect(paymentMethodJp(null)).toBe('');
+    expect(paymentMethodJp('unknown')).toBe('');
+  });
+
+  it('予約確認メール（お客様）: paymentMethodLabel を本文・HTMLに表示', () => {
+    const m = bookingConfirmationEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 9240, status: 'confirmed', paymentMethodLabel: 'クレジットカード',
+    });
+    expect(m.text).toContain('お支払い方法: クレジットカード');
+    expect(m.html).toContain('お支払い方法');
+    expect(m.html).toContain('クレジットカード');
+  });
+
+  it('予約確認メール（お客様）: paymentMethodLabel 未指定なら行を出さない', () => {
+    const m = bookingConfirmationEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 0, status: 'confirmed',
+    });
+    expect(m.text).not.toContain('お支払い方法');
+    expect(m.html).not.toContain('お支払い方法');
+  });
+
+  it('管理者向け新規予約通知: paymentMethodLabel を本文・HTMLに表示', () => {
+    const m = adminNewBookingEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', customerName: 'N',
+      days: sampleDays, total: 9240, status: 'confirmed', customerEmail: 'c@d.jp',
+      paymentMethodLabel: '銀行振込',
+    });
+    expect(m.text).toContain('支払い方法: 銀行振込');
+    expect(m.html).toContain('支払い方法');
+    expect(m.html).toContain('銀行振込');
+  });
+
+  it('入金確認・予約確定メール（お客様）: paymentMethodLabel を表示', () => {
+    const m = paymentConfirmedEmail({
+      customerName: 'N', bookingNumber: 'B1', spaceName: 'S', eventName: 'E',
+      days: sampleDays, total: 9240, paymentMethodLabel: 'コンビニ払い',
+    });
+    expect(m.text).toContain('お支払い方法: コンビニ払い');
+    expect(m.html).toContain('コンビニ払い');
   });
 });

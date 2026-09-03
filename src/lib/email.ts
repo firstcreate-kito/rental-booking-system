@@ -226,6 +226,21 @@ export interface BookingEmailData {
   extras?: ReadonlyArray<{ label: string; value: string }>;
   /** スペース固有の案内文（入室方法・解錠番号など・任意）。差し込みブロックとして表示する */
   spaceNote?: string | null;
+  /** お支払い方法の表示ラベル（例：クレジットカード／銀行振込／請求書払い）。未指定なら行を出さない */
+  paymentMethodLabel?: string;
+}
+
+/**
+ * 予約フォームで選ばれた支払い方法のお客様向け表示ラベル。
+ * 'stripe' は予約時点ではカードを想定（コンビニ選択は入金確認メール側で「コンビニ払い」と表示）。
+ * 不明・0円などラベル不要のときは空文字を返す（呼び出し側で行の出し分けに使う）。
+ */
+export function paymentMethodJp(method: string | null | undefined): string {
+  return (
+    ({ stripe: 'クレジットカード', paypal: 'PayPal', bank_transfer: '銀行振込', invoice: '請求書払い', konbini: 'コンビニ払い' } as Record<string, string>)[
+      String(method ?? '')
+    ] || ''
+  );
 }
 
 /**
@@ -286,7 +301,7 @@ export function bookingConfirmationEmail(d: BookingEmailData): { subject: string
 イベント名: ${d.eventName}${extrasBlockText(d.extras)}
 日時:
 ${daysBlockText(d.days)}
-合計金額（税込）: ${yen(d.total)}
+合計金額（税込）: ${yen(d.total)}${d.paymentMethodLabel ? `\nお支払い方法: ${d.paymentMethodLabel}` : ''}
 ${noteText}${
   d.mypageUrl
     ? `\n${d.isInvoice ? '請求書' : '領収書'}はマイページの「書類」からダウンロードいただけます。\n${d.mypageUrl}\n`
@@ -305,6 +320,7 @@ ${extrasRowsHtml(d.extras)}
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${d.paymentMethodLabel ? `<p style="margin:4px 0;color:#374151">お支払い方法: <strong>${escapeHtml(d.paymentMethodLabel)}</strong></p>` : ''}
 ${noteHtml}
 ${
   d.mypageUrl
@@ -669,7 +685,7 @@ export function adminNewBookingEmail(
 イベント名: ${d.eventName}${extrasBlockText(d.extras)}
 日時:
 ${daysBlockText(d.days)}
-合計: ${yen(d.total)}${pendingText}
+合計: ${yen(d.total)}${d.paymentMethodLabel ? `\n支払い方法: ${d.paymentMethodLabel}` : ''}${pendingText}
 お客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）`;
   const pendingHtml = pending
     ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い状況</td><td><strong style="color:#b45309">入金待ち（${escapeHtml(pending)}）</strong></td></tr>`
@@ -682,6 +698,7 @@ ${daysBlockText(d.days)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
 ${extrasRowsHtml(d.extras)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）</td></tr>
+${d.paymentMethodLabel ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い方法</td><td>${escapeHtml(d.paymentMethodLabel)}</td></tr>` : ''}
 ${pendingHtml}
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>
@@ -765,6 +782,8 @@ export function paymentConfirmedEmail(d: {
   receiptUrl?: string;
   /** スペース固有の案内文（入室方法・解錠番号など・任意） */
   spaceNote?: string | null;
+  /** お支払い方法の表示ラベル（例：銀行振込／コンビニ払い／請求書払い）。未指定なら行を出さない */
+  paymentMethodLabel?: string;
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】ご入金を確認し、ご予約が確定しました（${d.bookingNumber}）`;
   const receiptText = d.receiptUrl ? `\n領収書はこちらからダウンロードいただけます。\n${d.receiptUrl}\n` : '';
@@ -777,7 +796,7 @@ export function paymentConfirmedEmail(d: {
 イベント名: ${d.eventName}
 日時:
 ${daysBlockText(d.days)}
-合計金額（税込）: ${yen(d.total)}
+合計金額（税込）: ${yen(d.total)}${d.paymentMethodLabel ? `\nお支払い方法: ${d.paymentMethodLabel}` : ''}
 ${spaceNoteBlockText(d.spaceNote)}${receiptText}
 当日のご来店をお待ちしております。`;
   const receiptHtml = d.receiptUrl
@@ -794,6 +813,7 @@ ${spaceNoteBlockText(d.spaceNote)}${receiptText}
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>
 <p style="font-size:18px">合計金額（税込）: <strong>${yen(d.total)}</strong></p>
+${d.paymentMethodLabel ? `<p style="margin:4px 0;color:#374151">お支払い方法: <strong>${escapeHtml(d.paymentMethodLabel)}</strong></p>` : ''}
 ${spaceNoteBlockHtml(d.spaceNote)}
 ${receiptHtml}
 <p style="color:#6b7280;font-size:13px">当日のご来店をお待ちしております。</p>

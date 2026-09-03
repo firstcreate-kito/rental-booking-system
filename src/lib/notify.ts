@@ -18,6 +18,7 @@ import {
   adminTicketPurchaseEmail,
   additionalPaidConfirmedEmail,
   adminAdditionalPaidEmail,
+  paymentMethodJp,
 } from './email';
 
 /** 管理者通知の既定宛先（MAIL_ADMIN 未設定時のフォールバック・本部）。未入金アラートCronと統一。 */
@@ -111,13 +112,6 @@ async function customerContact(env: Env, groupId: string): Promise<{ email: stri
   };
 }
 
-const PAY_LABEL: Record<string, string> = {
-  stripe: 'クレジットカード等（Stripe）',
-  paypal: 'PayPal',
-  bank_transfer: '銀行振込（Stripe収納代行）',
-  invoice: '銀行振込（請求書払い）',
-};
-
 /**
  * 入金確認・予約確定メール（お客様＋管理者）を送信する（#49）。
  * receiptUrl は相対パス（/api/documents/...）を渡すと絶対URLに補完する。
@@ -143,6 +137,18 @@ export async function notifyPaymentConfirmed(
   const origin = env.PUBLIC_BASE_URL || '';
   const receiptUrl = receiptPath ? (origin ? origin + receiptPath : receiptPath) : undefined;
 
+  // この確定メールは「入金待ちだった枠（銀行振込・コンビニ・請求書払い）」への入金確認で送る。
+  // カード/PayPal は決済先行フロー（notifyBookingEstablished）で別途通知するためここには来ない。
+  // したがって payment_method='stripe' はこの文脈ではコンビニ払いを指す。
+  const confirmedPayLabel =
+    summary.paymentMethod === 'bank_transfer'
+      ? '銀行振込'
+      : summary.paymentMethod === 'invoice'
+        ? '請求書払い'
+        : summary.paymentMethod === 'stripe'
+          ? 'コンビニ払い'
+          : paymentMethodJp(summary.paymentMethod) || summary.paymentMethod || '—';
+
   if (email) {
     // 予約が確定したので、お客様がカレンダーへ追加できるよう .ics を添付する。
     const ics = bookingIcsAttachment({
@@ -162,6 +168,7 @@ export async function notifyPaymentConfirmed(
         total: summary.total,
         receiptUrl,
         spaceNote: summary.spaceEmailNote,
+        paymentMethodLabel: confirmedPayLabel,
       }),
       ...(ics ? { attachments: [ics] } : {}),
     });
@@ -174,7 +181,7 @@ export async function notifyPaymentConfirmed(
         bookingNumber: summary.bookingNumber,
         spaceName: summary.spaceName,
         total: summary.total,
-        paymentMethodLabel: PAY_LABEL[summary.paymentMethod || ''] || summary.paymentMethod || '—',
+        paymentMethodLabel: confirmedPayLabel,
         customerName: name,
         customerEmail: email || undefined,
       }),
@@ -265,6 +272,8 @@ export async function notifyBookingEstablished(env: Env, groupId: string): Promi
     changeUrl: origin ? `${origin}/booking-change/?num=${encodeURIComponent(summary.bookingNumber)}` : undefined,
     isInvoice: false,
     spaceNote: summary.spaceEmailNote,
+    // 決済先行（カード/PayPal）で成立した予約。お支払い方法をメールに明記する。
+    paymentMethodLabel: paymentMethodJp(summary.paymentMethod),
   };
   const estIcs = bookingIcsAttachment({
     bookingNumber: summary.bookingNumber,

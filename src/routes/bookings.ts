@@ -62,7 +62,7 @@ import {
   type BookingItemInput,
 } from '../lib/availability';
 import { todayJST, todayYmdJST, nowJST, addDaysJST } from '../lib/clock';
-import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, paymentPendingBookingEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, adminNewBookingEmail, cancellationEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, adminPaymentActionAlertEmail, paymentPendingBookingEmail, paymentMethodJp } from '../lib/email';
 import { bookingIcsAttachment } from '../lib/ics';
 import { checkCalendarConflict, checkCalendarConflictExcluding, syncBookingCalendarEvents, deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { stripeConfigured, createCheckoutSession, createStripeCustomer, createBankTransferCheckout, createJpBankTransferFundingInstructions, retrieveCheckoutSession } from '../lib/stripe';
@@ -734,6 +734,8 @@ app.post('/', async (c) => {
     isInvoice: paymentMethod === 'invoice',
     // スペース固有の案内文（入室方法・解錠番号など・任意）。確定メールに差し込む。
     spaceNote: space.email_note ?? undefined,
+    // お支払い方法をメールに明記（0円＝無料のときは出さない）。
+    paymentMethodLabel: totals.total <= 0 ? undefined : paymentMethodJp(paymentMethod),
   };
   // 予約確認メールの送信可否。
   //  - pending（カード/PayPal）… 入金確定時に送る（ここでは送らない）

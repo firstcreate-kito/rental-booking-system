@@ -650,30 +650,39 @@ export function loginCodeEmail(d: { code: string; expiresLabel: string }): { sub
 }
 
 /** 新規予約の管理者通知メール */
-export function adminNewBookingEmail(d: BookingEmailData & { customerEmail: string; customerPhone?: string }): {
+export function adminNewBookingEmail(
+  d: BookingEmailData & { customerEmail: string; customerPhone?: string; paymentPendingLabel?: string },
+): {
   subject: string;
   html: string;
   text: string;
 } {
   const label = d.status === 'tentative' ? '商談中（仮予約）' : '本予約';
-  const subject = `【新規${label}】${d.spaceName} ${d.days[0]?.date ?? ''}（${d.bookingNumber}）`;
-  const text = `新しい${label}が入りました。
+  // 入金待ち（銀行振込・請求書払い等）の受注は、件名・本文で「入金待ち」を明示する。
+  const pending = d.paymentPendingLabel;
+  const subject = `【新規${label}${pending ? '・入金待ち' : ''}】${d.spaceName} ${d.days[0]?.date ?? ''}（${d.bookingNumber}）`;
+  const pendingText = pending ? `\n支払い状況: 入金待ち（${pending}）` : '';
+  const text = `新しい${label}が入りました。${pending ? `\n※${pending}のお支払い待ちです。入金確認後に確定します。` : ''}
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 イベント名: ${d.eventName}${extrasBlockText(d.extras)}
 日時:
 ${daysBlockText(d.days)}
-合計: ${yen(d.total)}
+合計: ${yen(d.total)}${pendingText}
 お客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）`;
+  const pendingHtml = pending
+    ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い状況</td><td><strong style="color:#b45309">入金待ち（${escapeHtml(pending)}）</strong></td></tr>`
+    : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
-<p>新しい<strong>${label}</strong>が入りました。</p>
+<p>新しい<strong>${label}</strong>が入りました。${pending ? `<br><span style="color:#b45309">※${escapeHtml(pending)}のお支払い待ちです。入金確認後に確定します。</span>` : ''}</p>
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
 ${extrasRowsHtml(d.extras)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）</td></tr>
+${pendingHtml}
 </table>
 <p style="margin:6px 0;color:#6b7280">日時</p>
 <ul style="margin:4px 0">${daysBlockHtml(d.days)}</ul>

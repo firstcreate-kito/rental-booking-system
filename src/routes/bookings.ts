@@ -880,6 +880,13 @@ app.post('/', async (c) => {
           });
           c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...mail }));
         }
+        // 管理者へも受注（入金待ち）通知を送る。銀行振込は入金確認まで確定しないため、
+        // 請求書払いと同様に受注時点で必ず通知して「振込待ちの予約」を把握できるようにする。
+        const bankAdmins = await adminRecipients(c.env, space.id);
+        if (bankAdmins.length) {
+          const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone, paymentPendingLabel: '銀行振込' });
+          c.executionCtx.waitUntil(sendEmail(c.env, { to: bankAdmins, ...adminMail }));
+        }
       } catch (err) {
         checkoutUrl = null;
         checkoutError = 'bank_transfer_error: ' + (err as Error).message;

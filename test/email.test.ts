@@ -603,3 +603,23 @@ describe('email - 返金先口座のご連絡のお願い（顧客向け）', ()
     expect(m.html).not.toContain('<b>x</b>');
   });
 });
+
+describe('email - 管理者向け新規予約通知の入金待ち表記', () => {
+  const base = {
+    bookingNumber: '20260901-010', spaceName: '名駅和室スペース', eventName: 'ヨガ教室',
+    customerName: '山内 みなみ', days: sampleDays, total: 9240, status: 'confirmed' as const,
+    customerEmail: 'c@d.jp', customerPhone: '08000000000',
+  };
+  it('paymentPendingLabel なしは従来どおり（入金待ち表記なし）', () => {
+    const m = adminNewBookingEmail(base);
+    expect(m.subject).toContain('【新規本予約】');
+    expect(m.subject).not.toContain('入金待ち');
+    expect(m.text).not.toContain('入金待ち');
+  });
+  it('paymentPendingLabel ありは件名・本文に「入金待ち（銀行振込）」を表示', () => {
+    const m = adminNewBookingEmail({ ...base, paymentPendingLabel: '銀行振込' });
+    expect(m.subject).toContain('入金待ち');
+    expect(m.text).toContain('入金待ち（銀行振込）');
+    expect(m.html).toContain('入金待ち（銀行振込）');
+  });
+});

@@ -1408,10 +1408,9 @@ function pickSlot(t) {
     // 1回目（または選択済み／開始以前をクリック）→ 開始をセット
     if (!canStart) return; // 終了専用の時刻(営業終了)は開始にできない
     stSel.value = t;
-    // 暫定の終了＝開始+30分（無ければ開始より後の最初の有効な時刻）。次のクリックで確定
-    const prov = addMin(t, 30);
-    if ([...enSel.options].some(o => o.value === prov && !o.disabled)) enSel.value = prov;
-    else { for (const o of enSel.options) { if (!o.disabled && toMin(o.value) > toMin(t)) { enSel.value = o.value; break; } } }
+    // 暫定の終了＝開始+1時間（予約に食い込まない範囲。開いた瞬間の既定と揃える）。
+    // 30分単位で選び直したい場合は、続けて終了の枠をクリックすれば任意に変更できる。
+    setDefaultEnd();
     S.pickState = 'end';
   }
   renderSlotBar(); updatePickHint(); previewModal();

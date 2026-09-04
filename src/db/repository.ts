@@ -3254,7 +3254,8 @@ export async function getMemberTickets(db: D1Database, customerId: string, today
   const { results } = await db
     .prepare(
       `SELECT t.id, t.name, t.total_hours, t.remaining_hours, t.valid_from, t.valid_until, ${statusExpr},
-              (SELECT GROUP_CONCAT(s.name, ' / ') FROM ticket_spaces ts JOIN spaces s ON s.id = ts.space_id WHERE ts.ticket_id = t.id) AS spaces
+              (SELECT GROUP_CONCAT(s.name, ' / ') FROM ticket_spaces ts JOIN spaces s ON s.id = ts.space_id WHERE ts.ticket_id = t.id) AS spaces,
+              (SELECT GROUP_CONCAT(ts.space_id, ',') FROM ticket_spaces ts WHERE ts.ticket_id = t.id) AS space_ids
        FROM tickets t WHERE t.customer_id = ? ORDER BY t.purchased_at DESC`,
     )
     .bind(...binds)

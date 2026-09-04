@@ -70,6 +70,12 @@
   .msg { font-size:13px; margin-top:8px; }
   .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
   .coupon { border:1px dashed #c7ddff; border-radius:10px; padding:12px; margin-bottom:10px; background:#f0f6ff; }
+  /* 保有チケット：サムネイル＋情報＋お得訴求＋再度購入 */
+  .tkcard { display:flex; gap:12px; align-items:flex-start; }
+  .tk-thumb { width:88px; height:66px; object-fit:cover; border-radius:8px; border:1px solid var(--line); flex:0 0 auto; background:#eef2f7; }
+  .tk-ph { display:flex; align-items:center; justify-content:center; font-size:26px; color:#9aa7b5; }
+  .tk-info { flex:1 1 auto; min-width:0; }
+  .tk-promo { margin-top:5px; color:#e8590c; font-weight:800; font-size:13.5px; }
   .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media(max-width:560px){ .grid2{ grid-template-columns:1fr; } }
@@ -1106,11 +1112,22 @@ async function loadCoupons() {
       '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + (c.valid_until ? c.valid_until : '無期限') + '</div></div>';
   }).join('');
 }
+// サムネイル用にスペース画像URLを1度だけ取得してキャッシュ
+let TK_SPACE_IMG = null;
+async function ensureSpaceImg() {
+  if (TK_SPACE_IMG) return;
+  TK_SPACE_IMG = {};
+  try { const sp = await api('/api/spaces'); (sp.body.spaces || []).forEach(s => { TK_SPACE_IMG[s.id] = s.imageUrl || ''; }); } catch (e) {}
+}
+function tkImgErr(el) { const d = document.createElement('div'); d.className = 'tk-thumb tk-ph'; d.textContent = '🎟️'; el.replaceWith(d); }
 async function loadTickets() {
+  await ensureSpaceImg();
   const { body } = await api('/api/mypage/tickets');
   const rows = body.tickets || [];
   const contactUrl = body.contactUrl || 'https://space-albe.com/contact/';
   const LOW = 3;
+  // お得訴求：時間数ごとの割安メッセージ（購入ページと同じ対応表）
+  const paidMap = { 6: 5, 12: 10, 19: 15, 26: 20 };
   document.getElementById('tkEmpty').textContent = rows.length ? '' : '保有チケットはありません';
   document.getElementById('tkList').innerHTML = rows.map(t => {
     const pct = t.total_hours ? Math.round(t.remaining_hours / t.total_hours * 100) : 0;
@@ -1119,11 +1136,24 @@ async function loadTickets() {
     let notice = '';
     if (exhausted) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>使い切りました。</strong> <a href="tickets.html" style="font-weight:600;color:#a15c00">チケットを追加購入する ▶</a></div>';
     else if (low) notice = '<div style="margin-top:6px;padding:8px;border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;font-size:13px"><strong>残りわずかです。</strong> <a href="tickets.html" style="font-weight:600;color:#a15c00">チケットを追加購入する ▶</a></div>';
-    return '<div class="coupon"><div class="row"><strong>' + t.name + '</strong>' +
+    // サムネイル（対象スペースのうち画像がある最初のスペースの写真）
+    const ids = (t.space_ids || '').split(',').filter(Boolean);
+    const imgId = ids.find(id => TK_SPACE_IMG[id]);
+    const thumb = imgId
+      ? '<img class="tk-thumb" src="' + TK_SPACE_IMG[imgId] + '" alt="" loading="lazy" onerror="tkImgErr(this)">'
+      : '<div class="tk-thumb tk-ph">🎟️</div>';
+    // お得訴求（該当時間のみ）
+    const paid = paidMap[t.total_hours];
+    const promo = paid ? '<div class="tk-promo">＜' + paid + '時間分の料金で' + t.total_hours + '時間使える＞</div>' : '';
+    // 再度購入（リピート導線・チケット購入ページへ）
+    const rebuy = '<div style="margin-top:8px"><a class="btn ghost sm" href="tickets.html">再度購入</a></div>';
+    return '<div class="coupon tkcard">' + thumb + '<div class="tk-info">' +
+      '<div class="row"><strong>' + t.name + '</strong>' +
       '<span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></div>' +
       '<div>残り ' + t.remaining_hours + ' / ' + t.total_hours + ' 時間（' + pct + '%）</div>' +
+      promo +
       '<div class="muted">対象: ' + (t.spaces || '全スペース') + '</div>' +
-      '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div>' + notice + '</div>';
+      '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div>' + notice + rebuy + '</div></div>';
   }).join('');
 }
 async function loadFavorites() {

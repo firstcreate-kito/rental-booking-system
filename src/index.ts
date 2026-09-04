@@ -38,6 +38,7 @@ import {
   markPointExpiryNotified,
   getTicketsForExpiryNotice,
   markTicketExpiryNoticeStage,
+  pruneLoginAttempts,
   setSystemSetting,
 } from './db/repository';
 import { pointsForAmount, pointExpiryStatus } from './lib/points';
@@ -471,6 +472,8 @@ export default {
       ctx.waitUntil(runTicketExpiryNotice(env).catch(() => {}));
       // データ保持ポリシー（#57）: 7年経過した顧客の個人情報を匿名化（既定はドライラン）
       ctx.waitUntil(runDataRetention(env).then(() => {}).catch(() => {}));
+      // ログイン試行記録の掃除（レート制限用・1日より古い行を削除して肥大化を防ぐ）
+      ctx.waitUntil(pruneLoginAttempts(env.DB, nowJST(Date.now() - 24 * 60 * 60 * 1000)).catch(() => {}));
     }
     // 週次「翌週の予約」まとめメール（#111）: 毎週月曜 00:00 UTC＝09:00 JST。
     // スペース単位でその週（月〜日）の予約一覧をオーナー宛に送る。

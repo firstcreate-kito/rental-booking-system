@@ -1461,6 +1461,32 @@ export async function getAdminById(db: D1Database, id: string): Promise<{ id: st
     .first();
 }
 
+// --- ログイン試行のレート制限（login_attempts） ---
+
+/** ログイン失敗を1件記録する */
+export async function recordLoginFailure(db: D1Database, scope: string, key: string, now: string): Promise<void> {
+  await db.prepare('INSERT INTO login_attempts (scope, key, created_at) VALUES (?, ?, ?)').bind(scope, key, now).run();
+}
+
+/** 指定時刻以降の失敗回数を数える */
+export async function countLoginFailures(db: D1Database, scope: string, key: string, sinceIso: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE scope = ? AND key = ? AND created_at >= ?')
+    .bind(scope, key, sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** 成功時：該当キーの失敗記録を消す */
+export async function clearLoginFailures(db: D1Database, scope: string, key: string): Promise<void> {
+  await db.prepare('DELETE FROM login_attempts WHERE scope = ? AND key = ?').bind(scope, key).run();
+}
+
+/** 古いログイン試行記録を削除（Cronでの掃除用） */
+export async function pruneLoginAttempts(db: D1Database, beforeIso: string): Promise<void> {
+  await db.prepare('DELETE FROM login_attempts WHERE created_at < ?').bind(beforeIso).run();
+}
+
 export async function createAdminSession(
   db: D1Database,
   token: string,

@@ -114,9 +114,14 @@ import {
   disableAdminTotp,
   updateAdminRecoveryCodes,
   getAdminById,
+  countLoginFailures,
+  recordLoginFailure,
+  clearLoginFailures,
 } from '../db/repository';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
+import { LOGIN_WINDOW_MIN, isLoginLocked, LOGIN_LOCK_MESSAGE } from '../lib/login-throttle';
+import { verifyTurnstile } from '../lib/turnstile';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture, paypalConfigured } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
@@ -214,16 +219,45 @@ app.post('/login', async (c) => {
   const { email, password } = body as { email?: string; password?: string };
   if (!email || !password) return c.json({ error: 'メールとパスワードは必須です' }, 400);
 
+  // レート制限（総当たり対策）：メール・IP単位で失敗回数を数え、上限超過ならロック
+  const ip = c.req.header('CF-Connecting-IP') || '';
+  const emailKey = 'email:' + email.trim().toLowerCase();
+  const ipKey = 'ip:' + ip;
+  const since = nowJST(Date.now() - LOGIN_WINDOW_MIN * 60_000);
+  const [ef, iff] = await Promise.all([
+    countLoginFailures(db, 'admin', emailKey, since),
+    ip ? countLoginFailures(db, 'admin', ipKey, since) : Promise.resolve(0),
+  ]);
+  if (isLoginLocked(ef, iff)) return c.json({ error: LOGIN_LOCK_MESSAGE }, 429);
+
+  const code = String((body as { code?: string }).code ?? '').trim();
+  // Turnstile（有効時のみ）：第1要素（コード未入力＝初回）の送信で確認する
+  if (!code) {
+    const tsToken = String((body as { turnstileToken?: string }).turnstileToken ?? '');
+    if (!(await verifyTurnstile(c.env, tsToken, ip))) {
+      return c.json({ error: '自動操作の確認に失敗しました。画面を再読み込みしてお試しください。', turnstile: true }, 400);
+    }
+  }
+
+  const noteFail = async () => {
+    const t = nowJST();
+    await recordLoginFailure(db, 'admin', emailKey, t);
+    if (ip) await recordLoginFailure(db, 'admin', ipKey, t);
+  };
+
   const admin = await getAdminAuthByEmail(db, email);
-  if (!admin || !admin.is_active) return c.json({ error: 'メールまたはパスワードが違います' }, 401);
+  if (!admin || !admin.is_active) {
+    await noteFail();
+    return c.json({ error: 'メールまたはパスワードが違います' }, 401);
+  }
   if (!(await verifyPassword(password, admin.password_hash))) {
+    await noteFail();
     return c.json({ error: 'メールまたはパスワードが違います' }, 401);
   }
 
   // 二段階認証（2FA）が有効な管理者は、TOTPコード（またはリカバリコード）を要求する
   if (admin.totp_enabled && admin.totp_secret) {
-    const code = String((body as { code?: string }).code ?? '').trim();
-    if (!code) return c.json({ mfaRequired: true }, 401); // フロントはコード入力欄を表示
+    if (!code) return c.json({ mfaRequired: true }, 401); // フロントはコード入力欄を表示（失敗にはカウントしない）
     let ok = await verifyTotp(admin.totp_secret, code);
     if (!ok) {
       // リカバリコード（ワンタイム）を試す
@@ -236,8 +270,15 @@ app.post('/login', async (c) => {
         ok = true;
       }
     }
-    if (!ok) return c.json({ error: '認証コードが正しくありません', mfaRequired: true }, 401);
+    if (!ok) {
+      await noteFail();
+      return c.json({ error: '認証コードが正しくありません', mfaRequired: true }, 401);
+    }
   }
+
+  // 成功：このメール・IPの失敗記録をクリア
+  await clearLoginFailures(db, 'admin', emailKey);
+  if (ip) await clearLoginFailures(db, 'admin', ipKey);
 
   const now = nowJST();
   const token = generateToken();

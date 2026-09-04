@@ -23,15 +23,16 @@ export function buildCsp(embed: boolean): string {
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    // 外部スクリプト無し。インラインJS・onclick等を多用しているため 'unsafe-inline' は必要。
-    "script-src 'self' 'unsafe-inline'",
+    // 外部スクリプトは Cloudflare Turnstile（CAPTCHA）のみ許可。他はインライン（'unsafe-inline'）。
+    "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
     "style-src 'self' 'unsafe-inline'",
     // スペース画像は管理画面で外部URLを設定できるため https を許可。
     "img-src 'self' data: https:",
     "font-src 'self' data:",
-    // ブラウザからのfetchは同一オリジンの /api のみ（決済はサーバ側 or 画面遷移）。
-    "connect-src 'self'",
-    "frame-src 'self'",
+    // ブラウザからのfetchは同一オリジンの /api のみ（決済はサーバ側 or 画面遷移）。Turnstile検証は許可。
+    "connect-src 'self' https://challenges.cloudflare.com",
+    // Turnstile はウィジェットを iframe で表示する。
+    "frame-src 'self' https://challenges.cloudflare.com",
     "form-action 'self'",
     embed ? 'frame-ancestors *' : "frame-ancestors 'self'",
   ].join('; ');

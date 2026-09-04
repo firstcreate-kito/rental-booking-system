@@ -127,6 +127,8 @@
       <input id="a_code" inputmode="numeric" autocomplete="one-time-code" placeholder="認証アプリの6桁 / リカバリコード" onkeydown="if(event.key==='Enter')login()" />
       <div class="muted" style="font-size:12px">認証アプリ（Google Authenticator 等）の6桁コード、または保管したリカバリコードを入力してください。</div>
     </div>
+    <!-- Cloudflare Turnstile（有効時のみ表示） -->
+    <div id="ts_login" style="margin-top:10px"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end">
       <button class="btn" onclick="login()">ログイン</button>
     </div>
@@ -1167,6 +1169,38 @@ async function api(path, opts) {
 }
 const jsonBody = (obj, method) => ({ method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
 
+// --- Cloudflare Turnstile（CAPTCHA・有効時のみ） ---
+const TS = { enabled: false, siteKey: '', token: '', widgetId: null };
+async function initTurnstile() {
+  try {
+    const r = await fetch('/api/auth/turnstile-config');
+    const j = await r.json();
+    TS.enabled = !!j.enabled; TS.siteKey = j.siteKey || '';
+    if (!TS.enabled) return;
+    if (!window.turnstile) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        s.async = true; s.defer = true; s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+      });
+    }
+    renderTurnstile();
+  } catch (e) { /* 取得失敗時は無効扱い */ }
+}
+function renderTurnstile() {
+  if (!TS.enabled || !window.turnstile) return;
+  const el = document.getElementById('ts_login'); if (!el) return;
+  el.innerHTML = '';
+  TS.widgetId = window.turnstile.render(el, {
+    sitekey: TS.siteKey,
+    callback: (t) => { TS.token = t; },
+    'error-callback': () => { TS.token = ''; },
+    'expired-callback': () => { TS.token = ''; },
+  });
+}
+function resetTurnstile() { try { if (TS.widgetId != null && window.turnstile) window.turnstile.reset(TS.widgetId); } catch (e) {} TS.token = ''; }
+
 async function login() {
   const email = document.getElementById('a_email').value.trim();
   const password = document.getElementById('a_pass').value;
@@ -1174,8 +1208,11 @@ async function login() {
   const msg = document.getElementById('loginMsg');
   const payload = { email, password };
   if (code) payload.code = code;
+  if (TS.enabled && TS.token) payload.turnstileToken = TS.token;
   const { ok, body } = await api('/api/admin/login', jsonBody(payload));
   if (!ok) {
+    if (body.turnstile) { resetTurnstile(); msg.textContent = body.error || '確認に失敗しました。もう一度お試しください。'; return; }
+    if (TS.enabled) resetTurnstile(); // トークンは使い切りのため再取得
     if (body.mfaRequired) {
       // 2FA有効：コード入力欄を表示して再送信を促す
       document.getElementById('mfaRow').classList.remove('hidden');
@@ -3510,6 +3547,7 @@ async function initAuth() {
     document.getElementById('setupView').classList.remove('hidden');
   } else {
     document.getElementById('loginView').classList.remove('hidden');
+    initTurnstile(); // ログイン画面表示時に Turnstile（有効時のみ）を用意
   }
 }
 // スマホ縦組み表示（table.resp）用：各行のセルに列見出しを data-label として自動付与。

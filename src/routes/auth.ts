@@ -15,6 +15,9 @@ import {
   getLoginChallengeByEmailCode,
   getRecentCodeAttempts,
   incrementCodeAttempts,
+  countLoginFailures,
+  recordLoginFailure,
+  clearLoginFailures,
   markLoginChallengeUsed,
   ensureCustomerByEmail,
 } from '../db/repository';
@@ -24,6 +27,14 @@ import { sendEmail, passwordResetEmail, welcomeEmail, magicLinkEmail, loginCodeE
 import { googleConfigured, buildGoogleAuthUrl, exchangeGoogleCode } from '../lib/google-oauth';
 import { lineConfigured, buildLineAuthUrl, exchangeLineCode } from '../lib/line-oauth';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
+import { LOGIN_WINDOW_MIN, isLoginLocked, LOGIN_LOCK_MESSAGE } from '../lib/login-throttle';
+import { turnstileEnabled, turnstileSiteKey } from '../lib/turnstile';
+
+/** GET /api/auth/turnstile-config Turnstile（CAPTCHA）の有効状態と公開サイトキー（フロント表示用・認証不要） */
+const _turnstileConfig = (c: { env: { TURNSTILE_SECRET_KEY?: string; TURNSTILE_SITE_KEY?: string } }) => ({
+  enabled: turnstileEnabled(c.env) && !!turnstileSiteKey(c.env),
+  siteKey: turnstileSiteKey(c.env),
+});
 
 /** 6桁のワンタイムコードを生成（暗号的乱数）。 */
 function sixDigitCode(): string {
@@ -50,6 +61,9 @@ const app = new Hono<AppBindings>();
 
 const BLACKLIST_MESSAGE = '申し訳ございませんが、ご登録をお受けすることができません。';
 const MIN_PASSWORD = 8;
+
+/** GET /api/auth/turnstile-config Turnstile（CAPTCHA）の有効状態と公開サイトキー（フロント表示用・認証不要） */
+app.get('/turnstile-config', (c) => c.json(_turnstileConfig(c)));
 
 /** POST /api/auth/register 会員登録（ゲスト昇格対応） */
 app.post('/register', async (c) => {
@@ -122,12 +136,34 @@ app.post('/login', async (c) => {
   }
   if (!body.email || !body.password) return c.json({ error: 'メールとパスワードは必須です' }, 400);
 
+  // レート制限（総当たり対策）：メール・IP単位で失敗回数を数え、上限超過ならロック
+  const ip = c.req.header('CF-Connecting-IP') || '';
+  const emailKey = 'email:' + body.email.trim().toLowerCase();
+  const ipKey = 'ip:' + ip;
+  const since = nowJST(Date.now() - LOGIN_WINDOW_MIN * 60_000);
+  const [ef, iff] = await Promise.all([
+    countLoginFailures(db, 'customer', emailKey, since),
+    ip ? countLoginFailures(db, 'customer', ipKey, since) : Promise.resolve(0),
+  ]);
+  if (isLoginLocked(ef, iff)) return c.json({ error: LOGIN_LOCK_MESSAGE }, 429);
+  const noteFail = async () => {
+    const t = nowJST();
+    await recordLoginFailure(db, 'customer', emailKey, t);
+    if (ip) await recordLoginFailure(db, 'customer', ipKey, t);
+  };
+
   const cust = await getCustomerAuthByEmail(db, body.email);
-  if (!cust || !cust.password_hash) return c.json({ error: 'メールまたはパスワードが違います' }, 401);
-  if (cust.is_blocked) return c.json({ error: 'このアカウントはご利用いただけません' }, 403);
-  if (!(await verifyPassword(body.password, cust.password_hash))) {
+  if (!cust || !cust.password_hash) {
+    await noteFail();
     return c.json({ error: 'メールまたはパスワードが違います' }, 401);
   }
+  if (cust.is_blocked) return c.json({ error: 'このアカウントはご利用いただけません' }, 403);
+  if (!(await verifyPassword(body.password, cust.password_hash))) {
+    await noteFail();
+    return c.json({ error: 'メールまたはパスワードが違います' }, 401);
+  }
+  await clearLoginFailures(db, 'customer', emailKey);
+  if (ip) await clearLoginFailures(db, 'customer', ipKey);
 
   const now = nowJST();
   const token = generateToken();

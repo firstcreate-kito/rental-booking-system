@@ -11,10 +11,13 @@ describe('buildCsp（Content-Security-Policy 生成）', () => {
     const csp = buildCsp(true);
     expect(csp).toContain('frame-ancestors *');
   });
-  it('外部スクリプトを許可しない（script-src は self と unsafe-inline のみ）', () => {
+  it('script-src は self・unsafe-inline・Turnstile のみ（他の外部スクリプトは不許可）', () => {
     const csp = buildCsp(false);
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
-    expect(csp).not.toMatch(/script-src[^;]*https?:\/\//);
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com");
+    // Turnstile 以外の https オリジンを script-src に含めない
+    const scriptSrc = csp.split(';').find((d) => d.trim().startsWith('script-src')) || '';
+    const externals = scriptSrc.match(/https?:\/\/[^\s]+/g) || [];
+    expect(externals).toEqual(['https://challenges.cloudflare.com']);
   });
   it('object-src none / base-uri self を含む', () => {
     const csp = buildCsp(false);

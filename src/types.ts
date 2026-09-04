@@ -49,6 +49,9 @@ export interface Env {
   /** LINEログイン（LINE Login v2.1 / OIDC）。CHANNEL_ID と CHANNEL_SECRET 両方セット時のみ有効（#91） */
   LINE_CHANNEL_ID?: string;
   LINE_CHANNEL_SECRET?: string;
+  /** Cloudflare Turnstile（CAPTCHA）。SECRET設定時のみ検証を強制、SITE_KEYはフロント表示用（公開値）。 */
+  TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_SITE_KEY?: string;
   /**
    * データ保持ポリシー（#57）: 'true' のときのみ、7年経過した顧客の個人情報を
    * 実際に匿名化する。未設定・それ以外は「ドライラン」（対象件数のログのみ・変更しない）。

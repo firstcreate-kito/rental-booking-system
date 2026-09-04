@@ -125,7 +125,7 @@
     <div id="mfaRow" class="hidden" style="margin-top:6px">
       <label>認証コード（6桁）</label>
       <input id="a_code" inputmode="numeric" autocomplete="one-time-code" placeholder="認証アプリの6桁 / リカバリコード" onkeydown="if(event.key==='Enter')login()" />
-      <div class="muted" style="font-size:12px">認証アプリ（Google Authenticator 等）の6桁コード、または保管したリカバリコードを入力してください。</div>
+      <div class="muted" style="font-size:12px">認証アプリ（<strong>1Password 推奨</strong>／Google Authenticator 等）の6桁コード、または保管したリカバリコードを入力してください。</div>
     </div>
     <!-- Cloudflare Turnstile（有効時のみ表示） -->
     <div id="ts_login" style="margin-top:10px"></div>
@@ -139,7 +139,7 @@
   <div id="mfaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;z-index:1000">
     <div class="card" style="max-width:520px;width:92%;max-height:90vh;overflow:auto">
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">🔒 二段階認証（2FA）</h2><button class="btn ghost sm" onclick="close2fa()">閉じる</button></div>
-      <div class="muted" style="font-size:12px;margin:6px 0">管理画面は全顧客の個人情報にアクセスできるため、ログインの2段階認証を強く推奨します。認証アプリ（Google Authenticator／Authy／1Password 等）が必要です。</div>
+      <div class="muted" style="font-size:12px;margin:6px 0">管理画面は全顧客の個人情報にアクセスできるため、ログインの2段階認証を強く推奨します。認証アプリは <strong>1Password を推奨</strong>します（Google Authenticator／Authy 等も利用可）。1Password なら「ワンタイムパスワード」項目に下のキーを登録すると、以降ログイン時に6桁を自動入力できます。</div>
 
       <!-- 状態表示 -->
       <div id="mfaStatus" style="margin:8px 0"></div>
@@ -147,12 +147,12 @@
       <!-- 設定フロー -->
       <div id="mfaSetup" class="hidden" style="margin-top:8px">
         <ol style="padding-left:18px;font-size:13px;line-height:1.7">
-          <li>認証アプリで下のキー（またはリンク）を登録します。</li>
+          <li>認証アプリ（<strong>1Password 推奨</strong>）で下のキー（またはリンク）を登録します。1Password は「新規項目 → ワンタイムパスワード」にキーを貼り付け。</li>
           <li>アプリに表示された<strong>6桁コード</strong>を入力して「有効化」を押します。</li>
         </ol>
         <label>セットアップキー（手動入力用）</label>
         <input id="mfa_secret" readonly style="font-family:monospace;background:#f1f3f9" />
-        <div style="margin:6px 0"><a id="mfa_link" href="#" style="font-size:13px">▶ 認証アプリで開く（対応アプリのみ）</a></div>
+        <div style="margin:6px 0"><a id="mfa_link" href="#" style="font-size:13px">▶ 認証アプリで開く（1Password 等・端末の既定アプリが起動）</a></div>
         <label>アプリに表示された6桁コード</label>
         <input id="mfa_code" inputmode="numeric" placeholder="123456" />
         <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="enable2fa()">有効化</button></div>
@@ -1217,7 +1217,7 @@ async function login() {
       // 2FA有効：コード入力欄を表示して再送信を促す
       document.getElementById('mfaRow').classList.remove('hidden');
       const ac = document.getElementById('a_code');
-      msg.textContent = code ? (body.error || '認証コードが正しくありません') : '認証アプリの6桁コードを入力してください。';
+      msg.textContent = code ? (body.error || '認証コードが正しくありません') : '認証アプリ（1Password 等）の6桁コードを入力してください。';
       ac.focus();
       return;
     }

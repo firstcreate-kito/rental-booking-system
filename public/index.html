@@ -56,6 +56,13 @@
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   .btn.ghost { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
   .btn.sm { padding: 6px 10px; font-size: 13px; }
+  /* 保有チケットのチップ＋「このチケットを使う」ボタン（#82 UX改善） */
+  .tkchip { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; border:1px solid #bfe3c8; background:#eefaf1; border-radius:8px; margin-bottom:6px; flex-wrap:wrap; }
+  .tkchip.on { border-color:#0a7d33; background:#dcfce7; box-shadow:0 0 0 2px rgba(10,125,51,.18); }
+  .tkchip-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .tkchip-name { color:#0a7d33; font-weight:700; font-size:13px; }
+  .btn.tkuse { background:#0a7d33; white-space:nowrap; }
+  .btn.tkuse.on { background:#fff; color:#0a7d33; border:1px solid #0a7d33; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
   /* ===== 予約カレンダー（サイト提供の見本デザインを適用・2か月表示#79維持） ===== */
@@ -370,7 +377,7 @@
         <div id="ticketRow" class="hidden">
           <!-- 保有チケットごとの残量（静的表示）。番号は下の選択肢と一致（#82） -->
           <div id="ticketBalances" style="margin-bottom:8px"></div>
-          <label>チケット（回数券）利用</label>
+          <label>チケット（回数券）利用（上のボタン、または下の一覧から選べます）</label>
           <select id="d_ticket" onchange="onTicketChange()"><option value="">使わない</option></select>
         </div>
         <div id="ticketBuyPrompt" class="hidden" style="margin:6px 0;padding:10px;border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;font-size:13px"></div>
@@ -1910,10 +1917,10 @@ async function toggleFavorite() {
   else if (ok) { if (on) S.favorites.delete(S.space.id); else S.favorites.add(S.space.id); }
   renderFavBtn();
 }
-function clearTicketSel() { const t = document.getElementById('d_ticket'); if (t) t.value = ''; }
+function clearTicketSel() { const t = document.getElementById('d_ticket'); if (t) t.value = ''; syncTicketChips(); }
 function onCouponInput() { if (document.getElementById('d_coupon').value.trim()) { document.getElementById('d_points').value = ''; clearTicketSel(); } recomputeSummary(); }
 function onPointsInput() { if (Number(document.getElementById('d_points').value) > 0) { document.getElementById('d_coupon').value = ''; clearTicketSel(); } recomputeSummary(); }
-function onTicketChange() { if (document.getElementById('d_ticket').value) { document.getElementById('d_coupon').value = ''; document.getElementById('d_points').value = ''; } recomputeSummary(); }
+function onTicketChange() { if (document.getElementById('d_ticket').value) { document.getElementById('d_coupon').value = ''; document.getElementById('d_points').value = ''; } syncTicketChips(); recomputeSummary(); }
 // 選択中スペースで使えるチケットを読み込み（会員のみ）
 async function loadUsableTickets() {
   const row = document.getElementById('ticketRow'), sel = document.getElementById('d_ticket');
@@ -1940,17 +1947,38 @@ async function loadUsableTickets() {
   const tno = (i) => CIRCLED[i] || ('(' + (i + 1) + ')');
   // 残量の静的一覧
   if (bal) {
-    bal.innerHTML = '<div class="muted" style="font-size:12px;margin-bottom:4px">保有チケットの残り時間</div>' +
+    bal.innerHTML = '<div class="muted" style="font-size:12px;margin-bottom:4px">保有チケット（「このチケットを使う」を押すとご利用金額に充当されます）</div>' +
       rows.map((t, i) =>
-        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid #bfe3c8;background:#eefaf1;border-radius:8px;margin-bottom:6px">' +
-          '<span style="color:#0a7d33;font-weight:700;font-size:13px">🎫 チケット' + tno(i) + '　残り ' + t.remaining_hours + '時間</span>' +
-          '<span class="muted" style="font-size:12px;white-space:nowrap">〜' + t.valid_until + '</span>' +
+        '<div class="tkchip" data-tid="' + t.id + '">' +
+          '<div class="tkchip-info">' +
+            '<span class="tkchip-name">🎫 チケット' + tno(i) + '　残り ' + t.remaining_hours + '時間</span>' +
+            '<span class="muted" style="font-size:12px;white-space:nowrap">〜' + t.valid_until + '</span>' +
+          '</div>' +
+          '<button type="button" class="btn sm tkuse" onclick="toggleTicket(\'' + t.id + '\')">このチケットを使う</button>' +
         '</div>').join('');
   }
-  // 選択肢（番号を先頭に付けて一覧と対応づけ）
+  // 選択肢（番号を先頭に付けて一覧と対応づけ）※ボタンと同期して選択できる
   sel.innerHTML = '<option value="">使わない</option>' + rows.map((t, i) =>
     '<option value="' + t.id + '">チケット' + tno(i) + '：' + t.name + '（残' + t.remaining_hours + 'h・〜' + t.valid_until + '）</option>').join('');
   row.classList.remove('hidden');
+  syncTicketChips();
+}
+// チケットチップの「このチケットを使う」→ ドロップダウンと同期してトグル選択
+function toggleTicket(id) {
+  const sel = document.getElementById('d_ticket');
+  if (!sel) return;
+  sel.value = (sel.value === id) ? '' : id; // 同じチケットを再度押すと解除
+  onTicketChange();
+}
+// 現在の選択（d_ticket）をチップの見た目に反映（選択中は緑ハイライト＋ボタン文言を切替）
+function syncTicketChips() {
+  const cur = (document.getElementById('d_ticket') || {}).value || '';
+  document.querySelectorAll('.tkchip').forEach(el => {
+    const on = cur !== '' && el.getAttribute('data-tid') === cur;
+    el.classList.toggle('on', on);
+    const b = el.querySelector('.tkuse');
+    if (b) { b.classList.toggle('on', on); b.textContent = on ? '✓ 利用中（やめる）' : 'このチケットを使う'; }
+  });
 }
 // 販売中チケットのご案内（追加購入導線）を組み立て
 function ticketCatalogHtml() {

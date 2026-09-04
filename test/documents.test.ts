@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taxBreakdown, renderDocumentHtml, pickRecipientName, type DocumentData } from '../src/lib/documents';
+import { taxBreakdown, renderDocumentHtml, pickRecipientName, pickRecipientHonorific, looksLikeOrganizationName, type DocumentData } from '../src/lib/documents';
 
 describe('pickRecipientName（宛名の優先順・#41 A案）', () => {
   it('請求書宛名があれば最優先', () => {
@@ -19,6 +19,57 @@ describe('pickRecipientName（宛名の優先順・#41 A案）', () => {
   });
   it('前後の空白はトリムする', () => {
     expect(pickRecipientName('  ', '  株式会社サンプル  ', '山田 太郎')).toBe('株式会社サンプル');
+  });
+});
+
+describe('pickRecipientHonorific（敬称の出し分け）', () => {
+  it('お名前のみ（個人）は「様」', () => {
+    expect(pickRecipientHonorific('', '', '山田 太郎')).toBe('様');
+    expect(pickRecipientHonorific(null, null, '山田 太郎')).toBe('様');
+  });
+  it('会社名は「御中」', () => {
+    expect(pickRecipientHonorific('', '株式会社サンプル', '山田 太郎')).toBe('御中');
+  });
+  it('宛名指定：会社を示す語を含めば「御中」', () => {
+    expect(pickRecipientHonorific('株式会社ALBE', '', '')).toBe('御中');
+    expect(pickRecipientHonorific('山田商店', '', '山田 太郎')).toBe('御中');
+  });
+  it('宛名指定：個人名なら「様」', () => {
+    expect(pickRecipientHonorific('山田 太郎', '', '')).toBe('様');
+    expect(pickRecipientHonorific('山田 太郎', '株式会社サンプル', '鈴木')).toBe('様'); // 宛名指定が最優先
+  });
+  it('どれも無い（お客様）は敬称なし', () => {
+    expect(pickRecipientHonorific('', '', '')).toBe('');
+  });
+  it('looksLikeOrganizationName の判定', () => {
+    expect(looksLikeOrganizationName('株式会社ALBE')).toBe(true);
+    expect(looksLikeOrganizationName('有限会社サンプル')).toBe(true);
+    expect(looksLikeOrganizationName('山田商店')).toBe(true);
+    expect(looksLikeOrganizationName('ALBE Inc.')).toBe(true);
+    expect(looksLikeOrganizationName('山田 太郎')).toBe(false);
+    expect(looksLikeOrganizationName('田中花子')).toBe(false);
+  });
+});
+
+describe('renderDocumentHtml 敬称', () => {
+  it('個人（recipientHonorific=様）は「様」で表示', () => {
+    const html = renderDocumentHtml({ ...base, recipientName: '山田 太郎', recipientHonorific: '様' });
+    expect(html).toContain('山田 太郎 様');
+    expect(html).not.toContain('山田 太郎 御中');
+  });
+  it('会社（recipientHonorific=御中）は「御中」で表示', () => {
+    const html = renderDocumentHtml({ ...base, recipientName: '株式会社サンプル', recipientHonorific: '御中' });
+    expect(html).toContain('株式会社サンプル 御中');
+  });
+  it('お客様（recipientHonorific=空）は敬称を付けない', () => {
+    const html = renderDocumentHtml({ ...base, recipientName: 'お客様', recipientHonorific: '' });
+    expect(html).toContain('お客様');
+    expect(html).not.toContain('お客様 御中');
+    expect(html).not.toContain('お客様 様');
+  });
+  it('recipientHonorific 未指定は従来どおり「御中」（後方互換）', () => {
+    const html = renderDocumentHtml({ ...base, recipientName: '株式会社サンプル' });
+    expect(html).toContain('株式会社サンプル 御中');
   });
 });
 

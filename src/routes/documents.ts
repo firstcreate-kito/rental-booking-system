@@ -6,7 +6,7 @@ import {
   getCustomerProfile,
   getIssuerInfo,
 } from '../db/repository';
-import { renderDocumentHtml, pickRecipientName, type DocumentData } from '../lib/documents';
+import { renderDocumentHtml, pickRecipientName, pickRecipientHonorific, type DocumentData } from '../lib/documents';
 import { sendEmail, documentEmail } from '../lib/email';
 
 const app = new Hono<AppBindings>();
@@ -49,6 +49,8 @@ app.get('/:token', async (c) => {
   const cust = customer as { company_name?: string; contact_name?: string } | null;
   // 宛名：請求書名（指定時）> 会社名 > 申込者の個人名 の順（#41・A案）
   const recipientName = pickRecipientName(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
+  // 敬称：会社→御中／個人（お名前のみ）→様（宛名指定は会社を示す語があれば御中）
+  const recipientHonorific = pickRecipientHonorific(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
 
   const data: DocumentData = {
     type: doc.type,
@@ -56,6 +58,7 @@ app.get('/:token', async (c) => {
     issuedDate: (doc.issued_at || '').slice(0, 10),
     bookingNumber: doc.booking_number,
     recipientName,
+    recipientHonorific,
     spaceName: summary?.spaceName || '',
     eventName: summary?.eventName || '',
     items: summary?.items || [],

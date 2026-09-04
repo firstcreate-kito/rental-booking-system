@@ -26,6 +26,35 @@ export function pickRecipientName(
   );
 }
 
+/** 宛名が「法人・団体名」らしいか（会社を示す語を含むか）を判定する。 */
+export function looksLikeOrganizationName(name: string): boolean {
+  const n = (name || '').trim();
+  if (!n) return false;
+  // 日本語の法人格・団体を示す語、英語の会社略語
+  return /(株式会社|有限会社|合同会社|合資会社|合名会社|（株）|\(株\)|（有）|\(有\)|㈱|㈲|法人|会社|商店|商会|工房|事務所|店$|組合|協会|財団|社団|学校|学園|病院|医院|クリニック|銀行|工業|産業|製作所|Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC|K\.K\.)/i.test(n);
+}
+
+/**
+ * 領収書・請求書の宛名に付ける敬称を決める。
+ * ① 宛名指定（invoice_name）… 会社を示す語を含めば「御中」、なければ個人とみなし「様」
+ * ② 会社名（company_name）… 「御中」
+ * ③ お名前（contact_name）… 個人なので「様」
+ * ④ どれも無い（「お客様」）… 敬称なし（'')
+ */
+export function pickRecipientHonorific(
+  invoiceName?: string | null,
+  companyName?: string | null,
+  contactName?: string | null,
+): '御中' | '様' | '' {
+  const inv = (invoiceName || '').trim();
+  const comp = (companyName || '').trim();
+  const name = (contactName || '').trim();
+  if (inv) return looksLikeOrganizationName(inv) ? '御中' : '様';
+  if (comp) return '御中';
+  if (name) return '様';
+  return '';
+}
+
 export interface IssuerInfo {
   name: string; // 事業者名（会社名）
   zip?: string; // 郵便番号
@@ -49,6 +78,7 @@ export interface DocumentData {
   issuedDate: string; // 発行日 YYYY-MM-DD
   bookingNumber: string;
   recipientName: string; // 宛名
+  recipientHonorific?: '御中' | '様' | ''; // 敬称（会社→御中／個人→様／未設定は御中で後方互換）
   spaceName: string;
   eventName: string;
   items: DocumentItem[];
@@ -227,7 +257,7 @@ export function renderDocumentHtml(d: DocumentData): string {
     )}</div>
     <div class="head">
       <div class="recipient">
-        <span class="to">${esc(d.recipientName)} 御中</span>
+        <span class="to">${esc(d.recipientName)}${d.recipientHonorific === undefined ? ' 御中' : d.recipientHonorific ? ' ' + d.recipientHonorific : ''}</span>
         <div class="sub">件名：${esc(d.eventName) || '—'}</div>
       </div>
       <div class="issuer">

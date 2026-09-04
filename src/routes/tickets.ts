@@ -9,6 +9,7 @@ import {
   fulfillTicketPurchase,
 } from '../db/repository';
 import { stripeConfigured, createCheckoutSession, retrieveCheckoutSession } from '../lib/stripe';
+import { paypalConfigured, createPaypalOrder, capturePaypalOrder } from '../lib/paypal';
 import { notifyTicketPurchased } from '../lib/notify';
 import { nowJST, todayJST, addDaysJST } from '../lib/clock';
 
@@ -17,7 +18,8 @@ const app = new Hono<AppBindings>();
 /** GET /api/tickets/products 販売中のチケット商品一覧（公開） */
 app.get('/products', async (c) => {
   const products = await getTicketProducts(c.env.DB, true);
-  return c.json({ products, paymentEnabled: stripeConfigured(c.env) });
+  // paymentEnabled=カード(Stripe)／paypalEnabled=PayPal（それぞれ設定済みのときだけ購入導線を出す）
+  return c.json({ products, paymentEnabled: stripeConfigured(c.env), paypalEnabled: paypalConfigured(c.env) });
 });
 
 /** POST /api/tickets/checkout Stripe Checkout セッションを作成（会員のみ） body:{productId} */
@@ -65,6 +67,83 @@ app.post('/checkout', requireAuth, async (c) => {
   );
 
   return c.json({ url: session.url });
+});
+
+/** POST /api/tickets/paypal/create PayPal注文を作成（会員のみ）body:{productId} → 承認URLを返す */
+app.post('/paypal/create', requireAuth, async (c) => {
+  if (!paypalConfigured(c.env)) {
+    return c.json({ error: 'PayPal決済は現在ご利用いただけません。お問い合わせください。' }, 503);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const productId = String((body as Record<string, unknown>).productId ?? '').trim();
+  if (!productId) return c.json({ error: 'productId は必須です' }, 400);
+  const product = (await getTicketProduct(c.env.DB, productId)) as
+    | { id: string; name: string; price: number; is_active: number }
+    | null;
+  if (!product || !product.is_active) return c.json({ error: '販売中のチケットが見つかりません' }, 404);
+
+  const customer = c.get('customer');
+  const purchaseId = crypto.randomUUID();
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+
+  let order;
+  try {
+    order = await createPaypalOrder(c.env, {
+      amountJpy: product.price,
+      referenceId: purchaseId,
+      invoiceId: purchaseId,
+      returnUrl: `${origin}/tickets.html?provider=paypal`,
+      cancelUrl: `${origin}/tickets.html?status=cancel`,
+      brandName: 'レンタルスペースALBE',
+    });
+  } catch (err) {
+    return c.json({ error: 'PayPal注文の作成に失敗しました：' + (err as Error).message }, 502);
+  }
+
+  // PayPalの注文IDを冪等キー（stripe_session_id 列）として保存。発行処理はプロバイダ非依存。
+  await createPendingPurchase(
+    c.env.DB,
+    { id: purchaseId, customerId: customer.id, productId: product.id, amount: product.price, sessionId: order.orderId },
+    nowJST(),
+  );
+
+  return c.json({ url: order.approveUrl });
+});
+
+/**
+ * POST /api/tickets/paypal/capture PayPal承認後の戻りから呼ばれ、注文をキャプチャしてチケットを発行（冪等）。
+ * body:{orderId}。注文IDで購入を照合するため未ログインでも成立（発行先は購入作成時の会員に固定）。
+ */
+app.post('/paypal/capture', async (c) => {
+  if (!paypalConfigured(c.env)) return c.json({ error: 'paypal not configured' }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const orderId = String((body as Record<string, unknown>).orderId ?? '').trim();
+  if (!orderId) return c.json({ error: 'orderId は必須です' }, 400);
+
+  let p = await getPurchaseBySession(c.env.DB, orderId);
+  if (!p) return c.json({ status: 'unknown' });
+  if (p.status === 'paid') return c.json({ status: 'paid', ticketId: p.ticket_id });
+
+  try {
+    const cap = await capturePaypalOrder(c.env, orderId);
+    if (!cap.completed) return c.json({ status: cap.status.toLowerCase() });
+    const result = await fulfillTicketPurchase(c.env.DB, orderId, nowJST(), todayJST(), addDaysJST);
+    // 新規発行できたときだけ購入完了メールを送る（冪等：already のときは送らない）
+    if (result.ok && !result.already && result.customerId && result.productName) {
+      const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+      c.executionCtx.waitUntil(
+        notifyTicketPurchased(
+          c.env,
+          { customerId: result.customerId, productName: result.productName, totalHours: result.totalHours, validUntil: result.validUntil, amount: result.amount },
+          origin,
+        ).catch(() => {}),
+      );
+    }
+    p = (await getPurchaseBySession(c.env.DB, orderId)) || p;
+    return c.json({ status: p.status, ticketId: p.ticket_id });
+  } catch (err) {
+    return c.json({ error: '決済の確定に失敗しました：' + (err as Error).message }, 502);
+  }
 });
 
 /**

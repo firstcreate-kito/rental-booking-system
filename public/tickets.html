@@ -47,6 +47,8 @@
   .prod .thumb-ph { display:flex; align-items:center; justify-content:center; font-size:26px; color:#9aa7b5; }
   .prod .pinfo { flex:1 1 220px; min-width:0; }
   .prod .name { font-weight:600; }
+  /* お得訴求（例：＜10時間分の料金で12時間使える＞）。目立つ色で強調 */
+  .prod .promo { margin-top:5px; color:#e8590c; font-weight:800; font-size:13.5px; letter-spacing:.01em; }
   .prod .price { font-size:20px; font-weight:700; color:var(--brand); }
   .prod .callinks { margin-top:6px; display:flex; flex-direction:column; align-items:flex-start; gap:6px; max-width:100%; }
   .prod .callink { font-size:12px; color:var(--brand); text-decoration:none; border:1px solid var(--brand); border-radius:6px; padding:3px 8px; max-width:100%; white-space:normal; word-break:break-word; }
@@ -277,8 +279,13 @@ async function loadProducts() {
       const thumb = imgSpace
         ? '<img class="thumb" src="' + T.spaceImg[imgSpace] + '" alt="" loading="lazy" onerror="imgErr(this)">'
         : '<div class="thumb thumb-ph">🎟️</div>';
+      // お得訴求：時間数ごとに「◯時間分の料金で◯時間使える」（対応表・該当時のみ表示）
+      const paidMap = { 6: 5, 12: 10, 19: 15, 26: 20 };
+      const paid = paidMap[p.total_hours];
+      const promo = paid ? '<div class="promo">＜' + paid + '時間分の料金で' + p.total_hours + '時間使える＞</div>' : '';
       html += '<div class="prod">' + thumb + '<div class="pinfo"><div class="name">' + p.name + '</div>' +
         '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div>' +
+        promo +
         (calLinks ? '<div class="callinks">' + calLinks + '</div>' : '') + '</div>' +
         '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' + btn + '</div></div>';
     });

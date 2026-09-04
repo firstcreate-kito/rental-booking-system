@@ -135,8 +135,8 @@
     <div class="msg bad" id="loginMsg"></div>
   </section>
 
-  <!-- 二段階認証（2FA）設定モーダル -->
-  <div id="mfaModal" class="modal-back hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000">
+  <!-- 二段階認証（2FA）設定モーダル（表示は style.display で制御：既定は none） -->
+  <div id="mfaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;z-index:1000">
     <div class="card" style="max-width:520px;width:92%;max-height:90vh;overflow:auto">
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">🔒 二段階認証（2FA）</h2><button class="btn ghost sm" onclick="close2fa()">閉じる</button></div>
       <div class="muted" style="font-size:12px;margin:6px 0">管理画面は全顧客の個人情報にアクセスできるため、ログインの2段階認証を強く推奨します。認証アプリ（Google Authenticator／Authy／1Password 等）が必要です。</div>
@@ -1240,9 +1240,9 @@ async function login() {
 }
 
 // --- 二段階認証（2FA）設定モーダル ---
-function close2fa() { document.getElementById('mfaModal').classList.add('hidden'); }
+function close2fa() { document.getElementById('mfaModal').style.display = 'none'; }
 async function open2fa() {
-  document.getElementById('mfaModal').classList.remove('hidden');
+  document.getElementById('mfaModal').style.display = 'flex';
   document.getElementById('mfaMsg').textContent = '';
   document.getElementById('mfaSetup').classList.add('hidden');
   document.getElementById('mfaDisable').classList.add('hidden');

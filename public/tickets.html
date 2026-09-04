@@ -89,6 +89,7 @@
   <section id="loginView" class="card" style="max-width:420px;margin:40px auto">
     <h2>ログイン</h2>
     <div class="muted">チケットのご購入には会員ログインが必要です。</div>
+    <div id="loginNote" class="msg" style="color:var(--brand)"></div>
     <label>メールアドレス</label><input id="l_email" type="email" />
     <label>パスワード</label><input id="l_pass" type="password" onkeydown="if(event.key==='Enter')login()" />
     <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
@@ -124,10 +125,10 @@
 
   <!-- 商品一覧 -->
   <section id="shopView" class="card hidden">
-    <div class="row"><h2 style="margin:0">チケット（回数券）を購入する</h2>
-      <a href="mypage.html" class="btn ghost sm">マイページへ</a>
+    <div class="row"><h2 style="margin:0">チケット（回数券）ラインナップ</h2>
+      <a href="mypage.html" id="myLink" class="btn ghost sm hidden">マイページへ</a>
     </div>
-    <div class="muted" style="margin:6px 0 12px">利用可能時間分を対象スペースのご利用料金に充当できます。ご購入後はマイページ「チケット」でご確認いただけます。決済はクレジットカード（Stripe の安全な決済ページ）で行います。</div>
+    <div class="muted" style="margin:6px 0 12px">利用可能時間分を対象スペースのご利用料金に充当できます。ご購入後はマイページ「チケット」でご確認いただけます。決済はクレジットカード（Stripe の安全な決済ページ）で行います。<br><span id="guestBuyNote">ご購入には会員ログインが必要です。「購入する」を押すとログイン画面へご案内します。</span></div>
     <div id="payDisabled" class="banner warn hidden">現在オンライン決済（カード）は準備中です。下の「テスト購入」で購入〜マイページ反映〜消化の流れをご確認いただけます（決済は発生しません）。</div>
     <div id="prodList"></div>
     <div class="muted" id="prodEmpty"></div>
@@ -183,7 +184,34 @@ function enterShop() {
   document.getElementById('who').textContent = (T.member && (T.member.contactName || T.member.email) || '') + ' さん';
   document.getElementById('loginView').classList.add('hidden');
   document.getElementById('shopView').classList.remove('hidden');
+  const my = document.getElementById('myLink'); if (my) my.classList.remove('hidden');
+  const gn = document.getElementById('guestBuyNote'); if (gn) gn.classList.add('hidden');
+  loadProducts().then(resumeAfterLogin);
+}
+// 未ログインでも商品ラインナップを表示する（「購入する」はログインへ誘導）
+function showLineupGuest() {
+  document.getElementById('shopView').classList.remove('hidden');
+  const my = document.getElementById('myLink'); if (my) my.classList.add('hidden');
+  const gn = document.getElementById('guestBuyNote'); if (gn) gn.classList.remove('hidden');
   loadProducts();
+}
+// 「購入する」（未ログイン時）→ ログインへ誘導。ログイン後に選んだチケットへ戻れるよう記憶。
+function promptLogin(productId) {
+  try { sessionStorage.setItem('albe_ticket_want', productId || ''); } catch (e) {}
+  const lv = document.getElementById('loginView');
+  lv.classList.remove('hidden');
+  const note = document.getElementById('loginNote');
+  if (note) note.textContent = 'ご購入には会員ログインが必要です。ログイン後、そのままご購入に進めます。';
+  lv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const em = document.getElementById('l_email'); if (em) em.focus();
+}
+// ログイン直後：直前に選んだチケットがあれば、その商品まで案内する
+function resumeAfterLogin() {
+  let want = null;
+  try { want = sessionStorage.getItem('albe_ticket_want'); sessionStorage.removeItem('albe_ticket_want'); } catch (e) {}
+  if (!want) return;
+  const list = document.getElementById('prodList');
+  if (list) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function restoreSession() {
   // サイト共通の会員セッション（localStorage・無操作30日のスライディング）を使う。
@@ -227,9 +255,12 @@ async function loadProducts() {
   Object.keys(groups).forEach(gname => {
     html += '<h3>' + gname + '</h3>';
     groups[gname].forEach(p => {
-      const btn = T.paymentEnabled
-        ? '<button class="btn sm" onclick="buy(\'' + p.id + '\',this)">購入する</button>'
-        : '<button class="btn sm ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button>';
+      // 未ログインでも商品ラインナップは表示し、「購入する」でログインへ誘導する。
+      const btn = !T.member
+        ? '<button class="btn sm" onclick="promptLogin(\'' + p.id + '\')">購入する</button>'
+        : (T.paymentEnabled
+          ? '<button class="btn sm" onclick="buy(\'' + p.id + '\',this)">購入する</button>'
+          : '<button class="btn sm ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button>');
       // 対象スペースの予約カレンダーへの導線（#36）
       const calLinks = (p.space_ids || []).map(id =>
         '<a class="callink" href="index.html?space=' + encodeURIComponent(id) + '">📅 ' + (T.spaces[id] || id) + 'の予約カレンダー</a>'
@@ -378,10 +409,20 @@ function showLoginErrorIfPresent() {
 }
 
 (async function init() {
+  // 商品ラインナップ（shopView）をログイン欄より先に見せる（未ログインでも何が買えるか分かるように）
+  try {
+    const main = document.querySelector('main');
+    const shop = document.getElementById('shopView');
+    const login = document.getElementById('loginView');
+    if (main && shop && login) main.insertBefore(shop, login);
+  } catch (e) {}
   loadProviders();
   showLoginErrorIfPresent();
   const magicOk = await consumeMagicIfPresent(); // メールリンク／OAuthからの戻り
-  if (!magicOk) await restoreSession();
+  if (!magicOk) {
+    const restored = await restoreSession();
+    if (!restored) showLineupGuest(); // 未ログイン → ラインナップを表示（購入はログインへ誘導）
+  }
   await handleReturn(); // ログイン済みなら購入結果を反映
 })();
 </script>

@@ -1,5 +1,17 @@
 import { issueTicket } from '../db/repository';
 
+/**
+ * 'YYYYMMDD' で渡ってきても 'YYYY-MM-DD' に正規化する防御ガード。
+ * valid_from はチケット有効判定で文字列比較されるため、ハイフンの有無で
+ * 予約フローからチケットが消える不具合（'20260830' <= '2026-09-04' が false）を防ぐ。
+ * すでにハイフン区切りのものはそのまま返す。
+ */
+export function normalizeYmd(s: string): string {
+  const t = (s ?? '').trim();
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(t);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : t;
+}
+
 // 既存チケットの対象スペース対応（#82）
 // 'ab' … 名駅防音室A・B共通 / 'higashibetsuin' … 東別院24hグランドピアノ練習室
 export const TICKET_SCOPE_SPACES: Record<string, string[]> = {
@@ -51,7 +63,8 @@ export async function claimPendingTicketsForCustomer(
     .all<PendingTicketRow>();
   if (!results || results.length === 0) return [];
 
-  const now = today; // 'YYYY-MM-DD'（issueTicket は purchased_at にそのまま入る）
+  const validFrom = normalizeYmd(today); // valid_from は文字列比較されるため 'YYYY-MM-DD' に正規化（防御）
+  const now = validFrom; // 'YYYY-MM-DD'（issueTicket は purchased_at にそのまま入る）
   const granted: GrantedTicket[] = [];
   for (const p of results) {
     const spaceIds = TICKET_SCOPE_SPACES[p.scope] ?? [];
@@ -64,7 +77,7 @@ export async function claimPendingTicketsForCustomer(
         customerId,
         name,
         totalHours: p.remaining_hours,
-        validFrom: today,
+        validFrom,
         validUntil: p.valid_until,
         spaceIds,
         productId: null,

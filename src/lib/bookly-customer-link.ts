@@ -17,7 +17,7 @@
  */
 import type { Env } from '../types';
 import { loadBooklySlots } from './bookly-import';
-import { nowJST, todayYmdJST } from './clock';
+import { nowJST, todayJST } from './clock';
 import { claimPendingTicketsForCustomer } from './ticket-migration';
 import customersData from '../data/bookly-customers.json';
 
@@ -94,7 +94,7 @@ export async function runCustomerLink(env: Env, opts: { dryRun: boolean }): Prom
   const db = env.DB;
   const roster = loadBooklyCustomers();
   const now = nowJST();
-  const today = todayYmdJST();
+  const today = todayJST(); // 'YYYY-MM-DD'（チケット付与の valid_from に使うためハイフン区切り）
   const emailToGroups = await buildEmailToGroups(env);
   const pendingTickets = await pendingTicketEmails(env);
 

@@ -42,6 +42,10 @@
   .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
   .prod { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   .prod > div { min-width:0; }
+  /* チケットのサムネイル（対象スペースの写真を流用。未設定はプレースホルダ） */
+  .prod .thumb { width:88px; height:66px; border-radius:8px; object-fit:cover; flex:0 0 auto; background:#eef2f7; border:1px solid var(--line); }
+  .prod .thumb-ph { display:flex; align-items:center; justify-content:center; font-size:26px; color:#9aa7b5; }
+  .prod .pinfo { flex:1 1 220px; min-width:0; }
   .prod .name { font-weight:600; }
   .prod .price { font-size:20px; font-weight:700; color:var(--brand); }
   .prod .callinks { margin-top:6px; display:flex; flex-direction:column; align-items:flex-start; gap:6px; max-width:100%; }
@@ -145,13 +149,15 @@
   </section>
 </main>
 <script>
-const T = { token: null, member: null, spaces: {}, products: [], paymentEnabled: false };
+const T = { token: null, member: null, spaces: {}, spaceImg: {}, products: [], paymentEnabled: false };
 const SS_KEY = 'albe_my_session'; // マイページ・予約フロー・見学と共有（localStorage・ログイン継続）
 const MEMBER_IDLE_MS = 30 * 24 * 60 * 60 * 1000; // 無操作30日（サーバ側と一致）
 function saveMemberSession() {
   try { localStorage.setItem(SS_KEY, JSON.stringify({ token: T.token, member: T.member, at: Date.now() })); } catch (e) {}
 }
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
+// サムネイル画像の読み込み失敗時はプレースホルダに差し替える
+function imgErr(el) { const d = document.createElement('div'); d.className = 'thumb thumb-ph'; d.textContent = '🎟️'; el.replaceWith(d); }
 async function api(path, opts) {
   const o = opts || {}; o.headers = Object.assign({}, o.headers || {});
   if (T.token) o.headers['Authorization'] = 'Bearer ' + T.token;
@@ -239,7 +245,7 @@ async function restoreSession() {
 async function loadProducts() {
   // スペース名の対応表
   const sp = await api('/api/spaces');
-  (sp.body.spaces || []).forEach(s => { T.spaces[s.id] = s.name; });
+  (sp.body.spaces || []).forEach(s => { T.spaces[s.id] = s.name; T.spaceImg[s.id] = s.imageUrl || ''; });
   const { body } = await api('/api/tickets/products');
   T.products = body.products || [];
   T.paymentEnabled = !!body.paymentEnabled;
@@ -266,7 +272,12 @@ async function loadProducts() {
       const calLinks = (p.space_ids || []).map(id =>
         '<a class="callink" href="index.html?space=' + encodeURIComponent(id) + '">📅 ' + (T.spaces[id] || id) + 'の予約カレンダー</a>'
       ).join('');
-      html += '<div class="prod"><div><div class="name">' + p.name + '</div>' +
+      // サムネイル：対象スペースのうち画像が設定されている最初のスペースの写真を使う（未設定はプレースホルダ）
+      const imgSpace = (p.space_ids || []).find(id => T.spaceImg[id]);
+      const thumb = imgSpace
+        ? '<img class="thumb" src="' + T.spaceImg[imgSpace] + '" alt="" loading="lazy" onerror="imgErr(this)">'
+        : '<div class="thumb thumb-ph">🎟️</div>';
+      html += '<div class="prod">' + thumb + '<div class="pinfo"><div class="name">' + p.name + '</div>' +
         '<div class="muted">利用可能時間 ' + p.total_hours + '時間 ／ 有効' + p.validity_days + '日（購入日から）</div>' +
         (calLinks ? '<div class="callinks">' + calLinks + '</div>' : '') + '</div>' +
         '<div style="text-align:right"><div class="price">' + yen(p.price) + '</div>' + btn + '</div></div>';

@@ -18,6 +18,7 @@ import viewing from './routes/viewing';
 import contact from './routes/contact';
 import { embedCalendar } from './routes/embed';
 import { blockImpersonationWrites } from './middleware/impersonation';
+import { securityHeaders } from './middleware/security-headers';
 import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
@@ -57,6 +58,9 @@ import { runWeeklyReport } from './lib/weekly-report';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
+
+// セキュリティレスポンスヘッダ（CSP/HSTS/nosniff 等）を全応答に付与（最外周・全レスポンス対象）
+app.use('*', securityHeaders);
 
 app.use('*', logger());
 

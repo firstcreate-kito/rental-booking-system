@@ -1393,6 +1393,9 @@ export interface AdminAuthRow {
   name: string;
   role: string;
   is_active: number;
+  totp_enabled: number;
+  totp_secret: string | null;
+  totp_recovery_codes: string | null;
 }
 
 export async function countAdmins(db: D1Database): Promise<number> {
@@ -1412,9 +1415,50 @@ export async function insertAdmin(
 
 export async function getAdminAuthByEmail(db: D1Database, email: string): Promise<AdminAuthRow | null> {
   return db
-    .prepare('SELECT id, email, password_hash, name, role, is_active FROM admin_users WHERE email = ?')
+    .prepare(
+      'SELECT id, email, password_hash, name, role, is_active, totp_enabled, totp_secret, totp_recovery_codes FROM admin_users WHERE email = ?',
+    )
     .bind(email)
     .first<AdminAuthRow>();
+}
+
+// --- 管理者2FA（TOTP） ---
+
+/** 2FA設定の途中：シークレットを保存（まだ有効化しない＝totp_enabled=0） */
+export async function setAdminTotpPending(db: D1Database, adminId: string, secret: string): Promise<void> {
+  await db
+    .prepare('UPDATE admin_users SET totp_secret = ?, totp_enabled = 0, totp_recovery_codes = NULL WHERE id = ?')
+    .bind(secret, adminId)
+    .run();
+}
+
+/** 2FAを有効化（コード検証後）。リカバリコードのハッシュ配列(JSON)を保存する。 */
+export async function enableAdminTotp(db: D1Database, adminId: string, recoveryHashesJson: string): Promise<void> {
+  await db
+    .prepare('UPDATE admin_users SET totp_enabled = 1, totp_recovery_codes = ? WHERE id = ?')
+    .bind(recoveryHashesJson, adminId)
+    .run();
+}
+
+/** 2FAを無効化（シークレット・リカバリを消去） */
+export async function disableAdminTotp(db: D1Database, adminId: string): Promise<void> {
+  await db
+    .prepare('UPDATE admin_users SET totp_enabled = 0, totp_secret = NULL, totp_recovery_codes = NULL WHERE id = ?')
+    .bind(adminId)
+    .run();
+}
+
+/** リカバリコード使用後：残りのハッシュ配列(JSON)で上書き（ワンタイム消費） */
+export async function updateAdminRecoveryCodes(db: D1Database, adminId: string, recoveryHashesJson: string): Promise<void> {
+  await db.prepare('UPDATE admin_users SET totp_recovery_codes = ? WHERE id = ?').bind(recoveryHashesJson, adminId).run();
+}
+
+/** 管理者を id で取得（2FA状態確認用・機微情報は返さない） */
+export async function getAdminById(db: D1Database, id: string): Promise<{ id: string; email: string; name: string; role: string; totp_enabled: number } | null> {
+  return db
+    .prepare('SELECT id, email, name, role, totp_enabled FROM admin_users WHERE id = ?')
+    .bind(id)
+    .first();
 }
 
 export async function createAdminSession(

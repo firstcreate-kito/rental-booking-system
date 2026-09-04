@@ -109,8 +109,14 @@ import {
   startImpersonationLog,
   endImpersonationLog,
   deleteSession,
+  setAdminTotpPending,
+  enableAdminTotp,
+  disableAdminTotp,
+  updateAdminRecoveryCodes,
+  getAdminById,
 } from '../db/repository';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
+import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture, paypalConfigured } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
@@ -213,10 +219,33 @@ app.post('/login', async (c) => {
   if (!(await verifyPassword(password, admin.password_hash))) {
     return c.json({ error: 'メールまたはパスワードが違います' }, 401);
   }
+
+  // 二段階認証（2FA）が有効な管理者は、TOTPコード（またはリカバリコード）を要求する
+  if (admin.totp_enabled && admin.totp_secret) {
+    const code = String((body as { code?: string }).code ?? '').trim();
+    if (!code) return c.json({ mfaRequired: true }, 401); // フロントはコード入力欄を表示
+    let ok = await verifyTotp(admin.totp_secret, code);
+    if (!ok) {
+      // リカバリコード（ワンタイム）を試す
+      const hashes: string[] = admin.totp_recovery_codes ? (JSON.parse(admin.totp_recovery_codes) as string[]) : [];
+      const h = await hashRecoveryCode(code);
+      const idx = hashes.indexOf(h);
+      if (idx >= 0) {
+        hashes.splice(idx, 1); // 使用済みを消費
+        await updateAdminRecoveryCodes(db, admin.id, JSON.stringify(hashes));
+        ok = true;
+      }
+    }
+    if (!ok) return c.json({ error: '認証コードが正しくありません', mfaRequired: true }, 401);
+  }
+
   const now = nowJST();
   const token = generateToken();
   await createAdminSession(db, token, admin.id, sessionExpiry(ADMIN_SESSION_IDLE_MINUTES), now);
-  return c.json({ token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } });
+  return c.json({
+    token,
+    admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role, totpEnabled: !!admin.totp_enabled },
+  });
 });
 
 /** POST /api/admin/logout */
@@ -229,6 +258,60 @@ app.post('/logout', async (c) => {
 
 // 以降は管理者ログイン必須
 app.use('/*', requireAdmin);
+
+// ---------------------------------------------------------------------------
+// 二段階認証（2FA・TOTP）：ログイン中の管理者が自分自身の2FAを設定/解除する
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/2fa/status 自分の2FA有効状態 */
+app.get('/2fa/status', async (c) => {
+  const me = await getAdminById(c.env.DB, c.get('admin').id);
+  return c.json({ enabled: !!(me && me.totp_enabled) });
+});
+
+/** POST /api/admin/2fa/setup 2FA設定を開始（シークレット発行・まだ有効化しない） */
+app.post('/2fa/setup', async (c) => {
+  const admin = c.get('admin');
+  const secret = generateTotpSecret();
+  await setAdminTotpPending(c.env.DB, admin.id, secret);
+  return c.json({
+    secret, // 認証アプリに手動入力する場合用（Base32）
+    otpauthUrl: otpauthUrl(secret, admin.email), // QR/リンク用
+    account: admin.email,
+    issuer: 'ALBE 予約管理',
+  });
+});
+
+/** POST /api/admin/2fa/enable 発行済みシークレットをコードで確認して有効化。リカバリコードを返す。 */
+app.post('/2fa/enable', async (c) => {
+  const admin = c.get('admin');
+  const body = (await c.req.json().catch(() => ({}))) as { code?: string };
+  const code = String(body.code ?? '').trim();
+  const full = await getAdminAuthByEmail(c.env.DB, admin.email);
+  if (!full || !full.totp_secret) return c.json({ error: '先に「設定を開始」してください' }, 400);
+  if (!(await verifyTotp(full.totp_secret, code))) {
+    return c.json({ error: '認証コードが正しくありません。アプリの時刻ずれや入力をご確認ください' }, 400);
+  }
+  // リカバリコードを生成（平文は今回のみ返す。保存はハッシュ）
+  const recovery = generateRecoveryCodes(8);
+  const hashes = await Promise.all(recovery.map(hashRecoveryCode));
+  await enableAdminTotp(c.env.DB, admin.id, JSON.stringify(hashes));
+  return c.json({ ok: true, recoveryCodes: recovery });
+});
+
+/** POST /api/admin/2fa/disable 2FAを解除（パスワード再確認が必要） */
+app.post('/2fa/disable', async (c) => {
+  const admin = c.get('admin');
+  const body = (await c.req.json().catch(() => ({}))) as { password?: string };
+  const password = String(body.password ?? '');
+  const full = await getAdminAuthByEmail(c.env.DB, admin.email);
+  if (!full) return c.json({ error: '管理者が見つかりません' }, 404);
+  if (!password || !(await verifyPassword(password, full.password_hash))) {
+    return c.json({ error: 'パスワードが正しくありません' }, 401);
+  }
+  await disableAdminTotp(c.env.DB, admin.id);
+  return c.json({ ok: true });
+});
 
 /** POST /api/admin/calendar-test Googleカレンダー接続テスト（設定確認用） */
 app.post('/calendar-test', requireRole('owner', 'manager'), async (c) => {

@@ -965,9 +965,15 @@
       <div id="csDetail" class="card hidden" style="margin-top:16px;background:#fafbff">
         <div class="row" style="justify-content:space-between">
           <h2 id="csName" style="margin:0"></h2>
-          <button class="btn ghost sm" onclick="closeCustomerDetail()">閉じる</button>
+          <div class="row" style="gap:8px">
+            <button class="btn sm" id="csImpBtn" onclick="startImpersonation()" style="background:#0a7d33;color:#fff" title="このお客様と同じ画面を閲覧専用で確認します（サポート用・監査ログに記録されます）">🖥 顧客の画面を見る（閲覧専用）</button>
+            <button class="btn ghost sm" onclick="closeCustomerDetail()">閉じる</button>
+          </div>
         </div>
         <div class="muted" id="csInfo"></div>
+
+        <!-- チケット診断サマリ（予約フローでチケットが選べない場合の警告） -->
+        <div id="csDiagWarn" class="card hidden" style="margin:10px 0 0;background:#fff4f4;border-color:#f3c2c2"></div>
 
         <!-- ブラックリスト（アンウェルカムゲスト）#69 -->
         <div class="card" id="csBlockBox" style="margin:12px 0 0;background:#fff">
@@ -1048,7 +1054,8 @@
         <div class="tablewrap"><table class="resp"><thead><tr><th>コード</th><th>名称</th><th>割引</th><th>残/総</th><th>期限</th><th>状態</th></tr></thead><tbody id="csCoupons"></tbody></table></div>
 
         <h2 style="margin-top:16px">保有チケット（回数券）</h2>
-        <div class="tablewrap"><table class="resp"><thead><tr><th>名称</th><th>対象スペース</th><th>残/総</th><th>有効期間</th><th>状態</th></tr></thead><tbody id="csTickets"></tbody></table></div>
+        <div class="muted" style="font-size:12px;margin:-4px 0 6px">「予約フロー」列＝予約の「お客様情報」でこのチケットが<strong>選択肢に出るか</strong>の診断です。✕の場合は理由を表示します。</div>
+        <div class="tablewrap"><table class="resp"><thead><tr><th>名称</th><th>対象スペース</th><th>残/総</th><th>有効期間</th><th>状態</th><th>予約フロー</th><th></th></tr></thead><tbody id="csTickets"></tbody></table></div>
       </div>
     </section>
   </div>
@@ -1987,9 +1994,37 @@ async function selectCustomer(id) {
     return '<tr><td>' + c.code + '</td><td>' + c.name + '</td><td>' + off + '</td><td>' + c.remaining_hours + '/' + c.total_hours + 'h</td><td>' + until + '</td><td><span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></td></tr>';
   }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
   lastCustomerTickets = body.tickets || [];
+  // 診断結果を id→diagnosis のマップにする（予約フローで選べるか＋理由）
+  const dmap = {}; (body.diagnostics || []).forEach(d => { dmap[d.id] = d; });
+  const escT = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   document.getElementById('csTickets').innerHTML = lastCustomerTickets.map(t => {
-    return '<tr><td>' + t.name + '</td><td>' + (t.spaces || '全スペース') + '</td><td>' + t.remaining_hours + '/' + t.total_hours + 'h</td><td>' + t.valid_from + '〜' + t.valid_until + '</td><td><span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></td><td><button class="btn ghost sm" onclick="editIssuedTicket(\'' + t.id + '\')">残数変更</button></td></tr>';
-  }).join('') || '<tr><td colspan="6" class="muted">なし</td></tr>';
+    const d = dmap[t.id];
+    let flow = '<span class="muted">—</span>';
+    if (d) {
+      flow = d.selectable
+        ? '<span class="pill active" title="予約フローのチケット選択に表示されます">✓ 選択可</span>'
+        : '<span class="pill" style="background:#fde2e2;color:#b3261e" title="' + escT((d.issues || []).join(' / ')) + '">✕ 出ない</span>';
+    }
+    return '<tr><td>' + escT(t.name) + '</td><td>' + escT(t.spaces || '全スペース') + '</td><td>' + t.remaining_hours + '/' + t.total_hours + 'h</td><td>' + escT(t.valid_from) + '〜' + escT(t.valid_until) + '</td><td><span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></td><td>' + flow + '</td><td><button class="btn ghost sm" onclick="editIssuedTicket(\'' + t.id + '\')">残数変更</button></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">なし</td></tr>';
+  // 選べないチケットがあれば警告サマリを表示（原因の一覧）。
+  // 期限切れ等の「当然の非表示」は除外し、activeなのに出ない＝要注意のものだけ警告する。
+  const warn = document.getElementById('csDiagWarn');
+  const badActive = (body.diagnostics || []).filter(d => {
+    if (d.selectable) return false;
+    const t = lastCustomerTickets.find(x => x.id === d.id);
+    return t && t.status === 'active';
+  });
+  if (badActive.length) {
+    warn.classList.remove('hidden');
+    warn.innerHTML = '<strong style="color:#b3261e">⚠ 予約フローに出ないチケットがあります（' + badActive.length + '件）</strong>'
+      + badActive.map(d => {
+          const t = lastCustomerTickets.find(x => x.id === d.id);
+          return '<div style="margin-top:6px;font-size:13px"><b>' + escT(t ? t.name : '') + '</b>：' + escT((d.issues || []).join(' / ')) + '</div>';
+        }).join('');
+  } else {
+    warn.classList.add('hidden'); warn.innerHTML = '';
+  }
   document.getElementById('ptMsg2').textContent = ''; document.getElementById('cpMsg').textContent = ''; document.getElementById('tkMsg').textContent = '';
   // 自動入力などによる値の残留を防ぐため毎回クリア
   document.getElementById('pt_amount').value = '';
@@ -2005,6 +2040,33 @@ async function selectCustomer(id) {
 // 操作パネルを閉じる：非表示にして元位置へ戻し、展開行を除去する
 function closeCustomerDetail() {
   collapsePanel(document.getElementById('csBody'), document.getElementById('csDetail'));
+}
+
+// --- 顧客画面の閲覧（なりすまし表示・閲覧専用） ---
+// サポート時に、お客様と同じマイページ/予約フローを別タブで確認する。書き込みはサーバ側で拒否。
+async function startImpersonation() {
+  if (!selectedCustomer) return;
+  const reason = prompt('閲覧の理由を入力してください（監査ログに記録されます）。\n例）チケットが選べないとの問い合わせ確認', '');
+  if (reason === null) return; // キャンセル
+  const btn = document.getElementById('csImpBtn');
+  btn.disabled = true;
+  const { ok, body } = await api('/api/admin/impersonate', jsonBody({ customerId: selectedCustomer, reason: (reason || '').trim() }));
+  btn.disabled = false;
+  if (!ok) { alert(body.error || '閲覧セッションの発行に失敗しました'); return; }
+  try {
+    // 顧客ページ（マイページ・予約フロー・チケット・見学）が読む localStorage キーに閲覧専用トークンを書き込む
+    localStorage.setItem('albe_my_session', JSON.stringify({ token: body.token, member: body.member, at: Date.now() }));
+    localStorage.setItem('albe_impersonation', JSON.stringify({
+      token: body.token,
+      customerId: selectedCustomer,
+      customerEmail: (body.member && body.member.email) || '',
+      customerName: (body.member && body.member.contactName) || '',
+      adminEmail: (body.admin && body.admin.email) || '',
+      at: Date.now(),
+    }));
+  } catch (e) { alert('ブラウザの保存領域に書き込めませんでした。プライベートブラウズ等をご確認ください。'); return; }
+  window.open('/mypage.html', '_blank');
+  alert('別タブでお客様のマイページを「閲覧専用」で開きました。\n・画面上部の赤いバーの「閲覧終了」で終了できます（30分で自動終了）。\n・閲覧専用のため、予約確定・決済などの操作はできません。');
 }
 async function toggleBlocked() {
   const cb = document.getElementById('cs_blocked');

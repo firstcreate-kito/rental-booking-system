@@ -17,6 +17,7 @@ import guestChange from './routes/guest-change';
 import viewing from './routes/viewing';
 import contact from './routes/contact';
 import { embedCalendar } from './routes/embed';
+import { blockImpersonationWrites } from './middleware/impersonation';
 import { BOOKING_CHANGE_HTML } from './lib/booking-change-page';
 import {
   getOverdueUnpaidBookings,
@@ -147,6 +148,10 @@ app.use('*', async (c, next) => {
 });
 
 app.use('/api/*', cors());
+
+// なりすまし閲覧（サポート用）の安全装置：閲覧専用セッションからの書き込みを一律拒否する。
+// 通常の会員・ゲスト・管理者リクエストには影響しない（readonly セッションのみ対象）。
+app.use('/api/*', blockImpersonationWrites);
 
 /** ヘルスチェック（JSON） */
 app.get('/api/health', (c) => {

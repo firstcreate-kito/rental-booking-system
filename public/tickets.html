@@ -501,5 +501,34 @@ function showLoginErrorIfPresent() {
   await handleReturn(); // ログイン済みなら購入結果を反映
 })();
 </script>
+<!-- サポート閲覧（なりすまし表示）バナー：管理者が顧客画面を閲覧専用で見ているときだけ表示 -->
+<script>
+(function(){
+  var imp; try { imp = JSON.parse(localStorage.getItem('albe_impersonation')||'null'); } catch(e){ imp=null; }
+  if(!imp || !imp.token) return;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function mount(){
+    if(document.getElementById('albeImpBar')) return;
+    var bar=document.createElement('div');
+    bar.id='albeImpBar';
+    bar.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b3261e;color:#fff;padding:8px 12px;font:600 13px/1.4 system-ui,-apple-system,sans-serif;display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;box-shadow:0 2px 6px rgba(0,0,0,.25)';
+    var who=esc(imp.customerName||imp.customerEmail||'お客様');
+    bar.innerHTML='<span>🖥 管理者として <b>'+who+'</b> さんの画面を閲覧中（閲覧専用・操作はできません）</span>';
+    var b=document.createElement('button');
+    b.textContent='閲覧終了';
+    b.style.cssText='background:#fff;color:#b3261e;border:0;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer';
+    b.onclick=function(){
+      try{ fetch('/api/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+imp.token}}); }catch(e){}
+      try{ localStorage.removeItem('albe_impersonation'); localStorage.removeItem('albe_my_session'); }catch(e){}
+      location.href='/';
+    };
+    bar.appendChild(b);
+    document.body.appendChild(bar);
+    document.body.style.paddingTop=((bar.offsetHeight||40))+'px';
+  }
+  if(document.body) mount(); else document.addEventListener('DOMContentLoaded',mount);
+})();
+</script>
 </body>
+
 </html>

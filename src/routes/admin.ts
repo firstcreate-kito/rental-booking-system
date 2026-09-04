@@ -105,7 +105,12 @@ import {
   reissueReceiptForGroup,
   recordBookingEvent,
   getBookingEventsForGroup,
+  createImpersonationSession,
+  startImpersonationLog,
+  endImpersonationLog,
+  deleteSession,
 } from '../db/repository';
+import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
 import { refundPaypalCapture, paypalConfigured } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
@@ -2081,17 +2086,88 @@ app.get('/customers', async (c) => {
   return c.json({ customers });
 });
 
-/** GET /api/admin/customers/:id 顧客詳細（プロフィール + ポイント + クーポン） */
+/** GET /api/admin/customers/:id 顧客詳細（プロフィール + ポイント + クーポン + チケット診断） */
 app.get('/customers/:id', async (c) => {
   const id = c.req.param('id');
   const profile = await getCustomerProfile(c.env.DB, id);
   if (!profile) return c.json({ error: 'customer not found' }, 404);
-  const [points, coupons, tickets] = await Promise.all([
+  const today = todayJST();
+  const [points, coupons, tickets, rawTickets] = await Promise.all([
     getPointBalanceAndLog(c.env.DB, id),
     getMemberCoupons(c.env.DB, id),
-    getMemberTickets(c.env.DB, id, todayJST()),
+    getMemberTickets(c.env.DB, id, today), // 表示用（期限切れ表示に today 反映）
+    getMemberTickets(c.env.DB, id), // 診断用（生の status/日付）
   ]);
-  return c.json({ profile, points, coupons, tickets });
+  // チケット診断：予約フローのチケット選択に「出るか」と、出ない場合の理由（サポート用）
+  const diagnostics = (rawTickets as Array<Record<string, unknown>>).map((t) => ({
+    id: String(t.id),
+    ...diagnoseTicket(
+      {
+        status: String(t.status ?? ''),
+        remaining_hours: Number(t.remaining_hours ?? 0),
+        valid_from: String(t.valid_from ?? ''),
+        valid_until: String(t.valid_until ?? ''),
+      },
+      today,
+    ),
+  }));
+  return c.json({ profile, points, coupons, tickets, diagnostics, today });
+});
+
+/**
+ * POST /api/admin/impersonate  顧客画面の「閲覧専用」なりすましセッションを発行（サポート用）
+ * body: { customerId, reason? }
+ * ・owner/manager のみ。ブロック顧客は不可。
+ * ・readonly セッションを短時間（30分）発行し、監査ログに記録する。
+ * ・書き込みは blockImpersonationWrites ミドルウェアで一律拒否される。
+ */
+app.post('/impersonate', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const customerId = String(body.customerId ?? '').trim();
+  const reason = String(body.reason ?? '').trim();
+  if (!customerId) return c.json({ error: '顧客IDが必要です' }, 400);
+  const profile = (await getCustomerProfile(c.env.DB, customerId)) as
+    | { id: string; email: string | null; contact_name: string | null; is_blocked: number }
+    | null;
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+
+  const admin = c.get('admin');
+  const now = nowJST();
+  const token = generateToken();
+  // 閲覧専用セッションは短時間（30分）。sessionExpiry(分) で有効期限を作る。
+  const expiresAt = sessionExpiry(30);
+  await createImpersonationSession(c.env.DB, token, customerId, admin.id, expiresAt, now);
+  await startImpersonationLog(
+    c.env.DB,
+    {
+      adminId: admin.id,
+      adminEmail: admin.email ?? null,
+      customerId,
+      customerEmail: profile.email ?? null,
+      reason: reason || null,
+    },
+    now,
+  );
+  return c.json({
+    token,
+    expiresAt,
+    member: { id: profile.id, email: profile.email ?? '', contactName: profile.contact_name ?? '' },
+    admin: { email: admin.email ?? '' },
+  });
+});
+
+/**
+ * POST /api/admin/impersonate/end  なりすまし閲覧の終了（監査ログを閉じ、セッションを破棄）
+ * body: { customerId, token? }
+ */
+app.post('/impersonate/end', requireRole('owner', 'manager'), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const customerId = String(body.customerId ?? '').trim();
+  const token = String(body.token ?? '').trim();
+  const admin = c.get('admin');
+  if (token) await deleteSession(c.env.DB, token);
+  if (customerId) await endImpersonationLog(c.env.DB, admin.id, customerId, nowJST());
+  return c.json({ ok: true });
 });
 
 /** POST /api/admin/customers 新規顧客の手動登録（owner/manager） */

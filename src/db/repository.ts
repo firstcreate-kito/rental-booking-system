@@ -678,6 +678,79 @@ export async function deleteSessionsForCustomer(db: D1Database, customerId: stri
   await db.prepare('DELETE FROM auth_sessions WHERE customer_id = ?').bind(customerId).run();
 }
 
+// --- なりすまし閲覧（サポート用・#サポート効率化） ---
+
+/**
+ * 管理者による「顧客画面の閲覧専用セッション」を発行する。
+ * 通常ログインと同じ auth_sessions を使うが、impersonated_by（管理者ID）と readonly=1 を持たせる。
+ * 書き込みはミドルウェア（blockImpersonationWrites）でブロックされる。
+ */
+export async function createImpersonationSession(
+  db: D1Database,
+  token: string,
+  customerId: string,
+  adminId: string,
+  expiresAt: string,
+  now: string,
+): Promise<void> {
+  await db
+    .prepare(
+      'INSERT INTO auth_sessions (token, customer_id, expires_at, created_at, impersonated_by, readonly) VALUES (?, ?, ?, ?, ?, 1)',
+    )
+    .bind(token, customerId, expiresAt, now, adminId)
+    .run();
+}
+
+/** なりすまし閲覧の監査ログを開始（誰が・いつ・どの顧客を・なぜ）。ログIDを返す。 */
+export async function startImpersonationLog(
+  db: D1Database,
+  params: { adminId: string; adminEmail: string | null; customerId: string; customerEmail: string | null; reason: string | null },
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      'INSERT INTO admin_impersonation_log (id, admin_id, admin_email, customer_id, customer_email, reason, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .bind(id, params.adminId, params.adminEmail, params.customerId, params.customerEmail, params.reason, now)
+    .run();
+  return id;
+}
+
+/**
+ * トークンから、それが閲覧専用（なりすまし）セッションなら監査ログを終了する。
+ * 顧客側のログアウト（バナーの「閲覧終了」）から呼ばれる。通常セッションでは何もしない。
+ * migrate 前で列が無い場合も安全に無視する（フェイルオープン）。
+ */
+export async function endImpersonationByToken(db: D1Database, token: string, now: string): Promise<void> {
+  try {
+    const row = await db
+      .prepare('SELECT impersonated_by, customer_id FROM auth_sessions WHERE token = ?')
+      .bind(token)
+      .first<{ impersonated_by: string | null; customer_id: string }>();
+    if (row && row.impersonated_by) {
+      await endImpersonationLog(db, row.impersonated_by, row.customer_id, now);
+    }
+  } catch {
+    /* impersonated_by 列が無い等は無視 */
+  }
+}
+
+/** なりすまし閲覧の監査ログを終了（開いたままの最新の行に ended_at を記録）。 */
+export async function endImpersonationLog(db: D1Database, adminId: string, customerId: string, now: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE admin_impersonation_log SET ended_at = ?
+       WHERE id = (
+         SELECT id FROM admin_impersonation_log
+         WHERE admin_id = ? AND customer_id = ? AND ended_at IS NULL
+         ORDER BY started_at DESC LIMIT 1
+       )`,
+    )
+    .bind(now, adminId, customerId)
+    .run();
+}
+
 // --- パスワード再設定（#21） ---
 export interface PasswordResetRow {
   token: string;

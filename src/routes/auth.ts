@@ -5,6 +5,7 @@ import {
   getCustomerAuthByEmail,
   createSession,
   deleteSession,
+  endImpersonationByToken,
   updateLastLogin,
   createPasswordResetToken,
   getPasswordResetToken,
@@ -421,7 +422,11 @@ app.get('/line/callback', async (c) => {
 app.post('/logout', async (c) => {
   const auth = c.req.header('Authorization');
   const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  if (token) await deleteSession(c.env.DB, token);
+  if (token) {
+    // 閲覧専用（なりすまし）セッションなら監査ログを終了してから破棄する
+    await endImpersonationByToken(c.env.DB, token, nowJST());
+    await deleteSession(c.env.DB, token);
+  }
   return c.json({ ok: true });
 });
 

@@ -147,10 +147,12 @@
       <!-- 設定フロー -->
       <div id="mfaSetup" class="hidden" style="margin-top:8px">
         <ol style="padding-left:18px;font-size:13px;line-height:1.7">
-          <li>認証アプリ（<strong>1Password 推奨</strong>）で下のキー（またはリンク）を登録します。1Password は「新規項目 → ワンタイムパスワード」にキーを貼り付け。</li>
+          <li><strong>QRコードをスキャン</strong>（一番かんたん）：1Password は「新規項目 → ワンタイムパスワード → QRコードをスキャン」、スマホの認証アプリはカメラで下のQRを読み取り。</li>
+          <li>QRが使えない場合は、下の<strong>セットアップキー</strong>（または otpauth URI）を貼り付け。</li>
           <li>アプリに表示された<strong>6桁コード</strong>を入力して「有効化」を押します。</li>
         </ol>
-        <label>セットアップキー（1Password に貼り付け）</label>
+        <div id="mfa_qr" style="text-align:center;margin:8px 0"></div>
+        <label>セットアップキー（QRが使えないとき）</label>
         <div class="row" style="gap:6px;align-items:stretch">
           <input id="mfa_secret" readonly style="font-family:monospace;background:#f1f3f9;flex:1" />
           <button class="btn sm" type="button" onclick="copyMfa('secret')">キーをコピー</button>
@@ -1283,6 +1285,7 @@ async function begin2fa() {
   const { ok, body } = await api('/api/admin/2fa/setup', jsonBody({}));
   if (!ok) { document.getElementById('mfaMsg').className = 'msg bad'; document.getElementById('mfaMsg').textContent = body.error || '開始に失敗しました'; return; }
   document.getElementById('mfa_secret').value = body.secret;
+  document.getElementById('mfa_qr').innerHTML = body.qrSvg || ''; // サーバー生成のQR（SVG）を表示
   const link = document.getElementById('mfa_link'); link.href = body.otpauthUrl;
   document.getElementById('mfaStatus').innerHTML = '<span class="pill" style="background:#e8f0fe;color:#1a56db">設定中</span> 認証アプリに登録し、6桁コードで有効化してください。';
   document.getElementById('mfaSetup').classList.remove('hidden');

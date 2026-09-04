@@ -107,8 +107,8 @@ export async function verifyTotp(
   return false;
 }
 
-/** 認証アプリ登録用の otpauth URI を生成（QR/手動入力どちらにも使える） */
-export function otpauthUrl(secretBase32: string, account: string, issuer = 'ALBE 予約管理'): string {
+/** 認証アプリ登録用の otpauth URI を生成（QR/手動入力どちらにも使える）。issuerはASCIIでQRを小さく保つ。 */
+export function otpauthUrl(secretBase32: string, account: string, issuer = 'ALBE'): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({
     secret: secretBase32,

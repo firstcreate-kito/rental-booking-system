@@ -120,6 +120,7 @@ import {
 } from '../db/repository';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
+import { qrSvg } from '../lib/qrcode';
 import { LOGIN_WINDOW_MIN, isLoginLocked, LOGIN_LOCK_MESSAGE } from '../lib/login-throttle';
 import { verifyTurnstile } from '../lib/turnstile';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
@@ -314,12 +315,14 @@ app.get('/2fa/status', async (c) => {
 app.post('/2fa/setup', async (c) => {
   const admin = c.get('admin');
   const secret = generateTotpSecret();
+  const uri = otpauthUrl(secret, admin.email);
   await setAdminTotpPending(c.env.DB, admin.id, secret);
   return c.json({
     secret, // 認証アプリに手動入力する場合用（Base32）
-    otpauthUrl: otpauthUrl(secret, admin.email), // QR/リンク用
+    otpauthUrl: uri, // リンク用
+    qrSvg: qrSvg(uri, { size: 220 }), // 認証アプリでスキャンする用のQR（SVG）
     account: admin.email,
-    issuer: 'ALBE 予約管理',
+    issuer: 'ALBE',
   });
 });
 

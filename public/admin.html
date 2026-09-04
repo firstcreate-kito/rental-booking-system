@@ -150,9 +150,17 @@
           <li>認証アプリ（<strong>1Password 推奨</strong>）で下のキー（またはリンク）を登録します。1Password は「新規項目 → ワンタイムパスワード」にキーを貼り付け。</li>
           <li>アプリに表示された<strong>6桁コード</strong>を入力して「有効化」を押します。</li>
         </ol>
-        <label>セットアップキー（手動入力用）</label>
-        <input id="mfa_secret" readonly style="font-family:monospace;background:#f1f3f9" />
-        <div style="margin:6px 0"><a id="mfa_link" href="#" style="font-size:13px">▶ 認証アプリで開く（1Password 等・端末の既定アプリが起動）</a></div>
+        <label>セットアップキー（1Password に貼り付け）</label>
+        <div class="row" style="gap:6px;align-items:stretch">
+          <input id="mfa_secret" readonly style="font-family:monospace;background:#f1f3f9;flex:1" />
+          <button class="btn sm" type="button" onclick="copyMfa('secret')">キーをコピー</button>
+        </div>
+        <div class="muted" style="font-size:12px;margin:4px 0">1Password：新規項目 →「ワンタイムパスワード」欄に、このキー（または下のURI）を貼り付けると自動で6桁が生成されます。</div>
+        <div class="row" style="gap:6px;margin:6px 0;align-items:center;flex-wrap:wrap">
+          <button class="btn sm ghost" type="button" onclick="copyMfa('uri')">otpauth URI をコピー</button>
+          <a id="mfa_link" href="#" style="font-size:12px" title="対応端末・アプリが登録されている場合のみ開きます">▶ 対応端末で開く</a>
+          <span class="muted" id="mfaCopyMsg" style="font-size:12px"></span>
+        </div>
         <label>アプリに表示された6桁コード</label>
         <input id="mfa_code" inputmode="numeric" placeholder="123456" />
         <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" onclick="enable2fa()">有効化</button></div>
@@ -1256,6 +1264,20 @@ async function open2fa() {
     st.innerHTML = '<span class="pill" style="background:#fde2e2;color:#b3261e">未設定</span> 2段階認証は未設定です。認証アプリで設定できます。'
       + '<div class="row" style="margin-top:8px"><button class="btn" onclick="begin2fa()">設定を開始</button></div>';
   }
+}
+async function copyMfa(kind) {
+  const txt = kind === 'uri' ? document.getElementById('mfa_link').href : document.getElementById('mfa_secret').value;
+  const msg = document.getElementById('mfaCopyMsg');
+  try {
+    await navigator.clipboard.writeText(txt);
+    msg.textContent = 'コピーしました';
+  } catch (e) {
+    // クリップボードAPI不可の環境では手動選択にフォールバック
+    const el = document.getElementById('mfa_secret');
+    try { el.focus(); el.select(); document.execCommand('copy'); msg.textContent = 'コピーしました'; }
+    catch (e2) { msg.textContent = 'コピーできませんでした。キーを手動で選択してください。'; }
+  }
+  setTimeout(() => { msg.textContent = ''; }, 3000);
 }
 async function begin2fa() {
   const { ok, body } = await api('/api/admin/2fa/setup', jsonBody({}));

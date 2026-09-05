@@ -526,6 +526,17 @@
   </div>
 </div>
 
+<!-- 端数切り上げ確認（独自モーダル）。ネイティブconfirmはURL(オリジン)が表示されるため使わない。 -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <div id="confirmMsg" style="white-space:pre-line;line-height:1.75;color:var(--ink)"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      <button type="button" class="btn" id="confirmOk">理解して予約を続ける</button>
+      <button type="button" class="btn ghost" id="confirmCancel">時間枠を変更する</button>
+    </div>
+  </div>
+</div>
+
 <!-- ヘッダーからのログイン（その場で・画面遷移なし）。予約中でも選択内容を保ったままログインできる。 -->
 <div class="modal-bg" id="loginModal">
   <div class="modal">
@@ -1604,21 +1615,35 @@ async function previewModal() {
   }
 }
 
-function addToCart() {
+// 独自の確認ダイアログ（Promise）。ネイティブ confirm() はブラウザがオリジン(URL)を
+// 必ず表示するため使わず、アプリ内モーダルで文言・ボタンを自由に出す。
+function customConfirm(message) {
+  return new Promise((resolve) => {
+    const bg = document.getElementById('confirmModal');
+    document.getElementById('confirmMsg').textContent = message;
+    const ok = document.getElementById('confirmOk');
+    const cancel = document.getElementById('confirmCancel');
+    const done = (val) => { bg.classList.remove('show'); ok.onclick = null; cancel.onclick = null; resolve(val); };
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+    bg.classList.add('show');
+  });
+}
+
+async function addToCart() {
   if (S.pickState === 'start') { alert('開始と終了の枠を選んでください'); return; }
   const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   if (start >= end) { alert('終了は開始より後にしてください'); return; }
   if (rangeOverlapsBooked(start, end)) { alert('選択した時間帯には既に予約が入っています。時間をずらしてください。'); return; }
   if (S.cart.some(c => c.date === S.selectedDate)) { alert('その日は既にカートにあります'); return; }
   // 端数切り上げの確認：1時間未満の端数があると料金は1時間単位に切り上げられる（例：1.5時間→2時間分）。
-  // 料金表示下の注意書きを見落とす方向けに、進める直前にも確認ダイアログを出す。
+  // 料金表示下の注意書きを見落とす方向けに、進める直前にも独自モーダルで確認する。
   const q = S.lastQuote;
   if (q && q.start === start && q.end === end && q.billingMode === 'hourly' && q.billableHours > q.actual) {
-    const ok = confirm(
+    const ok = await customConfirm(
       'ご利用時間は ' + q.actual + ' 時間ですが、料金は ' + q.billableHours + ' 時間分（' + yen(q.total) + '）です。\n' +
       '空きがあれば ' + q.billableHours + ' 時間まで延長しても料金は変わりません。\n\n' +
-      'この時間（' + q.actual + ' 時間）で予約を進めますか？\n' +
-      '「キャンセル」を押すと時間を選び直せます。'
+      'このまま ' + q.actual + ' 時間で予約を進めますか？'
     );
     if (!ok) return;
   }

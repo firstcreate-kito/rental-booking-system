@@ -137,7 +137,7 @@
 
   <!-- 二段階認証（2FA）設定モーダル（表示は style.display で制御：既定は none） -->
   <div id="mfaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;z-index:1000">
-    <div class="card" style="max-width:520px;width:92%;max-height:90vh;overflow:auto">
+    <div class="card" style="max-width:800px;width:92%;max-height:90vh;overflow:auto">
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">🔒 二段階認証（2FA）</h2><button class="btn ghost sm" onclick="close2fa()">閉じる</button></div>
       <div class="muted" style="font-size:12px;margin:6px 0">管理画面は全顧客の個人情報にアクセスできるため、ログインの2段階認証を強く推奨します。認証アプリは <strong>1Password を推奨</strong>します（Google Authenticator／Authy 等も利用可）。1Password なら「ワンタイムパスワード」項目に下のキーを登録すると、以降ログイン時に6桁を自動入力できます。</div>
 
@@ -262,7 +262,7 @@
 
     <!-- 日時変更モーダル -->
     <div id="rsOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
-      <div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0">
+      <div class="card" style="max-width:800px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">予約内容変更</h2>
           <button class="btn ghost sm" onclick="closeReschedule()">✕</button>
@@ -330,7 +330,7 @@
 
     <!-- 返金モーダル（カード/PayPal=自動返金、銀行振込/コンビニ=手動記録） -->
     <div id="rfOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
-      <div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow:auto;margin:0">
+      <div class="card" style="max-width:800px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">返金</h2>
           <button class="btn ghost sm" onclick="closeRefund()">✕</button>
@@ -358,7 +358,7 @@
 
     <!-- 変更履歴モーダル（#93） -->
     <div id="hxOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
-      <div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow:auto;margin:0">
+      <div class="card" style="max-width:800px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">変更履歴</h2>
           <button class="btn ghost sm" onclick="closeHistory()">✕</button>
@@ -370,7 +370,7 @@
 
     <!-- 追加請求モーダル（差額をStripe決済リンクで集金・案A） -->
     <div id="acOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
-      <div class="card" style="max-width:460px;width:100%;max-height:90vh;overflow:auto;margin:0">
+      <div class="card" style="max-width:800px;width:100%;max-height:90vh;overflow:auto;margin:0">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h2 style="margin:0">追加請求</h2>
           <button class="btn ghost sm" onclick="closeAdditional()">✕</button>

@@ -1525,6 +1525,7 @@ async function previewModal() {
   const prev = document.getElementById('mPreview');
   const tnote = document.getElementById('mTicketNote');
   if (tnote) tnote.classList.add('hidden'); // 有効な選択が確定するまでは隠す
+  S.lastQuote = null; // 見積り結果は再計算のたびにリセット（addToCart の確認で参照）
   if (S.pickState === 'start') { prev.textContent = '開始の枠をクリックしてください'; warn.classList.add('hidden'); return; }
   const start = document.getElementById('mStart').value, end = document.getElementById('mEnd').value;
   if (!start || !end || start >= end) { prev.textContent = '終了は開始より後にしてください'; warn.classList.add('hidden'); return; }
@@ -1551,6 +1552,8 @@ async function previewModal() {
   if (body.total != null) {
     const d = body.days[0];
     const actual = (toMin(end) - toMin(start)) / 60;
+    // 「この時間で進める」時の端数切り上げ確認に使うため、見積り結果を保持する。
+    S.lastQuote = { start: start, end: end, billingMode: d.billingMode, billableHours: d.billableHours, actual: actual, total: body.total };
     let note = '';
     if (d.billingMode === 'day') {
       // #18: なぜ1日料金なのかを明示（お客様が「なぜ時間で選べないの？」と迷わないように）
@@ -1607,6 +1610,18 @@ function addToCart() {
   if (start >= end) { alert('終了は開始より後にしてください'); return; }
   if (rangeOverlapsBooked(start, end)) { alert('選択した時間帯には既に予約が入っています。時間をずらしてください。'); return; }
   if (S.cart.some(c => c.date === S.selectedDate)) { alert('その日は既にカートにあります'); return; }
+  // 端数切り上げの確認：1時間未満の端数があると料金は1時間単位に切り上げられる（例：1.5時間→2時間分）。
+  // 料金表示下の注意書きを見落とす方向けに、進める直前にも確認ダイアログを出す。
+  const q = S.lastQuote;
+  if (q && q.start === start && q.end === end && q.billingMode === 'hourly' && q.billableHours > q.actual) {
+    const ok = confirm(
+      'ご利用時間は ' + q.actual + ' 時間ですが、料金は ' + q.billableHours + ' 時間分（' + yen(q.total) + '）です。\n' +
+      '空きがあれば ' + q.billableHours + ' 時間まで延長しても料金は変わりません。\n\n' +
+      'この時間（' + q.actual + ' 時間）で予約を進めますか？\n' +
+      '「キャンセル」を押すと時間を選び直せます。'
+    );
+    if (!ok) return;
+  }
   S.cart.push({ date: S.selectedDate, startTime: start, endTime: end });
   S.cart.sort((a, b) => a.date.localeCompare(b.date));
   closeModal();

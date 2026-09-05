@@ -526,13 +526,18 @@
   </div>
 </div>
 
-<!-- 端数切り上げ確認（独自モーダル）。ネイティブconfirmはURL(オリジン)が表示されるため使わない。 -->
+<!-- 端数切り上げ確認（独自モーダル）。ネイティブconfirmはURL(オリジン)が表示されるため使わない。
+     エラーと誤認されないよう情報系（青・💡・見出し）のデザインにする。 -->
 <div class="modal-bg" id="confirmModal">
-  <div class="modal">
-    <div id="confirmMsg" style="white-space:pre-line;line-height:1.75;color:var(--ink)"></div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-      <button type="button" class="btn" id="confirmOk">理解して予約を続ける</button>
-      <button type="button" class="btn ghost" id="confirmCancel">時間枠を変更する</button>
+  <div class="modal" style="max-width:460px">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:14px">
+      <span aria-hidden="true" style="flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:#eff6ff;color:var(--key);display:flex;align-items:center;justify-content:center;font-size:22px">💡</span>
+      <h2 style="margin:0;font-size:18px;line-height:1.35">料金についてのご確認</h2>
+    </div>
+    <div id="confirmMsg" style="font-size:15px;line-height:1.9;color:var(--ink)"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+      <button type="button" class="btn" id="confirmOk" style="font-size:16px;padding:14px 16px;font-weight:700">理解して予約を続ける</button>
+      <button type="button" class="btn ghost" id="confirmCancel" style="font-size:15px;padding:12px 16px">時間枠を変更する</button>
     </div>
   </div>
 </div>
@@ -1617,10 +1622,10 @@ async function previewModal() {
 
 // 独自の確認ダイアログ（Promise）。ネイティブ confirm() はブラウザがオリジン(URL)を
 // 必ず表示するため使わず、アプリ内モーダルで文言・ボタンを自由に出す。
-function customConfirm(message) {
+function customConfirm(html) {
   return new Promise((resolve) => {
     const bg = document.getElementById('confirmModal');
-    document.getElementById('confirmMsg').textContent = message;
+    document.getElementById('confirmMsg').innerHTML = html; // 本文は自前生成の固定HTML（外部入力なし）
     const ok = document.getElementById('confirmOk');
     const cancel = document.getElementById('confirmCancel');
     const done = (val) => { bg.classList.remove('show'); ok.onclick = null; cancel.onclick = null; resolve(val); };
@@ -1641,9 +1646,11 @@ async function addToCart() {
   const q = S.lastQuote;
   if (q && q.start === start && q.end === end && q.billingMode === 'hourly' && q.billableHours > q.actual) {
     const ok = await customConfirm(
-      'ご利用時間は ' + q.actual + ' 時間ですが、料金は ' + q.billableHours + ' 時間分（' + yen(q.total) + '）です。\n' +
-      '空きがあれば ' + q.billableHours + ' 時間まで延長しても料金は変わりません。\n\n' +
-      'このまま ' + q.actual + ' 時間で予約を進めますか？'
+      '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:12px">' +
+        'ご利用時間は <b>' + q.actual + '時間</b> ですが、<br>料金は <b style="color:var(--key);font-size:17px">' + q.billableHours + '時間分（' + yen(q.total) + '）</b> です。' +
+      '</div>' +
+      '<p style="margin:0 0 12px">空きがあれば <b>' + q.billableHours + '時間</b> まで延長しても料金は変わりません。</p>' +
+      '<p style="margin:0;font-weight:700">このまま ' + q.actual + '時間で予約を進めますか？</p>'
     );
     if (!ok) return;
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCsp } from '../src/middleware/security-headers';
+import { buildCsp, isEmbeddable } from '../src/middleware/security-headers';
 
 describe('buildCsp（Content-Security-Policy 生成）', () => {
   it('通常ページは frame-ancestors を自オリジンに限定（クリックジャッキング対策）', () => {
@@ -26,5 +26,28 @@ describe('buildCsp（Content-Security-Policy 生成）', () => {
   });
   it('ブラウザからの通信は同一オリジンのみ（connect-src self）', () => {
     expect(buildCsp(false)).toContain("connect-src 'self'");
+  });
+});
+
+describe('isEmbeddable（外部サイトからの iframe 許可判定）', () => {
+  it('専用カレンダー /embed/calendar は ?embed 無しでも常に許可', () => {
+    expect(isEmbeddable('/embed/calendar', false)).toBe(true);
+    expect(isEmbeddable('/embed/calendar/', false)).toBe(true);
+  });
+  it('アプリ本体ルート / は ?embed=1 のときだけ許可（公式サイトの埋め込み）', () => {
+    expect(isEmbeddable('/', true)).toBe(true);
+    expect(isEmbeddable('/index.html', true)).toBe(true);
+    expect(isEmbeddable('/', false)).toBe(false); // 通常アクセスはクリックジャッキング防止
+  });
+  it('空き状況ページ /availability も ?embed=1 で許可', () => {
+    expect(isEmbeddable('/availability', true)).toBe(true);
+    expect(isEmbeddable('/availability/', true)).toBe(true);
+    expect(isEmbeddable('/availability/', false)).toBe(false);
+  });
+  it('会員・管理ページは ?embed=1 を付けても frame 許可しない（悪用対策）', () => {
+    expect(isEmbeddable('/mypage', true)).toBe(false);
+    expect(isEmbeddable('/admin', true)).toBe(false);
+    expect(isEmbeddable('/tickets', true)).toBe(false);
+    expect(isEmbeddable('/viewing', true)).toBe(false);
   });
 });

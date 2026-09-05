@@ -10,12 +10,30 @@ import type { AppBindings } from '../types';
  *    決済事業者のスクリプトやiframeを埋め込まない。
  *  → よって CSP は比較的厳しめに設定できる（script/style はインライン多用のため 'unsafe-inline' のみ許容）。
  *
- * 例外：埋め込みカレンダー（/embed/calendar）だけは公式サイト等から iframe 設置されるため、
+ * 例外：外部サイト（公式サイト space-albe.com 等）から iframe 設置される埋め込み面だけは
  *   frame-ancestors を緩め（*）、X-Frame-Options は付与しない。それ以外は SAMEORIGIN で
- *   クリックジャッキングを防ぐ。
+ *   クリックジャッキングを防ぐ。埋め込み面は次の2種類：
+ *     (1) 専用カレンダー … /embed/calendar（常に埋め込み用）。
+ *     (2) 予約アプリ本体・空き状況ページを ?embed=1 で開いたもの
+ *         （公式サイトは / を ?space=…&embed=1 で iframe 設置。埋め込み時はヘッダー非表示・
+ *          日付クリックや決済は window.top で全画面遷移する設計）。
+ *   ※ (2) はパスを公開ページ（/・/availability）に限定する。?embed=1 を付けるだけで
+ *      /mypage や /admin まで frame 許可されると、クリックジャッキングの穴になるため。
  */
 
+// 常に埋め込み用（読み取り専用カレンダー）
 const EMBED_PATHS = new Set(['/embed/calendar', '/embed/calendar/']);
+// ?embed=1 のときだけ埋め込みを許可する公開ページ（アプリ本体ルート・空き状況ページ）
+const EMBEDDABLE_WITH_FLAG = new Set(['/', '/index.html', '/availability', '/availability/']);
+
+/**
+ * このリクエストのレスポンスを外部サイトから iframe 設置してよいか判定する。
+ * - 専用カレンダー（/embed/calendar）は常に可。
+ * - それ以外は「公開埋め込みページ」かつ ?embed=1 のときだけ可（/mypage・/admin 等は不可）。
+ */
+export function isEmbeddable(path: string, embedFlag: boolean): boolean {
+  return EMBED_PATHS.has(path) || (embedFlag && EMBEDDABLE_WITH_FLAG.has(path));
+}
 
 /** Content-Security-Policy を組み立てる。embed=true のページは他ドメインからのframeを許可。 */
 export function buildCsp(embed: boolean): string {
@@ -41,8 +59,10 @@ export function buildCsp(embed: boolean): string {
 export const securityHeaders: MiddlewareHandler<AppBindings> = async (c, next) => {
   await next();
 
-  const path = new URL(c.req.url).pathname;
-  const embed = EMBED_PATHS.has(path);
+  const url = new URL(c.req.url);
+  const path = url.pathname;
+  const embedFlag = url.searchParams.get('embed') === '1';
+  const embed = isEmbeddable(path, embedFlag);
   const csp = buildCsp(embed);
 
   const apply = (res: Response) => {

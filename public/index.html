@@ -1646,11 +1646,11 @@ async function addToCart() {
   const q = S.lastQuote;
   if (q && q.start === start && q.end === end && q.billingMode === 'hourly' && q.billableHours > q.actual) {
     const ok = await customConfirm(
-      '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:12px">' +
-        'ご利用時間は <b>' + q.actual + '時間</b> ですが、<br>料金は <b style="color:var(--key);font-size:17px">' + q.billableHours + '時間分（' + yen(q.total) + '）</b> です。' +
+      '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:14px">' +
+        'ご予約は <b>' + q.actual + '時間</b> を選択されましたが、料金は1時間単位なので料金は ' +
+        '<b style="color:var(--key);font-size:17px">' + q.billableHours + '時間分（' + q.total.toLocaleString() + '円）</b> となります。' +
       '</div>' +
-      '<p style="margin:0 0 12px">空きがあれば <b>' + q.billableHours + '時間</b> まで延長しても料金は変わりません。</p>' +
-      '<p style="margin:0;font-weight:700">このまま ' + q.actual + '時間で予約を進めますか？</p>'
+      '<p style="margin:0;font-weight:700">このまま予約をつづけますか？</p>'
     );
     if (!ok) return;
   }

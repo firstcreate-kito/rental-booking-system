@@ -631,6 +631,7 @@ app.get('/bookings', async (c) => {
     spaceId: c.req.query('spaceId'),
     status: c.req.query('status'),
     payment: c.req.query('payment'), // 'unpaid' で未入金の本予約のみを一覧
+    bookingNumber: c.req.query('bookingNumber'), // 予約番号で部分検索（指定時は日付・状態を無視して全予約から検索）
     view,
     todayYmd: todayJST(), // b.date は 'YYYY-MM-DD' 形式なので同形式で比較する
   });

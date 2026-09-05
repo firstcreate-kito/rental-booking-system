@@ -245,7 +245,9 @@
           <option value="confirmed">本予約</option>
           <option value="tentative">商談中</option>
         </select></div>
+        <div><label>予約番号</label><input id="f_booking_number" placeholder="例）20260825-007（部分可）" onkeydown="if(event.key==='Enter')loadBookings()" /></div>
       </div>
+      <div class="muted" style="font-size:12px;margin-top:-4px">※予約番号を入力すると、日付・状態の絞り込みを無視して全予約から検索します（キャンセル済み・過去も対象）。</div>
       <div class="row" style="margin-top:12px;justify-content:flex-end">
         <button class="btn ghost sm" onclick="loadBookings()">検索</button>
       </div>
@@ -1568,6 +1570,14 @@ async function loadBookings() {
   const q = new URLSearchParams();
   const from = document.getElementById('f_from').value, to = document.getElementById('f_to').value;
   const sp = document.getElementById('f_space').value, st = document.getElementById('f_status').value;
+  const bnum = (document.getElementById('f_booking_number').value || '').trim();
+  if (bnum) {
+    // 予約番号検索：日付・状態・ビューを無視して全予約から検索（サーバー側で同様に扱う）
+    q.set('bookingNumber', bnum);
+    const { body } = await api('/api/admin/bookings?' + q.toString());
+    renderBookings(body.bookings || []);
+    return;
+  }
   if (from) q.set('from', from); if (to) q.set('to', to);
   if (sp) q.set('spaceId', sp);
   if (bookingView === 'unpaid') {
@@ -1578,7 +1588,9 @@ async function loadBookings() {
     if (bookingView === 'active' && st) q.set('status', st);
   }
   const { body } = await api('/api/admin/bookings?' + q.toString());
-  const rows = body.bookings || [];
+  renderBookings(body.bookings || []);
+}
+function renderBookings(rows) {
   document.getElementById('listEmpty').textContent = rows.length ? '' : '該当する予約はありません';
   const today = todayJstYmd();
   document.getElementById('listBody').innerHTML = rows.map(b => {

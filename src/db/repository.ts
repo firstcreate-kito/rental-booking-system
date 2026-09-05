@@ -1531,10 +1531,19 @@ export async function deleteAdminSession(db: D1Database, token: string): Promise
 /** 管理者向け予約一覧（フィルタ: 期間・スペース・ステータス） */
 export async function listBookingsForAdmin(
   db: D1Database,
-  filters: { from?: string; to?: string; spaceId?: string; status?: string; payment?: string; view?: 'active' | 'archive' | 'past'; todayYmd?: string },
+  filters: { from?: string; to?: string; spaceId?: string; status?: string; payment?: string; view?: 'active' | 'archive' | 'past'; todayYmd?: string; bookingNumber?: string },
 ) {
   const conds: string[] = [];
   const binds: unknown[] = [];
+  const bookingNumber = (filters.bookingNumber ?? '').trim();
+  // 予約番号での検索は、日付・状態・ビューの絞り込みを無視して全予約から部分一致で探す
+  // （過去・キャンセル済みも含めて特定の予約を見つけられるように）。決済先行の pending/failed のみ除外。
+  if (bookingNumber) {
+    conds.push("b.status NOT IN ('pending','failed')");
+    conds.push('bg.booking_number LIKE ?');
+    binds.push(`%${bookingNumber}%`);
+    return runAdminBookingQuery(db, conds, binds, undefined);
+  }
   if (filters.from) {
     conds.push('b.date >= ?');
     binds.push(filters.from);
@@ -1577,6 +1586,16 @@ export async function listBookingsForAdmin(
       binds.push(today);
     }
   }
+  return runAdminBookingQuery(db, conds, binds, filters.view);
+}
+
+/** 予約一覧クエリの実行部（絞り込み条件は呼び出し側で組み立てる）。 */
+async function runAdminBookingQuery(
+  db: D1Database,
+  conds: string[],
+  binds: unknown[],
+  view?: 'active' | 'archive' | 'past',
+) {
   const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
   const { results } = await db
     .prepare(
@@ -1591,7 +1610,7 @@ export async function listBookingsForAdmin(
        LEFT JOIN spaces s ON s.id = b.space_id
        LEFT JOIN customers c ON c.id = bg.customer_id
        ${where}
-       ORDER BY b.date ${filters.view === 'past' ? 'DESC' : 'ASC'}, b.start_time`,
+       ORDER BY b.date ${view === 'past' ? 'DESC' : 'ASC'}, b.start_time`,
     )
     .bind(...binds)
     .all();

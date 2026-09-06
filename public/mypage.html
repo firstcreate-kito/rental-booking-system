@@ -333,10 +333,8 @@
     <div id="cr_policies" style="margin-bottom:10px">
       <details id="cr_pol_reschedule" class="cracc">
         <summary>日時変更について</summary>
-        <div class="cracc-body">
-          ・31日前まで：当初ご予定日の前後1ヶ月以内へのお振替を承ります（空き次第）。<br>
-          ・30日前以降：キャンセル＋新規のお取り扱いとなります。<br>
-          ・利用時間を大幅に減らすご変更は、減少分にキャンセル料が発生する場合があります。
+        <div class="cracc-body" id="cr_pol_reschedule_body">
+          <!-- スペース種別に応じて openChangeReq() で本文を差し込む（統一ポリシー §2） -->
         </div>
       </details>
       <details id="cr_pol_cancel" class="cracc">
@@ -741,6 +739,19 @@ let _crNum = null;
 let _crDaysUntil = null; // 当初利用日までの残日数（#76・キャンセル可否/文言表示）
 let _rsNeedAgree = false; // 日時変更で差額が生じ、同意チェックが必要か（#100）
 const CR_CANCEL_CUTOFF = 4; // これ未満（3日前以降）はオンラインキャンセル不可
+// 変更・キャンセルの無償境界が異なる特別スペース（防音室A・B／東別院24h）。
+// 統一ポリシー §2：防音室/東別院＝前々日まで無償・当日/前日キャンセル扱い／標準＝前日より前無償・当日キャンセル扱い。
+const CR_SPECIAL_POLICY_SPACES = ['meieki-piano-a', 'meieki-piano-b', 'higashibetsuin-piano-24h'];
+// 選択スペースに応じた「日時変更について」の説明文（統一ポリシー §2・2026-09-06確定）を返す。
+function crReschedulePolicyHtml(spaceId) {
+  const special = CR_SPECIAL_POLICY_SPACES.includes(spaceId);
+  const freeUntil = special ? '前々日まで' : '前日まで';
+  const cancelTreat = special ? '当日・前日' : '当日';
+  return '・<b>' + freeUntil + '</b>の日時変更（同じ時間数の移動）は<b>無償</b>です。<br>'
+    + '・<b>' + cancelTreat + '</b>の日時変更は<b>キャンセル扱い</b>となります（旧予約は返金なし＋新予約は満額のお支払い）。<br>'
+    + '・時間を<b>増やす</b>変更は差額を追加でご請求、<b>減らす</b>変更は短縮分にキャンセル料（時期により異なります）が適用されご返金します。<br>'
+    + '・具体的な金額は、ご希望の日時をご入力いただくと画面に表示します。';
+}
 function daysUntilDate(iso) {
   if (!iso) return null;
   const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
@@ -783,6 +794,9 @@ async function openChangeReq(number, spaceName, spaceId, originalDate) {
   buildCrTimeOptions(spaceId);
   document.getElementById('cr_num').textContent = number;
   document.getElementById('cr_space').textContent = spaceName || '';
+  // 「日時変更について」の説明をスペース種別に応じて差し込む（統一ポリシー §2）
+  const rpBody = document.getElementById('cr_pol_reschedule_body');
+  if (rpBody) rpBody.innerHTML = crReschedulePolicyHtml(spaceId);
   document.getElementById('cr_type').value = 'reschedule';
   document.getElementById('cr_date').value = '';
   document.getElementById('cr_start').value = '';

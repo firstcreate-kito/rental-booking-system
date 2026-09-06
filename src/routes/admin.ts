@@ -1030,6 +1030,7 @@ async function performGroupRefund(
   g: BookingGroupRow,
   amount: number,
   reason: string | null,
+  breakdown?: string | null,
 ): Promise<MoneyActionResult> {
   const db = c.env.DB;
   const admin = c.get('admin');
@@ -1061,7 +1062,7 @@ async function performGroupRefund(
       c.executionCtx.waitUntil(
         sendEmail(c.env, {
           to,
-          ...refundAccountRequestEmail({ customerName: custName, bookingNumber: g.booking_number, spaceName: sp?.name ?? '', refundAmount: amount, context: g.status === 'cancelled' ? 'cancel' : 'reschedule' }),
+          ...refundAccountRequestEmail({ customerName: custName, bookingNumber: g.booking_number, spaceName: sp?.name ?? '', refundAmount: amount, context: g.status === 'cancelled' ? 'cancel' : 'reschedule', breakdown: breakdown ?? undefined }),
         }),
       );
     }
@@ -1097,7 +1098,7 @@ async function performGroupRefund(
   } catch { /* 履歴失敗は無視 */ }
   if (to) {
     c.executionCtx.waitUntil(
-      sendEmail(c.env, { to, ...refundEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, amount, method: mode === 'auto_paypal' ? 'paypal' : 'card' }) }),
+      sendEmail(c.env, { to, ...refundEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, amount, method: mode === 'auto_paypal' ? 'paypal' : 'card', breakdown: breakdown ?? undefined }) }),
     );
   }
   return { ok: true, actionTaken: `自動返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（${mode === 'auto_paypal' ? 'PayPal' : 'カード'}）` };
@@ -1112,6 +1113,7 @@ async function performGroupAdditionalCharge(
   g: BookingGroupRow,
   amount: number,
   reason: string | null,
+  breakdown?: string | null,
 ): Promise<MoneyActionResult> {
   const db = c.env.DB;
   if (!(amount > 0)) return { ok: false, error: '追加金額は1円以上を指定してください', httpStatus: 400, actionTaken: '' };
@@ -1139,7 +1141,7 @@ async function performGroupAdditionalCharge(
     await createBookingPayment(db, { id: payId, groupId: g.id, provider: 'stripe', amount, sessionId: session.id, kind: 'additional' }, nowJST());
     if (email) {
       c.executionCtx.waitUntil(
-        sendEmail(c.env, { to: email, ...additionalChargeEmail({ customerName, bookingNumber: g.booking_number, spaceName: space?.name ?? '', amount, payUrl: session.url, reason: reason ?? undefined }) }),
+        sendEmail(c.env, { to: email, ...additionalChargeEmail({ customerName, bookingNumber: g.booking_number, spaceName: space?.name ?? '', amount, payUrl: session.url, reason: reason ?? undefined, breakdown: breakdown ?? undefined }) }),
       );
     }
     try {
@@ -2130,18 +2132,25 @@ app.post('/change-settlements/:id/approve', async (c) => {
   const inputAmount = typeof body.amount === 'number' && Number.isFinite(body.amount) ? Math.max(0, Math.round(body.amount)) : s.quoted_amount;
   const finalAmount = s.direction === 'none' ? 0 : inputAmount;
 
+  // 顧客メールに載せる計算式：金額が申込時と同じなら保存済みの計算式をそのまま、
+  // 管理者が金額を修正した場合は誤解を避けるため「担当者が調整」した旨を出す（古い計算式は出さない）。
+  const amountEdited = s.direction !== 'none' && finalAmount !== s.quoted_amount;
+  const breakdownForEmail = amountEdited
+    ? `【金額について】担当者が確認し、確定額を ¥${finalAmount.toLocaleString('ja-JP')} といたしました。`
+    : (s.breakdown ?? undefined);
+
   // 支払方法別の実処理
   let actionTaken = '金額の増減なし（変更/キャンセル完了）';
   if (s.direction === 'refund') {
-    const r = await performGroupRefund(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う返金`);
+    const r = await performGroupRefund(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う返金`, breakdownForEmail);
     if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
     actionTaken = r.actionTaken;
   } else if (s.direction === 'charge') {
-    const r = await performGroupAdditionalCharge(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う追加料金`);
+    const r = await performGroupAdditionalCharge(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う追加料金`, breakdownForEmail);
     if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
     actionTaken = r.actionTaken;
   } else {
-    // direction='none'：金額処理なし。顧客へ完了メール。
+    // direction='none'：金額処理なし。顧客へ完了メール（無償変更・チケット等の計算式つき）。
     if (s.customer_email) {
       c.executionCtx.waitUntil(
         sendEmail(c.env, {
@@ -2152,6 +2161,7 @@ app.post('/change-settlements/:id/approve', async (c) => {
             spaceName: s.space_name ?? '',
             type: s.type,
             newDays: s.new_items ? (JSON.parse(s.new_items) as Array<{ date: string; startTime: string; endTime: string }>) : undefined,
+            breakdown: s.breakdown ?? undefined,
           }),
         }),
       );

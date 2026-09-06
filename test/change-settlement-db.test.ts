@@ -37,7 +37,7 @@ function makeDb() {
     CREATE TABLE change_settlements (
       id TEXT PRIMARY KEY, group_id TEXT, booking_number TEXT, customer_id TEXT, space_id TEXT,
       type TEXT, kind TEXT, direction TEXT, quoted_amount INTEGER, final_amount INTEGER,
-      payment_method TEXT, old_items TEXT, new_items TEXT, note TEXT, status TEXT,
+      payment_method TEXT, old_items TEXT, new_items TEXT, note TEXT, breakdown TEXT, status TEXT,
       created_at TEXT, resolved_at TEXT, resolved_by TEXT
     );
     CREATE TABLE booking_groups (id TEXT PRIMARY KEY, event_name TEXT, status TEXT);

@@ -377,6 +377,7 @@ export function refundEmail(d: {
   customerName: string;
   amount: number;
   method: 'card' | 'paypal' | 'bank';
+  breakdown?: string; // 返金額の計算式（内訳・複数行）
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】ご返金のお知らせ（${d.bookingNumber}）`;
   // 返金手段ごとに、お客様への反映のされ方・確認方法を案内する。
@@ -395,10 +396,13 @@ export function refundEmail(d: {
 スペース: ${d.spaceName}
 ご返金額（税込）: ${yen(d.amount)}
 ご返金方法: ${methodLabel}
-
+${d.breakdown ? `\n${d.breakdown}\n` : ''}
 ${methodNote}
 
 ご不明な点がございましたら、お気軽にお問い合わせください。`;
+  const breakdownHtml = d.breakdown
+    ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
+    : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>以下のご予約について、<strong>ご返金の手続きが完了</strong>しましたのでお知らせいたします。</p>
@@ -408,6 +412,7 @@ ${methodNote}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金額（税込）</td><td><strong>${yen(d.amount)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金方法</td><td>${escapeHtml(methodLabel)}</td></tr>
 </table>
+${breakdownHtml}
 <p style="color:#6b7280;font-size:13px">${escapeHtml(methodNote)}</p>
 <p style="color:#6b7280;font-size:13px">ご不明な点がございましたら、お気軽にお問い合わせください。</p>
 </div>`;
@@ -910,6 +915,7 @@ export function additionalChargeEmail(d: {
   amount: number;
   payUrl: string;
   reason?: string;
+  breakdown?: string; // 追加金額の計算式（内訳・複数行）
 }): { subject: string; html: string; text: string } {
   const subject = `【レンタルスペースALBE】追加料金のお支払いのお願い（${d.bookingNumber}）`;
   const reasonLine = d.reason ? `\n内容: ${d.reason}` : '';
@@ -921,13 +927,16 @@ export function additionalChargeEmail(d: {
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 追加金額（税込）: ${yen(d.amount)}${reasonLine}
-
+${d.breakdown ? `\n${d.breakdown}\n` : ''}
 お支払いページ:
 ${d.payUrl}
 
 ※ページではクレジットカードのほか、対象スペースでご利用可能なお支払い方法をお選びいただけます。
 ※お支払いの確認をもって、変更後のご予約が確定いたします。`;
   const reasonHtml = d.reason ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">内容</td><td>${escapeHtml(d.reason)}</td></tr>` : '';
+  const breakdownHtml = d.breakdown
+    ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
+    : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>ご予約の内容変更にともない、<strong>追加のお支払い</strong>が発生いたしました。<br>お手数ですが、下記のお支払いページよりお手続きをお願いいたします。</p>
@@ -937,6 +946,7 @@ ${d.payUrl}
 ${reasonHtml}
 </table>
 <p style="font-size:18px">追加金額（税込）: <strong>${yen(d.amount)}</strong></p>
+${breakdownHtml}
 <p style="margin:14px 0"><a href="${escapeHtml(d.payUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:12px 20px;border-radius:8px;font-weight:700;text-decoration:none">お支払いページへ進む ▶</a></p>
 <p style="color:#6b7280;font-size:13px">※ページではクレジットカードのほか、対象スペースでご利用可能なお支払い方法をお選びいただけます。<br>※お支払いの確認をもって、変更後のご予約が確定いたします。</p>
 </div>`;
@@ -1058,6 +1068,7 @@ export function refundAccountRequestEmail(d: {
   context: 'cancel' | 'reschedule';
   /** 連絡先（返信先）メールアドレス。既定は本部。 */
   replyTo?: string;
+  breakdown?: string; // 返金額の計算式（内訳・複数行）
 }): { subject: string; html: string; text: string } {
   const reason = d.context === 'cancel' ? 'ご予約のキャンセル' : 'ご予約内容の変更（減額）';
   const replyTo = d.replyTo || 'rental@space-albe.com';
@@ -1070,7 +1081,7 @@ ${reason}に伴い、下記の通りご返金がございます。
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 ご返金予定額（税込）: ${yen(d.refundAmount)}
-
+${d.breakdown ? `\n${d.breakdown}\n` : ''}
 お手数ですが、${replyTo} 宛に、下記をご返信ください。
 　・銀行名
 　・支店名
@@ -1088,6 +1099,7 @@ ${reason}に伴い、下記の通りご返金がございます。
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">ご返金予定額（税込）</td><td style="font-size:18px"><strong>${yen(d.refundAmount)}</strong></td></tr>
 </table>
+${d.breakdown ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>` : ''}
 <div style="margin:14px 0;padding:14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
 <div style="font-weight:700;margin-bottom:6px">ご返信のお願い</div>
 <p style="margin:0 0 6px">お手数ですが、<a href="mailto:${escapeHtml(replyTo)}" style="color:#0068b7;font-weight:700">${escapeHtml(replyTo)}</a> 宛に、下記をご返信ください。</p>
@@ -2494,6 +2506,7 @@ export function changeCompletedEmail(d: {
   spaceName: string;
   type: 'reschedule' | 'cancel';
   newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  breakdown?: string; // 計算式（内訳・複数行。チケット/無償変更の説明など）
 }): { subject: string; html: string; text: string } {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【レンタルスペースALBE】ご予約の${actionJa}が完了しました（${d.bookingNumber}）`;
@@ -2504,9 +2517,13 @@ export function changeCompletedEmail(d: {
 今回のお手続きに伴う金額の増減（追加請求・ご返金）はございません。${newBlock}
 
 予約番号: ${d.bookingNumber}
-スペース: ${d.spaceName}`;
+スペース: ${d.spaceName}
+${d.breakdown ? `\n${d.breakdown}` : ''}`;
   const newHtml = d.type === 'reschedule' && d.newDays && d.newDays.length
     ? `<p style="margin:6px 0;color:#6b7280">変更後の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>`
+    : '';
+  const breakdownHtml = d.breakdown
+    ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
     : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
@@ -2516,6 +2533,7 @@ ${newHtml}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 </table>
+${breakdownHtml}
 </div>`;
   return withSignature({ subject, html, text });
 }

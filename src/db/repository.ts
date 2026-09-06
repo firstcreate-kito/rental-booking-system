@@ -4034,6 +4034,7 @@ export interface ChangeSettlementInput {
   oldItems?: Array<{ date: string; startTime: string; endTime: string }> | null;
   newItems?: Array<{ date: string; startTime: string; endTime: string }> | null;
   note?: string | null;
+  breakdown?: string | null; // 申込時にお客様へ提示した計算式（承認メールで再利用）
 }
 
 export interface ChangeSettlementRow {
@@ -4051,6 +4052,7 @@ export interface ChangeSettlementRow {
   old_items: string | null;
   new_items: string | null;
   note: string | null;
+  breakdown: string | null;
   status: 'pending' | 'approved' | 'dismissed';
   created_at: string;
   resolved_at: string | null;
@@ -4075,8 +4077,8 @@ export async function createChangeSettlement(
     .prepare(
       `INSERT INTO change_settlements
        (id, group_id, booking_number, customer_id, space_id, type, kind, direction, quoted_amount,
-        final_amount, payment_method, old_items, new_items, note, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'pending', ?)`,
+        final_amount, payment_method, old_items, new_items, note, breakdown, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'pending', ?)`,
     )
     .bind(
       id,
@@ -4092,6 +4094,7 @@ export async function createChangeSettlement(
       input.oldItems && input.oldItems.length ? JSON.stringify(input.oldItems) : null,
       input.newItems && input.newItems.length ? JSON.stringify(input.newItems) : null,
       input.note ?? null,
+      input.breakdown ?? null,
       now,
     )
     .run();

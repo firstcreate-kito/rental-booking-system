@@ -286,6 +286,18 @@ app.post('/bookings/:number/cancel', async (c) => {
   else noteParts.push(`キャンセル料 ¥${Math.round(quote.cancelFee).toLocaleString('ja-JP')}／ご返金額 ¥${Math.round(refundAmount).toLocaleString('ja-JP')}`);
   if (couponRestore) noteParts.push(`クーポン${couponRestore.hours}時間を返却しました。`);
   const note = noteParts.join(' ');
+  // 計算式（内訳）：モーダル(cancel-quote)と同一の文言。精算待ちに保存し、承認メールでも再利用する。
+  const cancelBreakdown = cancelFormulaLines({
+    spaceName: space?.name ?? '',
+    daysBefore: quote.daysBefore,
+    chargePctMax: quote.chargePctMax,
+    cancelFee: ticketPlan ? 0 : quote.cancelFee,
+    paidAmount: quote.paidAmount,
+    refundAmount,
+    totalAmount: quote.totalAmount,
+    breakdown: quote.breakdown,
+    ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
+  }).join('\n');
   const settlementId = await createChangeSettlement(
     db,
     {
@@ -301,22 +313,10 @@ app.post('/bookings/:number/cancel', async (c) => {
       oldItems: bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time })),
       newItems: null,
       note,
+      breakdown: cancelBreakdown,
     },
     now,
   );
-
-  // 計算式（内訳）：モーダル(cancel-quote)と同一の文言をメールにも載せる。
-  const cancelBreakdown = cancelFormulaLines({
-    spaceName: space?.name ?? '',
-    daysBefore: quote.daysBefore,
-    chargePctMax: quote.chargePctMax,
-    cancelFee: ticketPlan ? 0 : quote.cancelFee,
-    paidAmount: quote.paidAmount,
-    refundAmount,
-    totalAmount: quote.totalAmount,
-    breakdown: quote.breakdown,
-    ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
-  }).join('\n');
 
   // メール（顧客＋管理者）
   const custName = customer.contactName || 'お客様';
@@ -462,6 +462,17 @@ app.post('/bookings/:number/reschedule', async (c) => {
     }
   }
 
+  // 計算式（内訳）：モーダル(reschedule-quote)と同一の文言。精算待ちに保存し、承認メールでも再利用する。
+  const rescheduleBreakdown = rescheduleFormulaLines({
+    spaceName: space.name,
+    kind: kind as 'move' | 'increase' | 'decrease' | 'cancel_treatment',
+    currentTotal: g.total_amount,
+    newTotal: exec.newTotal,
+    cancelChargePct,
+    refund: direction === 'refund' ? quotedAmount : 0,
+    charge: direction === 'charge' ? quotedAmount : 0,
+    ticket: exec.ticket.isTicket,
+  }).join('\n');
   const settlementId = await createChangeSettlement(
     db,
     {
@@ -477,21 +488,10 @@ app.post('/bookings/:number/reschedule', async (c) => {
       oldItems: exec.oldDays,
       newItems: exec.newDays,
       note,
+      breakdown: rescheduleBreakdown,
     },
     now,
   );
-
-  // 計算式（内訳）：モーダル(reschedule-quote)と同一の文言をメールにも載せる。
-  const rescheduleBreakdown = rescheduleFormulaLines({
-    spaceName: space.name,
-    kind: kind as 'move' | 'increase' | 'decrease' | 'cancel_treatment',
-    currentTotal: g.total_amount,
-    newTotal: exec.newTotal,
-    cancelChargePct,
-    refund: direction === 'refund' ? quotedAmount : 0,
-    charge: direction === 'charge' ? quotedAmount : 0,
-    ticket: exec.ticket.isTicket,
-  }).join('\n');
 
   // メール（顧客＋管理者）
   const custName = customer.contactName || 'お客様';

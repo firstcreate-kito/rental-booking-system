@@ -8,6 +8,7 @@ import {
   getCustomerAuthByEmail,
   getCustomerBookingGroups,
   getBookingEventsForGroup,
+  recordBookingEvent,
   getPointBalanceAndLog,
   getMemberCoupons,
   getUsableCouponsForSpace,
@@ -317,6 +318,15 @@ app.post('/bookings/:number/cancel', async (c) => {
     },
     now,
   );
+
+  // 変更履歴にキャンセル実行を記録（キャンセル実行日＝now が履歴に残る）。#93
+  try {
+    await recordBookingEvent(
+      db,
+      { groupId: g.id, type: 'cancel', summary: `キャンセルを受け付けました（マイページ）：${note}`, amount: refundAmount || null, actor: 'customer' },
+      now,
+    );
+  } catch { /* 履歴の記録失敗はキャンセル自体を妨げない */ }
 
   // メール（顧客＋管理者）
   const custName = customer.contactName || 'お客様';

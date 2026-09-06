@@ -2089,6 +2089,7 @@ function serializeSettlement(r: ChangeSettlementRow) {
     oldItems: parseItems(r.old_items),
     newItems: parseItems(r.new_items),
     note: r.note,
+    breakdown: r.breakdown,
     status: r.status,
     createdAt: r.created_at,
     resolvedAt: r.resolved_at,

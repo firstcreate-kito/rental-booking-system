@@ -3530,6 +3530,7 @@ function csCard(r) {
     '<div class="muted" style="margin:4px 0">' + contact + '　<span style="color:var(--ink)">' + dir + '</span></div>' +
     dayBlock +
     (r.note && !resolved ? '<div style="white-space:pre-wrap;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0">' + crEsc(r.note) + '</div>' : '') +
+    (r.breakdown ? '<div style="white-space:pre-wrap;background:#f1f5f9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.7"><span class="muted" style="font-size:12px">お客様に提示した計算式</span>\n' + crEsc(r.breakdown) + '</div>' : '') +
     amountUi +
   '</div>';
 }

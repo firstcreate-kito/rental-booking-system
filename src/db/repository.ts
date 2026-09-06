@@ -2,6 +2,8 @@
  * D1 データアクセス層（Phase 1 で使う分）
  */
 import type { HolidayType } from '../lib/calendar';
+import { daysBetween } from '../lib/calendar';
+import { ticketCancelAction } from '../lib/ticket-policy';
 import { nowJST } from '../lib/clock';
 import { buildSignupCouponPlan, type SignupBonusRuleRow } from '../lib/signup-bonus';
 
@@ -3694,9 +3696,9 @@ export function buildTicketRescheduleStmts(
 
 /**
  * チケット払い予約のキャンセル時の扱いを判定する（チケットキャンセル方針）。
- * 方針：チケット予約は現金でのキャンセル料は発生しない（¥0）。ペナルティは時間の失効のみ。
- *   - 利用日の「前日まで」にキャンセル … 消費したチケット時間を全額返還（再予約に使える）。
- *   - 利用日「当日」のキャンセル … チケット時間は失効（返還しない）。
+ * 方針（統一見解 2026-09-06）：チケット予約は現金でのキャンセル料は発生しない（¥0）。ペナルティは時間の失効のみ。
+ *   - 利用日の「前々日まで」にキャンセル … 消費したチケット時間を全額返還（再予約に使える）。
+ *   - 利用日「当日・前日」のキャンセル … チケット時間は失効（返還しない）。
  * @param earliestUseDate グループ内で最も早い利用日（YYYY-MM-DD）。
  * @param todayYmd 本日（JST・YYYY-MM-DD）。
  * @returns null … チケット払いでない（従来どおりのキャンセル料計算）。
@@ -3710,8 +3712,8 @@ export async function buildTicketCancelPlan(
 ): Promise<{ action: 'restore' | 'forfeit'; hours: number; ticketId: string; restoreStmts: D1PreparedStatement[] } | null> {
   const usage = await getTicketUsageForGroup(db, groupId);
   if (!usage) return null;
-  // 前日以前（本日 < 利用日）＝返還／当日以降（本日 >= 利用日）＝失効。
-  const restore = todayYmd < earliestUseDate;
+  // 前々日まで(残日数>=2)＝返還／当日・前日(残日数<=1)＝失効。
+  const restore = ticketCancelAction(daysBetween(todayYmd, earliestUseDate)) === 'restore';
   if (!restore) {
     return { action: 'forfeit', hours: usage.oldHours, ticketId: usage.ticketId, restoreStmts: [] };
   }

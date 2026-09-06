@@ -25,6 +25,27 @@
 
 ---
 
+## 🔒 キャンセル/変更ポリシーの保護（重要・必ずアラート）
+
+**確定した統一ポリシー（`docs/unified-change-cancel-policy.md`・2026-09-06 オーナー合意）は容易に崩さない。**
+関連の修正・改修を行うときは、**変更を禁止はしないが、実装前に必ずオーナーへ確認**する：
+
+> 「今回の変更で**キャンセル/変更ポリシーに矛盾が生じる可能性**がありますが、進めて大丈夫ですか？」
+
+対象（これらに触れる／影響する変更はアラート必須）：
+- `docs/unified-change-cancel-policy.md`（ポリシーの正）
+- `migrations/` の `cancel_policies`（料率・段階）
+- `src/lib/cancellation.ts` / `src/lib/cancellation-service.ts`（キャンセル料の計算）
+- `src/lib/change-policy.ts`（変更・減額・キャンセルの可否判定）
+- `src/lib/ticket-policy.ts`（チケットのキャンセル/変更）
+- 上記を使う routes（`bookings.ts` / `mypage.ts` / `admin.ts` / `guest-change.ts`）の**キャンセル・変更・返金・チケット**処理
+- `test/policy-lock.test.ts`（ポリシー値の固定テスト）
+
+技術的ガード：**`test/policy-lock.test.ts`** が合意した料率・チケット規則を値で固定している。
+ここが失敗する変更は「ポリシーを崩している」サイン。テストを安易に書き換えず、**まずオーナーに確認**する。
+
+---
+
 ## 環境の対応関係
 
 | | 本番 | ステージング |
@@ -62,3 +83,4 @@
 - `docs/frontend-css-rules.md` … フロントのコーディングルール
 - `docs/price-embed.md` … 公式サイト料金連動ウィジェット
 - `docs/ticket-migration.md` … 既存チケット移行（#82・公開直前投入）
+- `docs/unified-change-cancel-policy.md` … **変更・キャンセル統一ポリシー（確定版・保護対象）**

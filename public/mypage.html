@@ -878,6 +878,14 @@ function crAgreeChange() {
   }
 }
 // 日時変更の差額を取得して表示。差額（追加/返金）があるときだけ同意を必須にする（#100）
+// 計算式（内訳）ボックス：サーバー(cancel-quote/reschedule-quote)が返す formula 行を表示する。
+// お客様が「なぜこの金額か」を確認できるよう、金額の下に計算過程を出す。
+function crFormulaBox(formula) {
+  if (!Array.isArray(formula) || !formula.length) return '';
+  const escLine = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return '<div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;line-height:1.8;white-space:pre-wrap">'
+    + formula.map(escLine).join('\n') + '</div>';
+}
 async function loadRescheduleQuote() {
   if (document.getElementById('cr_type').value !== 'reschedule') return;
   const box = document.getElementById('cr_rescheduleQuote');
@@ -901,7 +909,7 @@ async function loadRescheduleQuote() {
   }
   const yen = n => '¥' + Math.round(n).toLocaleString('ja-JP');
   if (body.ticket) {
-    lines.innerHTML = '<div>チケット（回数券）でのご予約のため、日時の移動による追加料金はかかりません。</div>';
+    lines.innerHTML = '<div>チケット（回数券）でのご予約のため、日時の移動による追加料金はかかりません。</div>' + crFormulaBox(body.formula);
     _rsNeedAgree = false; crAgreeChange(); return;
   }
   // 統一ポリシー §2 の精算額（承認時の実処理と同一ロジック）。返金は減少分にキャンセル料率を按分。
@@ -942,6 +950,7 @@ async function loadRescheduleQuote() {
     lines.innerHTML = '<div>この日時変更による料金の変更はありません（' + yen(body.newTotal) + '）。</div>';
     _rsNeedAgree = false;
   }
+  lines.innerHTML += crFormulaBox(body.formula);
   crAgreeChange();
 }
 async function loadCancelQuote() {
@@ -967,6 +976,7 @@ async function loadCancelQuote() {
       '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">チケット（回数券）でのご予約のキャンセル</div>' +
       '<div>現金でのキャンセル料・ご返金は<strong>ありません（¥0）</strong>。</div>' +
       '<div style="margin-top:4px">' + detail + '</div>' +
+      crFormulaBox(body.formula) +
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お手続きは担当者が行います。</div>';
     return;
   }
@@ -981,6 +991,7 @@ async function loadCancelQuote() {
     '<div>ご返金額：<strong>' + yen(body.refundAmount) + '</strong></div>' +
     (body.paidAmount === 0 ? '<div class="muted" style="font-size:12px;margin-top:4px">※お支払い前のため、返金はありません。</div>' : '') +
     feeNote +
+    crFormulaBox(body.formula) +
     '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・返金のお手続きは担当者が行います。</div>';
 }
 async function submitChangeReq() {

@@ -2394,6 +2394,7 @@ export function changeSettlementReceivedEmail(d: {
   direction: 'refund' | 'charge' | 'none';
   amount: number;
   note?: string;
+  breakdown?: string; // 計算式（内訳・複数行）
   oldDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
 }): { subject: string; html: string; text: string } {
@@ -2409,11 +2410,14 @@ ${d.type === 'cancel' ? 'ご予約枠はキャンセル（解放）いたしま�
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
 ${amountLine}
-${d.note ? `\n${d.note}` : ''}
+${d.breakdown ? `\n${d.breakdown}\n` : ''}${d.note ? `\n${d.note}` : ''}
 
 ※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。`;
   const newHtml = d.type === 'reschedule' && d.newDays && d.newDays.length
     ? `<p style="margin:6px 0;color:#6b7280">変更後の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>`
+    : '';
+  const breakdownHtml = d.breakdown
+    ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
     : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
@@ -2424,6 +2428,7 @@ ${newHtml}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
 </table>
 <div style="margin:12px 0;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
+${breakdownHtml}
 ${d.note ? `<p style="color:#6b7280;font-size:13px;white-space:pre-wrap">${escapeHtml(d.note)}</p>` : ''}
 <p style="color:#6b7280;font-size:13px">※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。</p>
 </div>`;
@@ -2443,6 +2448,7 @@ export function adminChangeSettlementPendingEmail(d: {
   customerEmail?: string;
   customerPhone?: string;
   note?: string;
+  breakdown?: string; // 計算式（内訳・複数行）
   adminUrl?: string;
 }): { subject: string; html: string; text: string } {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
@@ -2459,8 +2465,11 @@ export function adminChangeSettlementPendingEmail(d: {
 お客様: ${contact}
 お支払い方法: ${pm}
 ${amountLine}
-${d.note ? `\n${d.note}` : ''}
+${d.breakdown ? `\n${d.breakdown}\n` : ''}${d.note ? `\n${d.note}` : ''}
 ${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
+  const breakdownHtml = d.breakdown
+    ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
+    : '';
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>お客様が<strong>${escapeHtml(actionJa)}</strong>をお申し込みになり、枠は即時反映済みです。<br>管理画面の「精算待ち」から金額を確認・承認してください（お金の実処理は承認時に行います）。</p>
 <table style="border-collapse:collapse;margin:12px 0">
@@ -2471,6 +2480,7 @@ ${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(pm)}</td></tr>
 </table>
 <div style="margin:12px 0;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
+${breakdownHtml}
 ${d.note ? `<p style="color:#6b7280;font-size:13px;white-space:pre-wrap">${escapeHtml(d.note)}</p>` : ''}
 ${d.adminUrl ? `<p style="margin:16px 0"><a href="${escapeHtml(d.adminUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">管理画面で確認</a></p>` : ''}
 </div>`;

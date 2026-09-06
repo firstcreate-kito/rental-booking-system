@@ -39,6 +39,7 @@ import { quoteReschedule } from '../lib/reschedule-quote';
 import { executeReschedule } from '../lib/reschedule-exec';
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import { computeChangeSettlement } from '../lib/change-settlement';
+import { cancelFormulaLines, rescheduleFormulaLines } from '../lib/settlement-formula';
 import { deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { claimPendingTicketsForCustomer } from '../lib/ticket-migration';
 import { pointExpiryStatus } from '../lib/points';
@@ -146,8 +147,21 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
   const ticket = ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false };
   // チケット払いは現金の請求・返金は発生しない（見積り額を0に上書き）。
   const q = ticketPlan ? { ...quote, cancelFee: 0, refundAmount: 0 } : quote;
+  // 計算式（内訳）を同梱：モーダルとメールで同一の文言にする（settlement-formula）。
+  const space = await getSpaceById(db, g.space_id);
+  const formula = cancelFormulaLines({
+    spaceName: space?.name ?? '',
+    daysBefore: q.daysBefore,
+    chargePctMax: q.chargePctMax,
+    cancelFee: q.cancelFee,
+    paidAmount: q.paidAmount,
+    refundAmount: q.refundAmount,
+    totalAmount: q.totalAmount,
+    breakdown: q.breakdown,
+    ticket,
+  });
   // 支払方法も返す（'invoice'＝自社口座への直接振込のみ、返金時に振込手数料の注記を表示）
-  return c.json({ ...q, paymentMethod: g.payment_method, ticket });
+  return c.json({ ...q, paymentMethod: g.payment_method, ticket, formula });
 });
 
 /**
@@ -182,7 +196,18 @@ app.get('/bookings/:number/reschedule-quote', async (c) => {
   );
   const cancelChargePct = computeCancelCharge(tiers, refDate, now, originalTotal).chargePct;
   const quote = await quoteReschedule(db, g, space, [{ date, startTime: start, endTime: end }], cancelChargePct);
-  return c.json(quote);
+  // 計算式（内訳）を同梱：モーダルとメールで同一の文言にする（settlement-formula）。
+  const formula = rescheduleFormulaLines({
+    spaceName: space.name,
+    kind: quote.settlement.kind,
+    currentTotal: quote.currentTotal,
+    newTotal: quote.newTotal,
+    cancelChargePct: quote.cancelChargePct,
+    refund: quote.settlement.refund,
+    charge: quote.settlement.charge,
+    ticket: quote.ticket,
+  });
+  return c.json({ ...quote, formula });
 });
 
 /**
@@ -280,6 +305,19 @@ app.post('/bookings/:number/cancel', async (c) => {
     now,
   );
 
+  // 計算式（内訳）：モーダル(cancel-quote)と同一の文言をメールにも載せる。
+  const cancelBreakdown = cancelFormulaLines({
+    spaceName: space?.name ?? '',
+    daysBefore: quote.daysBefore,
+    chargePctMax: quote.chargePctMax,
+    cancelFee: ticketPlan ? 0 : quote.cancelFee,
+    paidAmount: quote.paidAmount,
+    refundAmount,
+    totalAmount: quote.totalAmount,
+    breakdown: quote.breakdown,
+    ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
+  }).join('\n');
+
   // メール（顧客＋管理者）
   const custName = customer.contactName || 'お客様';
   c.executionCtx.waitUntil(
@@ -293,6 +331,7 @@ app.post('/bookings/:number/cancel', async (c) => {
         direction,
         amount: refundAmount,
         note,
+        breakdown: cancelBreakdown,
       }),
     }),
   );
@@ -313,6 +352,7 @@ app.post('/bookings/:number/cancel', async (c) => {
           customerName: custName,
           customerEmail: customer.email,
           note,
+          breakdown: cancelBreakdown,
           adminUrl: `${origin}/admin.html`,
         }),
       }),
@@ -441,6 +481,18 @@ app.post('/bookings/:number/reschedule', async (c) => {
     now,
   );
 
+  // 計算式（内訳）：モーダル(reschedule-quote)と同一の文言をメールにも載せる。
+  const rescheduleBreakdown = rescheduleFormulaLines({
+    spaceName: space.name,
+    kind: kind as 'move' | 'increase' | 'decrease' | 'cancel_treatment',
+    currentTotal: g.total_amount,
+    newTotal: exec.newTotal,
+    cancelChargePct,
+    refund: direction === 'refund' ? quotedAmount : 0,
+    charge: direction === 'charge' ? quotedAmount : 0,
+    ticket: exec.ticket.isTicket,
+  }).join('\n');
+
   // メール（顧客＋管理者）
   const custName = customer.contactName || 'お客様';
   c.executionCtx.waitUntil(
@@ -454,6 +506,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
         direction,
         amount: quotedAmount,
         note,
+        breakdown: rescheduleBreakdown,
         newDays: exec.newDays,
       }),
     }),
@@ -474,6 +527,7 @@ app.post('/bookings/:number/reschedule', async (c) => {
           customerName: custName,
           customerEmail: customer.email,
           note,
+          breakdown: rescheduleBreakdown,
           adminUrl: `${origin}/admin.html`,
         }),
       }),

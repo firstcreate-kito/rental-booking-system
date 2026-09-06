@@ -2226,8 +2226,14 @@ async function submitBooking() {
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
   const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' }[body.paymentMethod] || '';
   const dt = (S.cart || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
-  let payCell = payLabel || '—';
-  if ((body.paymentMethod === 'bank_transfer' || body.paymentMethod === 'invoice') && body.invoiceName) payCell += '（宛名：' + body.invoiceName + '）';
+  // 合計¥0（チケット/ポイント/クーポンで全額まかなった）場合は、決済手段ではなく利用した割引で表示する。
+  let payCell;
+  if (body.total === 0) {
+    payCell = { ticket: 'チケット（回数券）利用', points: 'ポイント利用', coupon: 'クーポン利用' }[body.primaryKind] || 'お支払いなし（¥0）';
+  } else {
+    payCell = payLabel || '—';
+    if ((body.paymentMethod === 'bank_transfer' || body.paymentMethod === 'invoice') && body.invoiceName) payCell += '（宛名：' + body.invoiceName + '）';
+  }
   const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const rows = [
     ['スペース', esc(S.space && S.space.name)],

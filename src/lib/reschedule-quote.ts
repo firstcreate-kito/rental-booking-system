@@ -7,6 +7,7 @@ import {
 } from '../db/repository';
 import { computeGroupSpacePrice, type SpacePricingConfig, type SeasonalRule, type DayBookingInput } from './pricing';
 import { computeAdjustment, type AdjustmentResult } from './cancellation';
+import { computeChangeSettlement, type ChangeSettlement } from './change-settlement';
 import { type HolidayType } from './calendar';
 
 /** SpaceRow → 料金計算用の設定（bookings.ts / admin.ts と同じ写像） */
@@ -36,24 +37,33 @@ export interface RescheduleQuoteItem {
 export interface RescheduleQuote {
   currentTotal: number; // 変更前の予約金額（グループ合計）
   newTotal: number; // 希望日時での新しいスペース料金
-  adjustment: AdjustmentResult; // 差額（surcharge=追加請求 / refund=返金 / zero=変わらず）
+  adjustment: AdjustmentResult; // 単純差額（参考値。実際の返金/請求は settlement を使う）
+  settlement: ChangeSettlement; // 統一ポリシー §2 の精算額（承認時の実処理と同一ロジック）
+  cancelChargePct: number; // 当初利用日基準のキャンセル料率（減額按分・キャンセル扱い判定に使用）
   ticket: boolean; // チケット（回数券）予約：日程移動では金額は変わらない
   paymentMethod: string | null; // 支払方法（'invoice'＝自社口座への直接振込のみ振込手数料を差引く旨を表示）
 }
 
 /**
- * 日時変更（reschedule）の差額見積を算出する。#100
- * 実際の日時変更処理（POST /api/bookings/:number/reschedule）と同じ料金計算を用い、
- * お客様に「追加請求／返金」の金額を事前提示するために使う（確定はしない）。
+ * 日時変更（reschedule）の精算見積を算出する。#100 / 統一ポリシー §2
+ * 実際の日時変更処理（POST /api/mypage/bookings/:number/reschedule）と**同一のロジック**
+ * （computeChangeSettlement＋当初利用日基準のキャンセル料率）で、お客様に「追加請求／返金／
+ * キャンセル扱い」の金額を事前提示する（確定はしない）。表示額＝承認時の実精算額を一致させる。
  *
- * - 非チケット予約：新しいスペース料金 vs 変更前の合計金額の差。
- * - チケット予約：日程移動では合計利用時間が変わらない前提のため差額なし（ticket=true）。
+ * - 非チケット予約：
+ *     増額 … 差額を追加請求。
+ *     減額 … 減少分を「一部キャンセル」とみなし、キャンセル料率で按分して返金。
+ *     キャンセル扱い（標準=当日／防音室=当日・前日）… 旧予約は返金なし・新予約は満額請求。
+ * - チケット予約：日程移動では合計利用時間が変わらない前提のため現金精算なし（ticket=true）。
+ *
+ * @param cancelChargePct 当初利用日基準のキャンセル料率(0〜100)。呼び出し側で computeCancelCharge により算出して渡す。
  */
 export async function quoteReschedule(
   db: D1Database,
   group: BookingGroupRow,
   space: SpaceRow,
   proposedItems: readonly RescheduleQuoteItem[],
+  cancelChargePct: number,
 ): Promise<RescheduleQuote> {
   const itemDates = proposedItems.map((i) => i.date).sort();
   const [holidays, seasonalRows] = await Promise.all([
@@ -87,16 +97,22 @@ export async function quoteReschedule(
       currentTotal: group.total_amount,
       newTotal: group.total_amount,
       adjustment: { type: 'zero', amount: 0 },
+      settlement: { kind: 'move', refund: 0, charge: 0, note: 'チケット（回数券）でのご予約のため、日時の移動による現金の精算はありません。' },
+      cancelChargePct,
       ticket: true,
       paymentMethod: group.payment_method,
     };
   }
 
   const newTotal = newGroup.spaceTotal;
+  // 精算は当初金額基準（original_total_amount）で行う。承認時の実処理（computeChangeSettlement）と一致させる。
+  const originalTotal = group.original_total_amount ?? group.total_amount;
   return {
     currentTotal: group.total_amount,
     newTotal,
     adjustment: computeAdjustment(group.total_amount, newTotal),
+    settlement: computeChangeSettlement(originalTotal, newTotal, cancelChargePct),
+    cancelChargePct,
     ticket: false,
     paymentMethod: group.payment_method,
   };

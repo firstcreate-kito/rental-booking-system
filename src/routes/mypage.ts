@@ -168,7 +168,20 @@ app.get('/bookings/:number/reschedule-quote', async (c) => {
   }
   const space = await getSpaceById(db, g.space_id);
   if (!space) return c.json({ error: 'space not found' }, 404);
-  const quote = await quoteReschedule(db, g, space, [{ date, startTime: start, endTime: end }]);
+  // 当初利用日基準のキャンセル料率を算出（減額の按分・キャンセル扱い判定に使用）。
+  // POST /reschedule の実処理と同一ロジックにして、表示額＝承認時の実精算額を一致させる。
+  const now = nowJST();
+  const today = now.slice(0, 10);
+  const oldRows = await getBookingsByGroup(db, g.id);
+  const refDate = g.original_date || oldRows.map((b) => b.date).sort()[0] || today;
+  const originalTotal = g.original_total_amount ?? g.total_amount;
+  const policiesAll = await getCancelPolicies(db);
+  const tiers: CancelPolicyTier[] = selectCancelPolicy(
+    policiesAll.map((p) => ({ spaceId: p.space_id, daysBefore: p.days_before, chargePct: p.charge_pct, cutoffTime: p.cutoff_time })),
+    g.space_id,
+  );
+  const cancelChargePct = computeCancelCharge(tiers, refDate, now, originalTotal).chargePct;
+  const quote = await quoteReschedule(db, g, space, [{ date, startTime: start, endTime: end }], cancelChargePct);
   return c.json(quote);
 });
 
@@ -543,13 +556,33 @@ app.post('/bookings/:number/change-request', async (c) => {
   }
   const yen = (n: number) => '¥' + Math.round(n).toLocaleString('ja-JP');
   let agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
-  // 日時変更で差額が生じる場合、お客様が同意した差額を記録に残す（#100）
+  // 日時変更で差額が生じる場合、お客様が同意した差額を記録に残す（#100 / 統一ポリシー §2）。
+  // reschedule-quote と同じキャンセル料率を渡し、記録＝実精算（承認時）を一致させる。
   if (type === 'reschedule' && proposed && space) {
     try {
-      const rq = await quoteReschedule(db, g, space, proposed);
-      if (rq.adjustment.type === 'surcharge') agreedNote += `\n【お客様が同意した金額】追加請求 ${yen(rq.adjustment.amount)}（変更後 ${yen(rq.newTotal)}）`;
-      else if (rq.adjustment.type === 'refund') agreedNote += `\n【お客様が同意した金額】ご返金 ${yen(rq.adjustment.amount)}（変更後 ${yen(rq.newTotal)}）`;
-      else if (!rq.ticket) agreedNote += `\n【お客様が同意した金額】差額なし（${yen(rq.newTotal)}）`;
+      const today = now.slice(0, 10);
+      const oldRows = await getBookingsByGroup(db, g.id);
+      const refDate = g.original_date || oldRows.map((b) => b.date).sort()[0] || today;
+      const originalTotal = g.original_total_amount ?? g.total_amount;
+      const policiesAll = await getCancelPolicies(db);
+      const tiers: CancelPolicyTier[] = selectCancelPolicy(
+        policiesAll.map((p) => ({ spaceId: p.space_id, daysBefore: p.days_before, chargePct: p.charge_pct, cutoffTime: p.cutoff_time })),
+        g.space_id,
+      );
+      const pct = computeCancelCharge(tiers, refDate, now, originalTotal).chargePct;
+      const rq = await quoteReschedule(db, g, space, proposed, pct);
+      const s = rq.settlement;
+      if (rq.ticket) {
+        /* チケットは現金精算なし＝注記不要 */
+      } else if (s.kind === 'cancel_treatment') {
+        agreedNote += `\n【お客様が同意した金額】キャンセル扱い：旧予約は返金なし・新予約は満額 ${yen(s.charge)}`;
+      } else if (s.kind === 'increase') {
+        agreedNote += `\n【お客様が同意した金額】追加請求 ${yen(s.charge)}（変更後 ${yen(rq.newTotal)}）`;
+      } else if (s.kind === 'decrease') {
+        agreedNote += `\n【お客様が同意した金額】ご返金 ${yen(s.refund)}（変更後 ${yen(rq.newTotal)}／減少分の${pct}%はキャンセル料）`;
+      } else {
+        agreedNote += `\n【お客様が同意した金額】差額なし（${yen(rq.newTotal)}）`;
+      }
     } catch (e) {
       /* 見積不可時は金額注記なし（担当者が確認） */
     }

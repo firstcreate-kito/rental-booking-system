@@ -904,25 +904,38 @@ async function loadRescheduleQuote() {
     lines.innerHTML = '<div>チケット（回数券）でのご予約のため、日時の移動による追加料金はかかりません。</div>';
     _rsNeedAgree = false; crAgreeChange(); return;
   }
-  const adj = body.adjustment || { type: 'zero', amount: 0 };
-  if (adj.type === 'surcharge') {
+  // 統一ポリシー §2 の精算額（承認時の実処理と同一ロジック）。返金は減少分にキャンセル料率を按分。
+  const s = body.settlement || { kind: 'move', refund: 0, charge: 0 };
+  const pct = body.cancelChargePct || 0;
+  if (s.kind === 'cancel_treatment') {
+    // 当日（標準）・当日/前日（防音室）＝キャンセル扱い：旧予約は返金なし・新予約は満額請求。
+    lines.innerHTML =
+      '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">この日時変更は「キャンセル扱い」になります</div>' +
+      '<div>直前のご変更のため、<strong>元のご予約は返金なし</strong>となり、<strong>新しいご予約は満額</strong>のお支払いとなります。</div>' +
+      '<div style="margin-top:4px">新しいご予約の料金：<strong>' + yen(s.charge) + '</strong>（元のお支払いは返金されません）</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お支払いのご案内は担当者が行います。</div>';
+    _rsNeedAgree = true; agreeRow.style.display = 'flex';
+  } else if (s.kind === 'increase') {
     lines.innerHTML =
       '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">日時変更にともなう差額</div>' +
       '<div>変更後の料金：<strong>' + yen(body.newTotal) + '</strong></div>' +
-      '<div>追加のお支払い：<strong>' + yen(adj.amount) + '</strong></div>' +
+      '<div>追加のお支払い：<strong>' + yen(s.charge) + '</strong></div>' +
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お支払いのご案内は担当者が行います。</div>';
     _rsNeedAgree = true; agreeRow.style.display = 'flex';
-  } else if (adj.type === 'refund') {
+  } else if (s.kind === 'decrease') {
+    // 減額は「減少分の一部キャンセル」。キャンセル料率が付く時期は返金が按分される旨を明示。
     // 自社口座への直接振込（請求書払い=invoice）の返金のみ、振込手数料を差し引く旨を表示。
-    // Stripe収納代行の銀行振込（bank_transfer）やカード等は対象外。
     const feeNote = body.paymentMethod === 'invoice'
       ? '<div class="muted" style="font-size:12px;margin-top:4px">振込手数料を差し引いてご返金させていただきます。ご了承くださいませ。</div>'
       : '';
+    const pctNote = pct > 0
+      ? '<div class="muted" style="font-size:12px;margin-top:4px">時間短縮分は「一部キャンセル」として、キャンセル料（' + pct + '%）を差し引いた額をご返金します。</div>'
+      : '';
     lines.innerHTML =
-      '<div style="font-weight:700;color:#166534;margin-bottom:4px">日時変更にともなう差額</div>' +
+      '<div style="font-weight:700;color:#166534;margin-bottom:4px">日時変更にともなう返金</div>' +
       '<div>変更後の料金：<strong>' + yen(body.newTotal) + '</strong></div>' +
-      '<div>ご返金：<strong>' + yen(adj.amount) + '</strong></div>' +
-      feeNote +
+      '<div>ご返金：<strong>' + yen(s.refund) + '</strong></div>' +
+      pctNote + feeNote +
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・ご返金のお手続きは担当者が行います。</div>';
     _rsNeedAgree = true; agreeRow.style.display = 'flex';
   } else {

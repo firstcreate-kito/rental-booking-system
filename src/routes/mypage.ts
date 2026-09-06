@@ -10,6 +10,7 @@ import {
   getBookingEventsForGroup,
   getPointBalanceAndLog,
   getMemberCoupons,
+  getUsableCouponsForSpace,
   getFavorites,
   addFavorite,
   removeFavorite,
@@ -289,6 +290,14 @@ app.get('/points', async (c) => {
 /** GET /api/mypage/coupons 保有クーポン一覧 */
 app.get('/coupons', async (c) => {
   const coupons = await getMemberCoupons(c.env.DB, c.get('customer').id);
+  return c.json({ coupons });
+});
+
+/** GET /api/mypage/usable-coupons?spaceId=xxx 指定スペースで「今」使えるクーポン（予約画面の自動候補用） */
+app.get('/usable-coupons', async (c) => {
+  const spaceId = (c.req.query('spaceId') || '').trim();
+  if (!spaceId) return c.json({ coupons: [] });
+  const coupons = await getUsableCouponsForSpace(c.env.DB, c.get('customer').id, spaceId, todayJST());
   return c.json({ coupons });
 });
 

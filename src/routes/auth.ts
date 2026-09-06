@@ -20,9 +20,10 @@ import {
   clearLoginFailures,
   markLoginChallengeUsed,
   ensureCustomerByEmail,
+  issueSignupBonusIfEligible,
 } from '../db/repository';
 import { hashPassword, verifyPassword, generateToken, sessionExpiry, isValidEmail } from '../lib/auth';
-import { nowJST } from '../lib/clock';
+import { nowJST, todayJST } from '../lib/clock';
 import { sendEmail, passwordResetEmail, welcomeEmail, magicLinkEmail, loginCodeEmail } from '../lib/email';
 import { googleConfigured, buildGoogleAuthUrl, exchangeGoogleCode } from '../lib/google-oauth';
 import { lineConfigured, buildLineAuthUrl, exchangeLineCode } from '../lib/line-oauth';
@@ -110,6 +111,10 @@ app.post('/register', async (c) => {
       .bind(customerId, email, passwordHash, companyName ?? null, contactName, phone, now)
       .run();
   }
+
+  // 新規登録特典クーポン（有効ルールがあるときのみ・1人1枚・自動発行）。
+  // 既定は無効（signup_bonus_rules.enabled=0）。失敗しても登録は成立させる。
+  await issueSignupBonusIfEligible(db, { id: customerId, phone: phone ?? null, email: email ?? null }, todayJST(), now);
 
   const token = generateToken();
   await createSession(db, token, customerId, sessionExpiry(), now);

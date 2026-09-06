@@ -3,6 +3,7 @@
  */
 import type { HolidayType } from '../lib/calendar';
 import { nowJST } from '../lib/clock';
+import { buildSignupCouponPlan, type SignupBonusRuleRow } from '../lib/signup-bonus';
 
 /** spaces テーブルの行 */
 export interface SpaceRow {
@@ -1192,6 +1193,7 @@ export async function issueCoupon(
     validUntil: string | null; // null = 無期限
     staffMemo: string | null;
     spaceIds: string[];
+    source?: string | null; // 自動発行の目印（手動=null / 新規登録特典='signup'）
   },
   createdBy: string,
   now: string,
@@ -1201,12 +1203,13 @@ export async function issueCoupon(
     db
       .prepare(
         `INSERT INTO discount_coupons
-         (id, customer_id, name, code, discount_type, discount_value, total_hours, remaining_hours, apply_to, valid_from, valid_until, staff_memo, status, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'space_only', ?, ?, ?, 'active', ?, ?)`,
+         (id, customer_id, name, code, discount_type, discount_value, total_hours, remaining_hours, apply_to, valid_from, valid_until, staff_memo, status, source, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'space_only', ?, ?, ?, 'active', ?, ?, ?)`,
       )
       .bind(
         id, coupon.customerId, coupon.name, coupon.code, coupon.discountType, coupon.discountValue,
-        coupon.totalHours, coupon.totalHours, coupon.validFrom, coupon.validUntil, coupon.staffMemo, createdBy, now,
+        coupon.totalHours, coupon.totalHours, coupon.validFrom, coupon.validUntil, coupon.staffMemo,
+        coupon.source ?? null, createdBy, now,
       ),
   ];
   for (const sid of coupon.spaceIds) {
@@ -1214,6 +1217,122 @@ export async function issueCoupon(
   }
   await db.batch(stmts);
   return id;
+}
+
+// --- 新規会員登録特典（自動発行クーポン・#122関連） ---
+
+/** 有効な新規登録特典ルールを取得（enabled=1）。 */
+export async function getEnabledSignupBonusRules(db: D1Database): Promise<SignupBonusRuleRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, enabled, name, discount_type, discount_value, total_hours, validity_days, space_ids
+       FROM signup_bonus_rules WHERE enabled = 1 ORDER BY created_at ASC`,
+    )
+    .all<SignupBonusRuleRow>();
+  return results ?? [];
+}
+
+/** この顧客に既に新規登録特典クーポンを発行済みか（1顧客1枚）。 */
+export async function hasSignupCoupon(db: D1Database, customerId: string): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 FROM discount_coupons WHERE customer_id = ? AND source = 'signup' LIMIT 1")
+    .bind(customerId)
+    .first();
+  return row != null;
+}
+
+/** 同じ電話番号/メールの別アカウントが既に新規登録特典を受け取っているか（多重取得の防止）。 */
+export async function signupCouponExistsForContact(
+  db: D1Database,
+  phone: string | null,
+  email: string | null,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 FROM discount_coupons dc JOIN customers c ON c.id = dc.customer_id
+       WHERE dc.source = 'signup'
+         AND ( (?1 <> '' AND c.phone = ?1) OR (?2 <> '' AND c.email = ?2) )
+       LIMIT 1`,
+    )
+    .bind(phone ?? '', email ?? '')
+    .first();
+  return row != null;
+}
+
+/**
+ * 新規会員登録特典クーポンを、条件を満たす場合のみ自動発行する。
+ * - 有効ルールが無ければ何もしない（＝既定OFF。開始時に enabled=1 で発動）。
+ * - 1顧客1枚。電話番号/メールが既存の特典受領者と一致する場合も発行しない。
+ * - 発行失敗（採番失敗・DB例外）で会員登録自体は止めない（例外を飲み込む）。
+ */
+export async function issueSignupBonusIfEligible(
+  db: D1Database,
+  customer: { id: string; phone: string | null; email: string | null },
+  today: string,
+  now: string,
+): Promise<{ issued: boolean; couponName?: string }> {
+  try {
+    const rules = await getEnabledSignupBonusRules(db);
+    if (rules.length === 0) return { issued: false };
+    if (await hasSignupCoupon(db, customer.id)) return { issued: false };
+    if (await signupCouponExistsForContact(db, customer.phone, customer.email)) return { issued: false };
+    const plan = buildSignupCouponPlan(rules[0], today); // v1: 先頭の有効ルールを1つ（1人1枚）
+    if (!plan) return { issued: false };
+    let code = '';
+    for (let i = 0; i < 20; i++) {
+      const cand = String((crypto.getRandomValues(new Uint32Array(1))[0] % 900000) + 100000);
+      if (!(await couponCodeExists(db, cand))) {
+        code = cand;
+        break;
+      }
+    }
+    if (!code) return { issued: false };
+    await issueCoupon(
+      db,
+      {
+        customerId: customer.id,
+        name: plan.name,
+        code,
+        discountType: plan.discountType,
+        discountValue: plan.discountValue,
+        totalHours: plan.totalHours,
+        validFrom: plan.validFrom,
+        validUntil: plan.validUntil,
+        staffMemo: '新規登録特典（自動発行）',
+        spaceIds: plan.spaceIds,
+        source: plan.source,
+      },
+      'system',
+      now,
+    );
+    return { issued: true, couponName: plan.name };
+  } catch {
+    return { issued: false };
+  }
+}
+
+/**
+ * 会員がこのスペースで「今」使えるクーポン一覧（予約画面の自動候補表示用）。
+ * 有効・残あり・期限内（today基準＝予約作成日で判定）・対象スペースに合致するもの。
+ */
+export async function getUsableCouponsForSpace(
+  db: D1Database,
+  customerId: string,
+  spaceId: string,
+  today: string,
+) {
+  const { results } = await db
+    .prepare(
+      `SELECT dc.code, dc.name, dc.discount_type, dc.discount_value, dc.valid_until, dc.remaining_hours
+       FROM discount_coupons dc
+       WHERE dc.customer_id = ?1 AND dc.status = 'active' AND dc.remaining_hours > 0
+         AND dc.valid_from <= ?3 AND (dc.valid_until IS NULL OR dc.valid_until >= ?3)
+         AND EXISTS (SELECT 1 FROM coupon_spaces cs WHERE cs.coupon_id = dc.id AND cs.space_id = ?2)
+       ORDER BY dc.valid_until IS NULL, dc.valid_until ASC`,
+    )
+    .bind(customerId, spaceId, today)
+    .all();
+  return results ?? [];
 }
 
 /** ポイント手動付与/取消（残高更新 + 履歴記録） */

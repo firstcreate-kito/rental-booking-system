@@ -92,6 +92,13 @@ import {
   listChangeRequests,
   getChangeRequestById,
   resolveChangeRequest,
+  getBookingGroupById,
+  listChangeSettlements,
+  getChangeSettlementById,
+  approveChangeSettlement,
+  dismissChangeSettlement,
+  type ChangeSettlementRow,
+  type BookingGroupRow,
   listViewingRequests,
   getViewingRequest,
   updateViewingRequest,
@@ -133,7 +140,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, refundAccountRequestEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, refundAccountRequestEmail, changeCompletedEmail, adminChangeSettlementResolvedEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { bookingIcsAttachment } from '../lib/ics';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
@@ -998,6 +1005,151 @@ async function requestRefundAccountIfManual(
       context,
     }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Phase B：精算待ち承認で使う「返金実処理」「追加請求発行」の共通関数
+//   （既存の管理者手動返金 #87 / 追加請求 #88 のロジックと同じ挙動）
+// ---------------------------------------------------------------------------
+
+interface MoneyActionResult {
+  ok: boolean;
+  error?: string;
+  httpStatus?: number;
+  actionTaken: string; // 控えメール・レスポンス用の実行内容
+}
+
+/**
+ * 返金の実処理（Phase B 承認時）。支払方法で分岐：
+ *  - カード/PayPal … 自動返金（#87 と同じ）
+ *  - 銀行振込/コンビニ … 返金先口座を伺うメール（refundAccountRequestEmail）＋手動記録（manual_pending）
+ * 実際の送金は従来どおり管理者が「振込済みとして記録」で確定する。
+ */
+async function performGroupRefund(
+  c: Context<AppBindings>,
+  g: BookingGroupRow,
+  amount: number,
+  reason: string | null,
+): Promise<MoneyActionResult> {
+  const db = c.env.DB;
+  const admin = c.get('admin');
+  const now = nowJST();
+  const pay = await getRefundablePaymentForGroup(db, g.id);
+  const paidAmount = g.payment_status === 'paid' ? (pay?.amount ?? g.total_amount) : 0;
+  const refunded = pay?.refunded_amount ?? 0;
+  const max = maxRefundable(g.payment_status, paidAmount, refunded);
+  const v = validateRefundAmount(amount, max);
+  if (!v.ok) return { ok: false, error: v.error, httpStatus: 400, actionTaken: '' };
+
+  let stripeType: string | null = null;
+  if (g.payment_method === 'stripe' && pay?.stripe_payment_intent && c.env.STRIPE_SECRET_KEY) {
+    stripeType = await retrievePaymentIntentMethodType(c.env.STRIPE_SECRET_KEY, pay.stripe_payment_intent);
+  }
+  const mode = refundModeFor(g.payment_method, stripeType);
+
+  const [prof, sp] = await Promise.all([
+    g.customer_id ? getCustomerProfile(db, g.customer_id) : Promise.resolve(null),
+    getSpaceById(db, g.space_id),
+  ]);
+  const to = prof?.email ? String(prof.email) : '';
+  const custName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
+
+  if (mode === 'manual') {
+    // 銀行振込/コンビニ：返金先口座を伺うメールを送り、手動返金として pending 記録。
+    await recordRefundLog(db, { groupId: g.id, amount, mode: 'manual', status: 'manual_pending', reason, createdBy: admin?.email ?? null }, now);
+    if (to) {
+      c.executionCtx.waitUntil(
+        sendEmail(c.env, {
+          to,
+          ...refundAccountRequestEmail({ customerName: custName, bookingNumber: g.booking_number, spaceName: sp?.name ?? '', refundAmount: amount, context: g.status === 'cancelled' ? 'cancel' : 'reschedule' }),
+        }),
+      );
+    }
+    try {
+      await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金確定 ¥${Math.round(amount).toLocaleString('ja-JP')}（振込・要口座確認）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
+    } catch { /* 履歴失敗は無視 */ }
+    return { ok: true, actionTaken: `返金先口座の確認メールを送信（手動返金 ¥${Math.round(amount).toLocaleString('ja-JP')}）` };
+  }
+
+  // 自動返金（カード/PayPal）
+  if (!pay) return { ok: false, error: '返金対象の決済が見つかりません', httpStatus: 400, actionTaken: '' };
+  let refundId: string | undefined;
+  if (mode === 'auto_stripe') {
+    if (!pay.stripe_payment_intent || !c.env.STRIPE_SECRET_KEY) return { ok: false, error: 'Stripeの決済情報が不足しています（手動返金してください）', httpStatus: 400, actionTaken: '' };
+    const r = await refundPaymentAmount(c.env.STRIPE_SECRET_KEY, pay.stripe_payment_intent, amount);
+    if (!r.ok) return { ok: false, error: 'Stripe返金に失敗しました：' + (r.error || ''), httpStatus: 502, actionTaken: '' };
+    refundId = r.refundId;
+  } else {
+    if (!pay.paypal_capture_id) return { ok: false, error: 'PayPalの決済情報が不足しています（手動返金してください）', httpStatus: 400, actionTaken: '' };
+    const r = await refundPaypalCapture(c.env, pay.paypal_capture_id, amount);
+    if (!r.ok) return { ok: false, error: 'PayPal返金に失敗しました：' + (r.error || ''), httpStatus: 502, actionTaken: '' };
+    refundId = r.refundId;
+  }
+  await addRefundedAmount(db, pay.id, amount);
+  await recordRefundLog(db, { groupId: g.id, amount, mode: mode === 'auto_stripe' ? 'stripe' : 'paypal', status: 'done', providerRefundId: refundId ?? null, reason, createdBy: admin?.email ?? null }, now);
+  if (g.status === 'confirmed') {
+    try {
+      await reissueReceiptForGroup(db, g.id, `${todayJST()} 予約内容変更に伴う返金 ¥${Math.round(amount).toLocaleString('ja-JP')} を反映し、変更後の合計金額で再発行しました。`);
+    } catch { /* 再発行失敗は無視 */ }
+  }
+  try {
+    await recordBookingEvent(db, { groupId: g.id, type: 'refund', amount, summary: `返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（${mode === 'auto_paypal' ? 'PayPal' : 'カード'}・自動）`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, now);
+  } catch { /* 履歴失敗は無視 */ }
+  if (to) {
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, { to, ...refundEmail({ bookingNumber: g.booking_number, spaceName: sp?.name ?? '', customerName: custName, amount, method: mode === 'auto_paypal' ? 'paypal' : 'card' }) }),
+    );
+  }
+  return { ok: true, actionTaken: `自動返金 ¥${Math.round(amount).toLocaleString('ja-JP')}（${mode === 'auto_paypal' ? 'PayPal' : 'カード'}）` };
+}
+
+/**
+ * 追加請求リンクの発行（Phase B 承認時・#88 と同じ）。
+ * カード（＋スペースが許可すればコンビニ）の決済リンクを作成し、お客様へメール。
+ */
+async function performGroupAdditionalCharge(
+  c: Context<AppBindings>,
+  g: BookingGroupRow,
+  amount: number,
+  reason: string | null,
+): Promise<MoneyActionResult> {
+  const db = c.env.DB;
+  if (!(amount > 0)) return { ok: false, error: '追加金額は1円以上を指定してください', httpStatus: 400, actionTaken: '' };
+  if (!stripeConfigured(c.env)) return { ok: false, error: 'Stripeが未設定です', httpStatus: 503, actionTaken: '' };
+  const space = await getSpaceById(db, g.space_id);
+  const prof = g.customer_id ? await getCustomerProfile(db, g.customer_id) : null;
+  const email = prof?.email ? String(prof.email) : '';
+  const customerName = prof?.contact_name ? String(prof.contact_name) : 'お客様';
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const konbiniReady = String(c.env.STRIPE_KONBINI_ENABLED ?? '').toLowerCase() === 'true';
+  const konbiniOk = konbiniReady && space?.payment_mode === 'card_konbini_bank';
+  const payId = crypto.randomUUID();
+  try {
+    const session = await createCheckoutSession(c.env.STRIPE_SECRET_KEY!, {
+      productName: `追加料金 ${g.booking_number}（${space?.name ?? ''}）`,
+      amountJpy: amount,
+      successUrl: `${origin}/pay-complete.html?type=additional&session={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}/pay-complete.html?type=additional&status=cancel&num=${encodeURIComponent(g.booking_number)}`,
+      customerEmail: email || undefined,
+      clientReferenceId: payId,
+      metadata: { kind: 'additional', groupId: g.id, bookingNumber: g.booking_number },
+      paymentMethodTypes: konbiniOk ? ['card', 'konbini'] : ['card'],
+      konbiniExpiresAfterDays: konbiniOk ? 3 : undefined,
+    });
+    await createBookingPayment(db, { id: payId, groupId: g.id, provider: 'stripe', amount, sessionId: session.id, kind: 'additional' }, nowJST());
+    if (email) {
+      c.executionCtx.waitUntil(
+        sendEmail(c.env, { to: email, ...additionalChargeEmail({ customerName, bookingNumber: g.booking_number, spaceName: space?.name ?? '', amount, payUrl: session.url, reason: reason ?? undefined }) }),
+      );
+    }
+    try {
+      const admin = c.get('admin');
+      await recordBookingEvent(db, { groupId: g.id, type: 'additional_issued', amount, summary: `追加請求 ¥${Math.round(amount).toLocaleString('ja-JP')} を発行${reason ? '（' + reason + '）' : ''}`, actor: admin?.email ? 'admin:' + admin.email : 'admin' }, nowJST());
+    } catch { /* 履歴失敗は無視 */ }
+    return { ok: true, actionTaken: `追加請求リンクを発行 ¥${Math.round(amount).toLocaleString('ja-JP')}` };
+  } catch (err) {
+    return { ok: false, error: '追加請求リンクの作成に失敗しました：' + (err as Error).message, httpStatus: 502, actionTaken: '' };
+  }
 }
 
 /** POST /api/admin/bookings/:number/cancel 本予約のキャンセル（キャンセル料計算・記録） */
@@ -1905,6 +2057,146 @@ app.post('/change-requests/:id/resolve', async (c) => {
     );
   }
   return c.json({ ok: true, id, resolution });
+});
+
+// ---------------------------------------------------------------------------
+// 精算待ち（Phase B・変更/キャンセルの申込＝即時反映／お金は管理者承認）
+// docs/unified-change-cancel-policy.md §5
+// ---------------------------------------------------------------------------
+
+function serializeSettlement(r: ChangeSettlementRow) {
+  const parseItems = (json: string | null) => {
+    if (!json) return null;
+    try {
+      const v = JSON.parse(json);
+      return Array.isArray(v) ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    id: r.id,
+    groupId: r.group_id,
+    bookingNumber: r.booking_number,
+    type: r.type,
+    kind: r.kind,
+    direction: r.direction,
+    quotedAmount: r.quoted_amount,
+    finalAmount: r.final_amount,
+    paymentMethod: r.payment_method,
+    oldItems: parseItems(r.old_items),
+    newItems: parseItems(r.new_items),
+    note: r.note,
+    status: r.status,
+    createdAt: r.created_at,
+    resolvedAt: r.resolved_at,
+    resolvedBy: r.resolved_by,
+    spaceName: r.space_name ?? '',
+    eventName: r.event_name ?? '',
+    groupStatus: r.group_status ?? '',
+    customerName: r.contact_name ?? '',
+    customerEmail: r.customer_email ?? '',
+    customerPhone: r.customer_phone ?? '',
+  };
+}
+
+/** GET /api/admin/change-settlements?status=pending 精算待ち一覧 */
+app.get('/change-settlements', async (c) => {
+  const status = c.req.query('status') ?? undefined;
+  const rows = await listChangeSettlements(c.env.DB, status);
+  return c.json({ settlements: rows.map(serializeSettlement) });
+});
+
+/**
+ * POST /api/admin/change-settlements/:id/approve 精算を承認確定
+ * body: { amount?: number }（返金/追加請求の確定額。direction='none' では不要）
+ * 支払方法で分岐して返金/追加請求を実行し、顧客＋管理者へ確定メールを送る。
+ */
+app.post('/change-settlements/:id/approve', async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const admin = c.get('admin');
+  const body = (await c.req.json().catch(() => ({}))) as { amount?: number };
+  const s = await getChangeSettlementById(db, id);
+  if (!s) return c.json({ error: '精算待ちが見つかりません' }, 404);
+  if (s.status !== 'pending') return c.json({ error: 'この精算は処理済みです' }, 409);
+  const g = await getBookingGroupById(db, s.group_id);
+  if (!g) return c.json({ error: '対象の予約が見つかりません' }, 404);
+
+  const now = nowJST();
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+
+  // 確定金額：direction='none' は0。返金/追加請求は管理者入力（省略時は提示額）。
+  const inputAmount = typeof body.amount === 'number' && Number.isFinite(body.amount) ? Math.max(0, Math.round(body.amount)) : s.quoted_amount;
+  const finalAmount = s.direction === 'none' ? 0 : inputAmount;
+
+  // 支払方法別の実処理
+  let actionTaken = '金額の増減なし（変更/キャンセル完了）';
+  if (s.direction === 'refund') {
+    const r = await performGroupRefund(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う返金`);
+    if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
+    actionTaken = r.actionTaken;
+  } else if (s.direction === 'charge') {
+    const r = await performGroupAdditionalCharge(c, g, finalAmount, `${s.type === 'cancel' ? 'キャンセル' : '日時変更'}に伴う追加料金`);
+    if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
+    actionTaken = r.actionTaken;
+  } else {
+    // direction='none'：金額処理なし。顧客へ完了メール。
+    if (s.customer_email) {
+      c.executionCtx.waitUntil(
+        sendEmail(c.env, {
+          to: s.customer_email,
+          ...changeCompletedEmail({
+            customerName: s.contact_name || 'お客様',
+            bookingNumber: s.booking_number ?? g.booking_number,
+            spaceName: s.space_name ?? '',
+            type: s.type,
+            newDays: s.new_items ? (JSON.parse(s.new_items) as Array<{ date: string; startTime: string; endTime: string }>) : undefined,
+          }),
+        }),
+      );
+    }
+  }
+
+  await approveChangeSettlement(db, id, { finalAmount, resolvedBy: admin?.email ?? null, now });
+
+  // 管理者へ確定の控え
+  const admins = await adminRecipients(c.env, s.space_id);
+  if (admins.length) {
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: admins,
+        ...adminChangeSettlementResolvedEmail({
+          bookingNumber: s.booking_number ?? g.booking_number,
+          spaceName: s.space_name ?? '',
+          type: s.type,
+          direction: s.direction,
+          amount: finalAmount,
+          actionTaken,
+        }),
+      }),
+    );
+  }
+
+  return c.json({ ok: true, id, status: 'approved', finalAmount, direction: s.direction, actionTaken, adminUrl: `${origin}/admin.html` });
+});
+
+/**
+ * POST /api/admin/change-settlements/:id/dismiss 精算を差し戻し（連絡用メモを残す）
+ * body: { note?: string }
+ * ※枠は既に動いている前提のため、予約自体の復元は行わない（メモのみ）。
+ */
+app.post('/change-settlements/:id/dismiss', async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const admin = c.get('admin');
+  const body = (await c.req.json().catch(() => ({}))) as { note?: string };
+  const note = (body.note ?? '').trim() || null;
+  const s = await getChangeSettlementById(db, id);
+  if (!s) return c.json({ error: '精算待ちが見つかりません' }, 404);
+  if (s.status !== 'pending') return c.json({ error: 'この精算は処理済みです' }, 409);
+  await dismissChangeSettlement(db, id, { note, resolvedBy: admin?.email ?? null, now: nowJST() });
+  return c.json({ ok: true, id, status: 'dismissed' });
 });
 
 // ---------------------------------------------------------------------------

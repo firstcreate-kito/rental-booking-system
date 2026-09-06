@@ -2369,3 +2369,173 @@ ${d.adminUrl ? `<p><a href="${d.adminUrl}" style="color:#2563eb">管理画面を
 </div>`;
   return withSignature({ subject, html, text });
 }
+
+// ---------------------------------------------------------------------------
+// 変更・キャンセルの「申込＝即時反映／お金は管理者承認」フロー（Phase B）
+// docs/unified-change-cancel-policy.md §5
+// ---------------------------------------------------------------------------
+
+/** 精算の方向・金額を人間向けの一文にする（申込受付・管理者通知で共有）。 */
+function settlementAmountLine(direction: 'refund' | 'charge' | 'none', amount: number): string {
+  if (direction === 'refund') return `ご返金（予定）：${yen(amount)}`;
+  if (direction === 'charge') return `追加のお支払い（予定）：${yen(amount)}`;
+  return '金額の増減はありません（¥0）';
+}
+
+/**
+ * 申込受付メール（お客様宛・Phase B）。
+ * 変更/キャンセルの枠は即時反映済みで、金額は担当者の確認後に確定する旨を伝える。
+ */
+export function changeSettlementReceivedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  type: 'reschedule' | 'cancel';
+  direction: 'refund' | 'charge' | 'none';
+  amount: number;
+  note?: string;
+  oldDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+  newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+}): { subject: string; html: string; text: string } {
+  const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
+  const subject = `【レンタルスペースALBE】${actionJa}のお申し込みを受け付けました（${d.bookingNumber}）`;
+  const amountLine = settlementAmountLine(d.direction, d.amount);
+  const newBlock = d.type === 'reschedule' && d.newDays && d.newDays.length ? `\n\n【変更後の日時】\n${daysBlockText(d.newDays)}` : '';
+  const text = `${d.customerName} 様
+
+ご予約の${actionJa}のお申し込みを受け付けました。
+${d.type === 'cancel' ? 'ご予約枠はキャンセル（解放）いたしました。' : 'ご予約は新しい日時へ変更（枠を確保）いたしました。'}${newBlock}
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+${amountLine}
+${d.note ? `\n${d.note}` : ''}
+
+※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。`;
+  const newHtml = d.type === 'reschedule' && d.newDays && d.newDays.length
+    ? `<p style="margin:6px 0;color:#6b7280">変更後の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約の<strong>${escapeHtml(actionJa)}</strong>のお申し込みを受け付けました。<br>${d.type === 'cancel' ? 'ご予約枠はキャンセル（解放）いたしました。' : 'ご予約は新しい日時へ変更（枠を確保）いたしました。'}</p>
+${newHtml}
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+</table>
+<div style="margin:12px 0;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
+${d.note ? `<p style="color:#6b7280;font-size:13px;white-space:pre-wrap">${escapeHtml(d.note)}</p>` : ''}
+<p style="color:#6b7280;font-size:13px">※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 承認待ち発生の通知（管理者宛・Phase B）。金額プリセットの確認を促す。 */
+export function adminChangeSettlementPendingEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  eventName: string;
+  type: 'reschedule' | 'cancel';
+  direction: 'refund' | 'charge' | 'none';
+  amount: number;
+  paymentMethod: string | null;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  note?: string;
+  adminUrl?: string;
+}): { subject: string; html: string; text: string } {
+  const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
+  const subject = `【承認待ち】${actionJa}の精算確認／${d.spaceName}（${d.bookingNumber}）`;
+  const amountLine = settlementAmountLine(d.direction, d.amount);
+  const pm = paymentMethodJp(d.paymentMethod) || (d.paymentMethod ?? '—');
+  const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
+  const text = `お客様が${actionJa}をお申し込みになり、枠は即時反映済みです。
+管理画面の「精算待ち」から金額を確認・承認してください（お金の実処理は承認時に行います）。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+イベント名: ${d.eventName}
+お客様: ${contact}
+お支払い方法: ${pm}
+${amountLine}
+${d.note ? `\n${d.note}` : ''}
+${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>お客様が<strong>${escapeHtml(actionJa)}</strong>をお申し込みになり、枠は即時反映済みです。<br>管理画面の「精算待ち」から金額を確認・承認してください（お金の実処理は承認時に行います）。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(pm)}</td></tr>
+</table>
+<div style="margin:12px 0;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
+${d.note ? `<p style="color:#6b7280;font-size:13px;white-space:pre-wrap">${escapeHtml(d.note)}</p>` : ''}
+${d.adminUrl ? `<p style="margin:16px 0"><a href="${escapeHtml(d.adminUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">管理画面で確認</a></p>` : ''}
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 変更/キャンセル完了（金額の増減なし・お客様宛・Phase B 承認確定）。 */
+export function changeCompletedEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  type: 'reschedule' | 'cancel';
+  newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
+}): { subject: string; html: string; text: string } {
+  const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
+  const subject = `【レンタルスペースALBE】ご予約の${actionJa}が完了しました（${d.bookingNumber}）`;
+  const newBlock = d.type === 'reschedule' && d.newDays && d.newDays.length ? `\n\n【変更後の日時】\n${daysBlockText(d.newDays)}` : '';
+  const text = `${d.customerName} 様
+
+ご予約の${actionJa}が完了しました。
+今回のお手続きに伴う金額の増減（追加請求・ご返金）はございません。${newBlock}
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}`;
+  const newHtml = d.type === 'reschedule' && d.newDays && d.newDays.length
+    ? `<p style="margin:6px 0;color:#6b7280">変更後の日時</p><ul style="margin:4px 0">${daysBlockHtml(d.newDays)}</ul>`
+    : '';
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約の<strong>${escapeHtml(actionJa)}</strong>が完了しました。<br>今回のお手続きに伴う金額の増減（追加請求・ご返金）はございません。</p>
+${newHtml}
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+</table>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
+/** 精算の承認確定を管理者へ控え通知（Phase B）。 */
+export function adminChangeSettlementResolvedEmail(d: {
+  bookingNumber: string;
+  spaceName: string;
+  type: 'reschedule' | 'cancel';
+  direction: 'refund' | 'charge' | 'none';
+  amount: number;
+  actionTaken: string; // 実行した処理の説明
+}): { subject: string; html: string; text: string } {
+  const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
+  const subject = `【控え】${actionJa}の精算を確定しました／${d.spaceName}（${d.bookingNumber}）`;
+  const amountLine = settlementAmountLine(d.direction, d.amount);
+  const text = `${actionJa}の精算を確定しました（控え）。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+${amountLine}
+実行内容: ${d.actionTaken}`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p><strong>${escapeHtml(actionJa)}</strong>の精算を確定しました（控え）。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">金額</td><td>${escapeHtml(amountLine)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">実行内容</td><td>${escapeHtml(d.actionTaken)}</td></tr>
+</table>
+</div>`;
+  return withSignature({ subject, html, text });
+}

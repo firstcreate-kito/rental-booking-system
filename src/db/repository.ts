@@ -4009,3 +4009,217 @@ export async function countPendingViewingRequests(db: D1Database): Promise<numbe
   const row = await db.prepare(`SELECT COUNT(*) AS n FROM viewing_requests WHERE status = 'pending'`).first<{ n: number }>();
   return row?.n ?? 0;
 }
+
+// ---------------------------------------------------------------------------
+// 変更・キャンセルの「精算待ち」テーブル（統一ポリシー Phase B）#change_settlements
+//
+// お客様の申込＝枠は即時反映（変更＝新枠へ移動／キャンセル＝枠解放）。
+// お金（返金/追加請求）は本テーブルに pending として記録し、管理者が金額を
+// 確認・任意調整して「承認」すると確定・実行される（migrations/0056_change_settlements.sql）。
+// ---------------------------------------------------------------------------
+
+export type ChangeSettlementType = 'reschedule' | 'cancel';
+export type ChangeSettlementDirection = 'refund' | 'charge' | 'none';
+
+export interface ChangeSettlementInput {
+  groupId: string;
+  bookingNumber: string | null;
+  customerId: string | null;
+  spaceId: string | null;
+  type: ChangeSettlementType;
+  kind: string; // 'move'|'increase'|'decrease'|'cancel_treatment'|'cancel'
+  direction: ChangeSettlementDirection;
+  quotedAmount: number; // 顧客に提示した金額（返金 or 請求の絶対値・円）
+  paymentMethod: string | null;
+  oldItems?: Array<{ date: string; startTime: string; endTime: string }> | null;
+  newItems?: Array<{ date: string; startTime: string; endTime: string }> | null;
+  note?: string | null;
+}
+
+export interface ChangeSettlementRow {
+  id: string;
+  group_id: string;
+  booking_number: string | null;
+  customer_id: string | null;
+  space_id: string | null;
+  type: ChangeSettlementType;
+  kind: string;
+  direction: ChangeSettlementDirection;
+  quoted_amount: number;
+  final_amount: number | null;
+  payment_method: string | null;
+  old_items: string | null;
+  new_items: string | null;
+  note: string | null;
+  status: 'pending' | 'approved' | 'dismissed';
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  // JOIN 由来（一覧表示用）
+  space_name?: string | null;
+  event_name?: string | null;
+  group_status?: string | null;
+  contact_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+}
+
+/** 精算待ちを作成し、生成IDを返す。 */
+export async function createChangeSettlement(
+  db: D1Database,
+  input: ChangeSettlementInput,
+  now: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO change_settlements
+       (id, group_id, booking_number, customer_id, space_id, type, kind, direction, quoted_amount,
+        final_amount, payment_method, old_items, new_items, note, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(
+      id,
+      input.groupId,
+      input.bookingNumber,
+      input.customerId,
+      input.spaceId,
+      input.type,
+      input.kind,
+      input.direction,
+      Math.max(0, Math.round(input.quotedAmount)),
+      input.paymentMethod,
+      input.oldItems && input.oldItems.length ? JSON.stringify(input.oldItems) : null,
+      input.newItems && input.newItems.length ? JSON.stringify(input.newItems) : null,
+      input.note ?? null,
+      now,
+    )
+    .run();
+  return id;
+}
+
+/** 精算待ち一覧（status で絞り込み・省略で全件）。表示用に予約/顧客情報を JOIN。 */
+export async function listChangeSettlements(
+  db: D1Database,
+  status?: string,
+  limit = 200,
+): Promise<ChangeSettlementRow[]> {
+  const where = status ? 'WHERE cs.status = ?' : '';
+  const binds: unknown[] = status ? [status, limit] : [limit];
+  const { results } = await db
+    .prepare(
+      `SELECT cs.*, s.name AS space_name, bg.event_name, bg.status AS group_status,
+              c.contact_name, c.email AS customer_email, c.phone AS customer_phone
+       FROM change_settlements cs
+       LEFT JOIN booking_groups bg ON bg.id = cs.group_id
+       LEFT JOIN spaces s ON s.id = cs.space_id
+       LEFT JOIN customers c ON c.id = cs.customer_id
+       ${where}
+       ORDER BY cs.created_at DESC
+       LIMIT ?`,
+    )
+    .bind(...binds)
+    .all<ChangeSettlementRow>();
+  return results ?? [];
+}
+
+/** 精算待ちを1件取得（表示用の JOIN 込み）。 */
+export async function getChangeSettlementById(
+  db: D1Database,
+  id: string,
+): Promise<ChangeSettlementRow | null> {
+  return db
+    .prepare(
+      `SELECT cs.*, s.name AS space_name, bg.event_name, bg.status AS group_status,
+              c.contact_name, c.email AS customer_email, c.phone AS customer_phone
+       FROM change_settlements cs
+       LEFT JOIN booking_groups bg ON bg.id = cs.group_id
+       LEFT JOIN spaces s ON s.id = cs.space_id
+       LEFT JOIN customers c ON c.id = cs.customer_id
+       WHERE cs.id = ?`,
+    )
+    .bind(id)
+    .first<ChangeSettlementRow>();
+}
+
+/** 精算待ちを承認確定（final_amount と resolved_at/by を記録・冪等ではないので呼び側で pending を確認）。 */
+export async function approveChangeSettlement(
+  db: D1Database,
+  id: string,
+  p: { finalAmount: number; resolvedBy: string | null; now: string },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE change_settlements SET status = 'approved', final_amount = ?, resolved_at = ?, resolved_by = ?
+       WHERE id = ? AND status = 'pending'`,
+    )
+    .bind(Math.max(0, Math.round(p.finalAmount)), p.now, p.resolvedBy, id)
+    .run();
+}
+
+/** 精算待ちを差し戻し（dismissed）。管理者メモを note に追記する。 */
+export async function dismissChangeSettlement(
+  db: D1Database,
+  id: string,
+  p: { note: string | null; resolvedBy: string | null; now: string },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE change_settlements
+       SET status = 'dismissed', resolved_at = ?, resolved_by = ?,
+           note = CASE WHEN ? IS NULL OR ? = '' THEN note
+                       WHEN note IS NULL OR note = '' THEN ?
+                       ELSE note || '\n【差戻メモ】' || ? END
+       WHERE id = ? AND status = 'pending'`,
+    )
+    .bind(p.now, p.resolvedBy, p.note, p.note, p.note, p.note, id)
+    .run();
+}
+
+/**
+ * クーポン利用の返却用 D1 文を生成する（キャンセル/変更で枠を解放するときに使用）。
+ * coupon_usage（グループ内 bookings に紐づく）を解消し、消費していた時間を
+ * discount_coupons.remaining_hours に戻す（status が exhausted なら active に戻す）。
+ * チケット（buildTicketCancelPlan）と同じ考え方。返却が無ければ null。
+ */
+export async function buildCouponRestoreStmts(
+  db: D1Database,
+  groupId: string,
+): Promise<{ couponId: string; hours: number; stmts: D1PreparedStatement[] } | null> {
+  const row = await db
+    .prepare(
+      `SELECT cu.coupon_id AS coupon_id,
+              COALESCE(SUM(cu.hours_consumed), 0) AS hours
+       FROM coupon_usage cu
+       JOIN bookings b ON b.id = cu.booking_id
+       WHERE b.group_id = ?
+       GROUP BY cu.coupon_id
+       LIMIT 1`,
+    )
+    .bind(groupId)
+    .first<{ coupon_id: string; hours: number }>();
+  if (!row || !row.coupon_id || !(row.hours > 0)) return null;
+  return {
+    couponId: row.coupon_id,
+    hours: row.hours,
+    stmts: [
+      // グループの予約に紐づく coupon_usage を削除
+      db
+        .prepare(
+          `DELETE FROM coupon_usage WHERE id IN (
+             SELECT cu.id FROM coupon_usage cu JOIN bookings b ON b.id = cu.booking_id WHERE b.group_id = ?
+           )`,
+        )
+        .bind(groupId),
+      // 消費時間を残時間へ戻し、exhausted は active に戻す
+      db
+        .prepare(
+          `UPDATE discount_coupons
+           SET remaining_hours = remaining_hours + ?,
+               status = CASE WHEN status = 'exhausted' AND remaining_hours + ? > 0 THEN 'active' ELSE status END
+           WHERE id = ?`,
+        )
+        .bind(row.hours, row.hours, row.coupon_id),
+    ],
+  };
+}

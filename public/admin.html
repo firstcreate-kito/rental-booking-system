@@ -209,6 +209,7 @@
     <div class="tabs">
       <button id="tab-list" class="active" onclick="showTab('list')">予約一覧</button>
       <button id="tab-changereq" onclick="showTab('changereq')">変更リクエスト<span id="crBadge" class="crbadge hidden">0</span></button>
+      <button id="tab-settlements" onclick="showTab('settlements')">精算待ち<span id="csBadge" class="crbadge hidden">0</span></button>
       <button id="tab-viewing" onclick="showTab('viewing')">見学申込<span id="vwBadge" class="crbadge hidden">0</span></button>
       <button id="tab-proxy" onclick="showTab('proxy')">代理予約</button>
       <button id="tab-tent" onclick="showTab('tent')">商談中の作成</button>
@@ -401,6 +402,16 @@
       </div>
       <p class="muted" style="font-size:13px">お客様がマイページから送信した変更希望です。内容を確認し、承認（変更を適用）または却下してください。日時変更で希望日時があるものは、そのままワンクリックで適用できます。</p>
       <div id="crList"><div class="muted">読み込み中…</div></div>
+    </section>
+
+    <!-- 精算待ち（Phase B・申込＝即時反映／お金は管理者承認） -->
+    <section id="view-settlements" class="card hidden">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">精算待ち（変更・キャンセルの承認）</h2>
+        <label style="font-size:13px"><input type="checkbox" id="csShowResolved" onchange="loadChangeSettlements()"> 処理済みも表示</label>
+      </div>
+      <p class="muted" style="font-size:13px">お客様がマイページから変更・キャンセルをお申し込みになり、<strong>枠は即時反映済み</strong>です。金額（返金／追加請求）をご確認のうえ、必要に応じて調整して「承認」してください。承認で返金・追加請求が実行されます。金額のやり取りが不要なもの（無償変更・チケット等）は「承認」で完了メールを送ります。</p>
+      <div id="csList"><div class="muted">読み込み中…</div></div>
     </section>
 
     <!-- 見学申込（#81） -->
@@ -1248,6 +1259,7 @@ async function login() {
   await loadSpaces();
   loadBookings();
   refreshCrBadge();
+  refreshCsBadge();
   refreshVwBadge();
 }
 
@@ -1426,11 +1438,12 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','changereq','viewing','proxy','tent','spaces','calendar','issuer','sysstatus','options','questions','pricing','tickets','customers','export'].forEach(x => {
+  ['list','changereq','settlements','viewing','proxy','tent','spaces','calendar','issuer','sysstatus','options','questions','pricing','tickets','customers','export'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'changereq') loadChangeRequests();
+  if (t === 'settlements') loadChangeSettlements();
   if (t === 'viewing') loadViewingRequests();
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
@@ -3446,6 +3459,102 @@ async function resolveReq(id, resolution) {
 }
 let _crHandleAfter = null;
 
+// ---- 精算待ち（Phase B）----
+const CS_PM_LABEL = { stripe:'クレジットカード', paypal:'PayPal', bank_transfer:'銀行振込', invoice:'請求書払い', konbini:'コンビニ払い', ticket:'チケット' };
+const CS_TYPE_LABEL = { reschedule:'日時変更', cancel:'キャンセル' };
+const CS_DIR_LABEL = { refund:'返金', charge:'追加請求', none:'金額増減なし' };
+async function loadChangeSettlements() {
+  const showResolved = document.getElementById('csShowResolved') && document.getElementById('csShowResolved').checked;
+  const qs = showResolved ? '' : '?status=pending';
+  const { ok, body } = await api('/api/admin/change-settlements' + qs);
+  const wrap = document.getElementById('csList');
+  if (!ok) { wrap.innerHTML = '<div class="msg bad">' + crEsc(body.error || '取得に失敗しました') + '</div>'; return; }
+  const rows = body.settlements || [];
+  const pending = rows.filter(r => r.status === 'pending').length;
+  if (!showResolved) updateCsBadge(pending);
+  if (!rows.length) { wrap.innerHTML = '<div class="muted">' + (showResolved ? '精算はありません' : '未処理の精算待ちはありません') + '</div>'; return; }
+  wrap.innerHTML = rows.map(csCard).join('');
+}
+function updateCsBadge(n) {
+  const b = document.getElementById('csBadge');
+  if (n == null) return;
+  if (n > 0) { b.textContent = n; b.classList.remove('hidden'); } else { b.classList.add('hidden'); }
+}
+async function refreshCsBadge() {
+  const { ok, body } = await api('/api/admin/change-settlements?status=pending');
+  if (ok) updateCsBadge((body.settlements || []).length);
+}
+function csDays(items) {
+  if (!Array.isArray(items) || !items.length) return '';
+  return items.map(p => crEsc(p.date + ' ' + p.startTime + '〜' + p.endTime)).join(' ／ ');
+}
+function csCard(r) {
+  const resolved = r.status !== 'pending';
+  const contact = [r.customerName, r.customerEmail, r.customerPhone].filter(Boolean).map(crEsc).join('　');
+  const pm = CS_PM_LABEL[r.paymentMethod] || r.paymentMethod || '—';
+  const dir = CS_DIR_LABEL[r.direction] || r.direction;
+  const oldD = csDays(r.oldItems); const newD = csDays(r.newItems);
+  const dayBlock = (r.type === 'reschedule' && (oldD || newD))
+    ? '<div class="muted" style="margin:4px 0">変更前：' + (oldD || '—') + '<br>変更後：' + (newD || '—') + '</div>'
+    : (oldD ? '<div class="muted" style="margin:4px 0">対象：' + oldD + '</div>' : '');
+  let amountUi = '';
+  if (resolved) {
+    const st = { approved:'承認・確定済み', dismissed:'差し戻し' }[r.status] || r.status;
+    amountUi = '<span class="pill completed">' + st + '</span>' +
+      (r.finalAmount != null ? ' <span class="muted">確定額 ' + yen(r.finalAmount) + '</span>' : '') +
+      (r.note ? '<div class="muted" style="white-space:pre-wrap;margin-top:4px">' + crEsc(r.note) + '</div>' : '');
+  } else if (r.direction === 'none') {
+    amountUi =
+      '<div class="row" style="gap:6px;margin-top:8px;align-items:center">' +
+        '<span class="muted">金額の増減はありません。</span>' +
+        '<button class="btn sm" onclick=\'approveSettlement(' + JSON.stringify(r.id) + ',null)\'>承認（完了メール）</button> ' +
+        '<button class="btn ghost sm" style="color:var(--bad);border-color:var(--bad)" onclick=\'dismissSettlement(' + JSON.stringify(r.id) + ')\'>差し戻し</button>' +
+      '</div>';
+  } else {
+    const inputId = 'csAmt_' + r.id;
+    amountUi =
+      '<div class="row" style="gap:8px;margin-top:8px;align-items:flex-end">' +
+        '<div><label style="font-size:12px;color:var(--muted)">' + dir + '額（税込・変更可）</label>' +
+          '<input id="' + inputId + '" type="number" min="0" value="' + Number(r.quotedAmount || 0) + '" style="width:140px" /></div>' +
+        '<button class="btn sm" onclick=\'approveSettlement(' + JSON.stringify(r.id) + ',"' + inputId + '")\'>承認して' + dir + '</button> ' +
+        '<button class="btn ghost sm" style="color:var(--bad);border-color:var(--bad)" onclick=\'dismissSettlement(' + JSON.stringify(r.id) + ')\'>差し戻し</button>' +
+      '</div>' +
+      '<div class="muted" style="font-size:12px;margin-top:4px">お客様への提示額：' + yen(r.quotedAmount || 0) + '（' + dir + '）／お支払い方法：' + crEsc(pm) + '</div>';
+  }
+  return '<div class="crcard' + (resolved ? ' handled' : '') + '">' +
+    '<div class="row" style="justify-content:space-between;align-items:center">' +
+      '<div><span class="crtype">' + crEsc(CS_TYPE_LABEL[r.type] || r.type) + '</span> ' +
+        '<strong>' + crEsc(r.bookingNumber || '') + '</strong> <span class="muted">' + crEsc(r.spaceName) + '／' + crEsc(r.eventName) + '</span></div>' +
+      '<span class="muted">' + crEsc((r.createdAt || '').slice(0, 16).replace('T', ' ')) + '</span>' +
+    '</div>' +
+    '<div class="muted" style="margin:4px 0">' + contact + '　<span style="color:var(--ink)">' + dir + '</span></div>' +
+    dayBlock +
+    (r.note && !resolved ? '<div style="white-space:pre-wrap;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0">' + crEsc(r.note) + '</div>' : '') +
+    amountUi +
+  '</div>';
+}
+async function approveSettlement(id, inputId) {
+  let amount = null;
+  if (inputId) {
+    const el = document.getElementById(inputId);
+    amount = el ? Number(el.value) : null;
+    if (!(amount >= 0) || !Number.isFinite(amount)) { alert('金額を正しく入力してください'); return; }
+  }
+  if (!confirm('この精算を承認します。' + (amount != null ? '\n確定額：' + yen(amount) : '') + '\n\n返金／追加請求の実処理と、お客様・管理者への確定メールを送信します。よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/change-settlements/' + id + '/approve', jsonBody(amount != null ? { amount } : {}));
+  if (!ok) { alert('承認できませんでした：' + (body.error || '')); return; }
+  alert('承認しました。' + (body.actionTaken ? '\n' + body.actionTaken : ''));
+  loadChangeSettlements();
+  loadBookings();
+}
+async function dismissSettlement(id) {
+  const note = prompt('差し戻し（連絡用メモ・任意）。\n※枠は既に動いているため、予約自体の復元は行いません（メモのみ記録します）。', '');
+  if (note === null) return;
+  const { ok, body } = await api('/api/admin/change-settlements/' + id + '/dismiss', jsonBody({ note }));
+  if (!ok) { alert(body.error || '更新に失敗しました'); return; }
+  loadChangeSettlements();
+}
+
 // ---- 見学申込（#81）----
 const VW_BS_LABEL = { booked:'予約済み', considering:'予約検討中', other:'その他' };
 const VW_STATUS_LABEL = { pending:'未対応', proposed:'提案済み', confirmed:'確定', declined:'お断り', cancelled:'対応済み' };
@@ -3553,6 +3662,7 @@ async function submitSetup() {
   await loadSpaces();
   loadBookings();
   refreshCrBadge();
+  refreshCsBadge();
   refreshVwBadge();
 }
 function showLoginView() {

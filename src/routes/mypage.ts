@@ -23,19 +23,33 @@ import {
   getDocumentsForCustomer,
   getBookingGroupByNumber,
   getBookingsByGroup,
+  getCancelPolicies,
   buildTicketCancelPlan,
+  buildCouponRestoreStmts,
+  refundBookingPoints,
   createChangeRequest,
+  createChangeSettlement,
   type ChangeRequestType,
+  type ChangeSettlementDirection,
 } from '../db/repository';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { adminRecipients } from '../lib/notify';
-import { evaluateCancel, leadDays } from '../lib/change-policy';
 import { quoteCancellation } from '../lib/cancellation-service';
 import { quoteReschedule } from '../lib/reschedule-quote';
+import { executeReschedule } from '../lib/reschedule-exec';
+import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
+import { computeChangeSettlement } from '../lib/change-settlement';
+import { deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { claimPendingTicketsForCustomer } from '../lib/ticket-migration';
 import { pointExpiryStatus } from '../lib/points';
 import { nowJST, todayJST } from '../lib/clock';
-import { sendEmail, changeRequestReceivedEmail, adminChangeRequestEmail } from '../lib/email';
+import {
+  sendEmail,
+  changeRequestReceivedEmail,
+  adminChangeRequestEmail,
+  changeSettlementReceivedEmail,
+  adminChangeSettlementPendingEmail,
+} from '../lib/email';
 
 const app = new Hono<AppBindings>();
 
@@ -159,6 +173,314 @@ app.get('/bookings/:number/reschedule-quote', async (c) => {
 });
 
 /**
+ * POST /api/mypage/bookings/:number/cancel 会員のキャンセル申込＝即時実行＋精算待ち作成（Phase B）
+ * docs/unified-change-cancel-policy.md §5。
+ * その場でキャンセルを実行（枠解放・カレンダー削除・ポイント/チケット/クーポン返却）。
+ * 返金の実処理は行わず、返金額を change_settlements に pending 記録し、顧客＋管理者へ通知。
+ */
+app.post('/bookings/:number/cancel', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const customer = c.get('customer');
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (!g.customer_id || g.customer_id !== customer.id) {
+    return c.json({ error: 'この予約はキャンセル対象外です' }, 403);
+  }
+  if (g.status === 'cancelled') return c.json({ error: '既にキャンセル済みです' }, 400);
+  if (g.status === 'tentative') return c.json({ error: '商談中の予約はオンラインでキャンセルできません' }, 400);
+
+  const now = nowJST();
+  const today = now.slice(0, 10);
+  const bookings = (await getBookingsByGroup(db, g.id)).filter((b) => b.status !== 'cancelled');
+
+  // チケット払い：現金キャンセル料¥0。前々日まで返還／当日・前日失効。
+  const earliest = bookings.map((b) => b.date).sort()[0] || g.original_date || today;
+  const ticketPlan = await buildTicketCancelPlan(db, g.id, earliest, today);
+
+  // キャンセル見積り（当初利用日基準・確定額）。チケットは現金0に上書き。
+  const quote = await quoteCancellation(db, g, bookings, now);
+  const refundAmount = ticketPlan ? 0 : quote.refundAmount;
+
+  // クーポン利用があれば残時間を返却（チケット・ポイントと同様）。
+  const couponRestore = await buildCouponRestoreStmts(db, g.id);
+
+  // キャンセルを即時実行（cancellation_log・枠解放・チケット/クーポン返却）
+  const stmts: D1PreparedStatement[] = [];
+  for (const b of quote.breakdown) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO cancellation_log
+           (id, group_id, booking_id, customer_id, cancelled_at, days_before, charge_pct, original_price, cancel_fee, collection_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          g.id,
+          b.bookingId,
+          g.customer_id ?? '',
+          now,
+          b.daysBefore,
+          ticketPlan ? 0 : b.chargePct,
+          b.price,
+          ticketPlan ? 0 : b.cancelFee,
+        ),
+    );
+    stmts.push(db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?").bind(b.bookingId));
+  }
+  stmts.push(db.prepare("UPDATE booking_groups SET status = 'cancelled' WHERE id = ?").bind(g.id));
+  if (ticketPlan?.action === 'restore') stmts.push(...ticketPlan.restoreStmts);
+  if (couponRestore) stmts.push(...couponRestore.stmts);
+  await db.batch(stmts);
+
+  // ポイント返還（使用があれば）
+  await refundBookingPoints(db, g.id, g.customer_id, now);
+
+  // Googleカレンダーからイベント削除
+  const space = await getSpaceById(db, g.space_id);
+  await deleteBookingFromCalendar(c.env, space?.google_calendar_id ?? null, bookings.map((b) => b.google_event_id));
+
+  // 精算待ち（pending）を記録：返金は管理者承認時に実処理する。
+  const direction: ChangeSettlementDirection = refundAmount > 0 ? 'refund' : 'none';
+  const noteParts: string[] = [];
+  if (ticketPlan) noteParts.push(ticketPlan.action === 'restore' ? `チケット${ticketPlan.hours}時間を返還しました（現金精算なし）。` : `チケット${ticketPlan.hours}時間は失効します（当日・前日・現金精算なし）。`);
+  else noteParts.push(`キャンセル料 ¥${Math.round(quote.cancelFee).toLocaleString('ja-JP')}／ご返金額 ¥${Math.round(refundAmount).toLocaleString('ja-JP')}`);
+  if (couponRestore) noteParts.push(`クーポン${couponRestore.hours}時間を返却しました。`);
+  const note = noteParts.join(' ');
+  const settlementId = await createChangeSettlement(
+    db,
+    {
+      groupId: g.id,
+      bookingNumber: number,
+      customerId: g.customer_id,
+      spaceId: g.space_id,
+      type: 'cancel',
+      kind: 'cancel',
+      direction,
+      quotedAmount: refundAmount,
+      paymentMethod: g.payment_method,
+      oldItems: bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time })),
+      newItems: null,
+      note,
+    },
+    now,
+  );
+
+  // メール（顧客＋管理者）
+  const custName = customer.contactName || 'お客様';
+  c.executionCtx.waitUntil(
+    sendEmail(c.env, {
+      to: customer.email,
+      ...changeSettlementReceivedEmail({
+        customerName: custName,
+        bookingNumber: number,
+        spaceName: space?.name ?? '',
+        type: 'cancel',
+        direction,
+        amount: refundAmount,
+        note,
+      }),
+    }),
+  );
+  const admins = await adminRecipients(c.env, g.space_id);
+  if (admins.length) {
+    const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: admins,
+        ...adminChangeSettlementPendingEmail({
+          bookingNumber: number,
+          spaceName: space?.name ?? '',
+          eventName: g.event_name,
+          type: 'cancel',
+          direction,
+          amount: refundAmount,
+          paymentMethod: g.payment_method,
+          customerName: custName,
+          customerEmail: customer.email,
+          note,
+          adminUrl: `${origin}/admin.html`,
+        }),
+      }),
+    );
+  }
+
+  return c.json({
+    ok: true,
+    settlementId,
+    status: 'cancelled',
+    direction,
+    quotedAmount: refundAmount,
+    cancelFee: ticketPlan ? 0 : quote.cancelFee,
+    ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
+    coupon: couponRestore ? { restoredHours: couponRestore.hours } : null,
+    message: '申請を受け付けました。金額は担当者の確認後に確定します。',
+  });
+});
+
+/**
+ * POST /api/mypage/bookings/:number/reschedule 会員の日時変更申込＝即時実行（新枠へ移動）＋精算待ち作成（Phase B）
+ * docs/unified-change-cancel-policy.md §5。
+ * body: { items: [{date,startTime,endTime,isResidence?}] }
+ * その場で新枠へ移動（旧枠解放・カレンダー同期）。金額は computeChangeSettlement で算出し pending 記録。
+ */
+app.post('/bookings/:number/reschedule', async (c) => {
+  const db = c.env.DB;
+  const number = c.req.param('number');
+  const customer = c.get('customer');
+  let body: { items?: Array<{ date: string; startTime: string; endTime: string; isResidence?: boolean }> };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  if (!Array.isArray(body.items) || body.items.length === 0) {
+    return c.json({ error: 'items は必須です' }, 400);
+  }
+
+  const g = await getBookingGroupByNumber(db, number);
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (!g.customer_id || g.customer_id !== customer.id) {
+    return c.json({ error: 'この予約は変更対象外です' }, 403);
+  }
+  if (g.status === 'cancelled') return c.json({ error: 'キャンセル済みの予約は変更できません' }, 400);
+  if (g.status === 'tentative') return c.json({ error: '商談中の予約はオンラインで変更できません' }, 400);
+
+  const space = await getSpaceById(db, g.space_id);
+  if (!space || !space.is_active) return c.json({ error: 'space not found' }, 404);
+
+  const now = nowJST();
+  const today = todayJST();
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+
+  // 当初利用日基準のキャンセル料率（変更精算の按分に使う）。当初金額はグループの original_total_amount。
+  const oldRows = await getBookingsByGroup(db, g.id);
+  const refDate = g.original_date || oldRows.map((b) => b.date).sort()[0] || today;
+  const originalTotal = g.original_total_amount ?? g.total_amount;
+  const policiesAll = await getCancelPolicies(db);
+  const tiers: CancelPolicyTier[] = selectCancelPolicy(
+    policiesAll.map((p) => ({ spaceId: p.space_id, daysBefore: p.days_before, chargePct: p.charge_pct, cutoffTime: p.cutoff_time })),
+    g.space_id,
+  );
+  const cancelChargePct = computeCancelCharge(tiers, refDate, now, originalTotal).chargePct;
+
+  // 枠移動を即時実行（チケットは統一ポリシー §4）
+  const exec = await executeReschedule(c.env, g, space, body.items, today, now, origin);
+  if (!exec.ok) {
+    return c.json(
+      exec.details !== undefined
+        ? { error: exec.error, details: exec.details }
+        : exec.code
+          ? { error: exec.error, code: exec.code }
+          : { error: exec.error },
+      exec.httpStatus as 400,
+    );
+  }
+
+  // 精算額を算出。チケット予約は現金精算なし（direction none）。
+  let direction: ChangeSettlementDirection;
+  let quotedAmount: number;
+  let kind: string;
+  let note: string;
+  if (exec.ticket.isTicket) {
+    direction = 'none';
+    quotedAmount = 0;
+    kind = 'move';
+    note =
+      exec.ticket.action === 'restore_full'
+        ? 'チケット予約の変更：消費時間を全額返還し、新しい予約で改めて消費しました（現金精算なし）。'
+        : exec.ticket.action === 'partial_forfeit'
+          ? `チケット予約の変更：減少分（${(exec.ticket.oldHours ?? 0) - (exec.ticket.newHours ?? 0)}時間）は失効、残りを付け替えました（現金精算なし）。`
+          : 'チケット予約の変更：消費を新しい予約へ付け替えました（現金精算なし）。';
+  } else {
+    const s = computeChangeSettlement(originalTotal, exec.newTotal, cancelChargePct);
+    kind = s.kind;
+    note = s.note;
+    if (s.kind === 'increase' || s.kind === 'cancel_treatment') {
+      direction = 'charge';
+      quotedAmount = s.charge;
+    } else if (s.kind === 'decrease') {
+      direction = 'refund';
+      quotedAmount = s.refund;
+    } else {
+      direction = 'none';
+      quotedAmount = 0;
+    }
+  }
+
+  const settlementId = await createChangeSettlement(
+    db,
+    {
+      groupId: g.id,
+      bookingNumber: number,
+      customerId: g.customer_id,
+      spaceId: g.space_id,
+      type: 'reschedule',
+      kind,
+      direction,
+      quotedAmount,
+      paymentMethod: g.payment_method,
+      oldItems: exec.oldDays,
+      newItems: exec.newDays,
+      note,
+    },
+    now,
+  );
+
+  // メール（顧客＋管理者）
+  const custName = customer.contactName || 'お客様';
+  c.executionCtx.waitUntil(
+    sendEmail(c.env, {
+      to: customer.email,
+      ...changeSettlementReceivedEmail({
+        customerName: custName,
+        bookingNumber: number,
+        spaceName: space.name,
+        type: 'reschedule',
+        direction,
+        amount: quotedAmount,
+        note,
+        newDays: exec.newDays,
+      }),
+    }),
+  );
+  const admins = await adminRecipients(c.env, g.space_id);
+  if (admins.length) {
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: admins,
+        ...adminChangeSettlementPendingEmail({
+          bookingNumber: number,
+          spaceName: space.name,
+          eventName: g.event_name,
+          type: 'reschedule',
+          direction,
+          amount: quotedAmount,
+          paymentMethod: g.payment_method,
+          customerName: custName,
+          customerEmail: customer.email,
+          note,
+          adminUrl: `${origin}/admin.html`,
+        }),
+      }),
+    );
+  }
+
+  return c.json({
+    ok: true,
+    settlementId,
+    kind,
+    direction,
+    quotedAmount,
+    newTotal: exec.newTotal,
+    ticket: exec.ticket,
+    calendarWarning: exec.calendarWarning,
+    message: '申請を受け付けました。金額は担当者の確認後に確定します。',
+  });
+});
+
+/**
  * POST /api/mypage/bookings/:number/change-request 予約変更リクエスト（#54）
  * 会員が自分の予約に対して変更希望（日時変更/オプション/キャンセル/その他）を送信。
  * 管理者が承認するまで予約自体は変わらない（受付のみ）。
@@ -193,12 +515,9 @@ app.post('/bookings/:number/change-request', async (c) => {
     return c.json({ error: 'キャンセル済みの予約です' }, 400);
   }
 
-  // キャンセルは利用日の3日前以降オンライン受付不可 → メールフォーム誘導（#76 Phase 1）
-  // 当初利用日を基準に判定。直前キャンセルはキャンセルチャージを口頭で案内できるようにする。
-  if (type === 'cancel' && g.original_date) {
-    const gate = evaluateCancel(leadDays(g.original_date, todayJST()));
-    if (!gate.allowed) return c.json({ error: gate.message, mode: 'form' }, 422);
-  }
+  // 旧「3日前以降はフォーム誘導」ゲート（evaluateCancel）は廃止（統一ポリシー §5・2026-09-06）。
+  // キャンセル/変更は全期間オンラインで申込可能（申込＝即時反映／お金は管理者承認）。
+  // ※この change-request 経路は相談用として残す（実行を伴う申込は cancel / reschedule 経路）。
 
   // 日時変更の希望枠（任意・あれば承認時にワンクリック適用の材料になる）
   let proposed: Array<{ date: string; startTime: string; endTime: string }> | null = null;

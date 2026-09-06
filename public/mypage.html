@@ -342,9 +342,9 @@
       <details id="cr_pol_cancel" class="cracc">
         <summary>キャンセルについて</summary>
         <div class="cracc-body">
-          ・利用日の<b>3日前以降はオンラインでのキャンセルを承れません</b>。お手数ですがメールフォーム・お電話でご連絡ください。<br>
+          ・キャンセルは<b>いつでもオンラインでお申し込みいただけます</b>。お申し込みで<b>ご予約枠はすぐに解放</b>され、金額（キャンセル料・ご返金）は<b>担当者の確認後に確定</b>します。<br>
           ・キャンセル料は<b>スペース・時期により異なります</b>。「キャンセル」をお選びいただくと、発生するキャンセル料・ご返金額を画面に表示します。<br>
-          ・<b>チケット（回数券）でのご予約</b>は、キャンセルされても<b>お金（現金）でのキャンセル料はいただきません</b>。かわりにキャンセルの<b>タイミング</b>でチケット時間が戻るかどうかが変わります：<b>利用日の前日まで</b>のキャンセルはチケット時間が<b>全額そのまま戻り</b>（別の日のご予約に使えます）、<b>当日</b>のキャンセルはチケット時間が<b>戻りません（使用済みとなります）</b>。
+          ・<b>チケット（回数券）でのご予約</b>は、キャンセルされても<b>お金（現金）でのキャンセル料はいただきません</b>。かわりにキャンセルの<b>タイミング</b>でチケット時間が戻るかどうかが変わります：<b>利用日の前々日まで</b>のキャンセルはチケット時間が<b>全額そのまま戻り</b>（別の日のご予約に使えます）、<b>前日・当日</b>のキャンセルはチケット時間が<b>戻りません（使用済みとなります）</b>。
         </div>
       </details>
     </div>
@@ -813,8 +813,8 @@ function crToggle() {
   const polC = document.getElementById('cr_pol_cancel');
   if (polR) polR.open = (type === 'reschedule');
   if (polC) polC.open = (type === 'cancel');
-  // キャンセルは利用日の3日前以降オンライン受付不可 → その場で案内し送信不可に
-  const blocked = (type === 'cancel') && (_crDaysUntil != null) && (_crDaysUntil < CR_CANCEL_CUTOFF);
+  // 旧「3日前以降はオンライン不可」ゲートは廃止（統一ポリシー §5・2026-09-06）。全期間オンライン申込可能。
+  const blocked = false;
   const cb = document.getElementById('cr_cancelBlock');
   const quoteBox = document.getElementById('cr_cancelQuote');
   const agree = document.getElementById('cr_agree');
@@ -934,8 +934,8 @@ async function loadCancelQuote() {
     const t = body.ticket;
     const hrs = t.hours != null ? t.hours + '時間' : 'チケット時間';
     const detail = t.action === 'restore'
-      ? '前日までのキャンセルのため、<strong>' + hrs + 'を返還</strong>します（再予約にご利用いただけます）。'
-      : '<strong>当日のキャンセル</strong>のため、' + hrs + 'は<strong>失効（返還なし）</strong>となります。';
+      ? '前々日までのキャンセルのため、<strong>' + hrs + 'を返還</strong>します（再予約にご利用いただけます）。'
+      : '<strong>前日・当日のキャンセル</strong>のため、' + hrs + 'は<strong>失効（返還なし）</strong>となります。';
     lines.innerHTML =
       '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">チケット（回数券）でのご予約のキャンセル</div>' +
       '<div>現金でのキャンセル料・ご返金は<strong>ありません（¥0）</strong>。</div>' +
@@ -961,17 +961,51 @@ async function submitChangeReq() {
   const type = document.getElementById('cr_type').value;
   const message = document.getElementById('cr_msg').value.trim();
   const res = document.getElementById('cr_result');
-  if (!message && type !== 'cancel') { res.textContent = 'ご希望・ご連絡事項を入力してください'; res.className = 'msg bad'; return; }
-  const payload = { type, message };
+  const submit = document.getElementById('cr_submit');
+  const num = encodeURIComponent(_crNum);
+
+  // 申込＝即時反映（統一ポリシー §5・Phase B）。キャンセル/日時変更はその場で実行し、
+  // 金額（返金/追加請求）は担当者の確認後に確定する。オプション/その他は従来の相談リクエスト。
+  if (type === 'cancel') {
+    if (!confirm('この予約をキャンセルします。ご予約枠はすぐに解放されます。\n\n画面に表示された金額（返金/キャンセル料）は担当者の確認後に確定します。よろしいですか？')) return;
+    submit.disabled = true; res.textContent = '送信中…'; res.className = 'msg';
+    const { ok, body } = await api('/api/mypage/bookings/' + num + '/cancel', jsonBody({}));
+    if (ok) {
+      res.textContent = body.message || '申請を受け付けました。金額は担当者の確認後に確定します。';
+      res.className = 'msg ok';
+      setTimeout(() => { closeChangeReq(); loadBookings(); }, 2000);
+    } else {
+      res.textContent = body.error || 'キャンセルに失敗しました。';
+      res.className = 'msg bad';
+      submit.disabled = false;
+    }
+    return;
+  }
+
   if (type === 'reschedule') {
     const date = document.getElementById('cr_date').value;
     const start = document.getElementById('cr_start').value;
     const end = document.getElementById('cr_end').value;
-    if (date && start && end) payload.proposedItems = [{ date, startTime: start, endTime: end }];
+    if (!(date && start && end)) { res.textContent = 'ご希望の日時（日付・開始・終了）をご入力ください'; res.className = 'msg bad'; return; }
+    if (!confirm('ご予約をこの日時へ変更します。新しい枠をすぐに確保し、旧枠は解放されます。\n\n' + date + ' ' + start + '〜' + end + '\n\n画面に表示された金額（返金/追加請求）は担当者の確認後に確定します。よろしいですか？')) return;
+    submit.disabled = true; res.textContent = '送信中…'; res.className = 'msg';
+    const { ok, body } = await api('/api/mypage/bookings/' + num + '/reschedule', jsonBody({ items: [{ date, startTime: start, endTime: end }] }));
+    if (ok) {
+      res.textContent = body.message || '申請を受け付けました。金額は担当者の確認後に確定します。';
+      res.className = 'msg ok';
+      setTimeout(() => { closeChangeReq(); loadBookings(); }, 2000);
+    } else {
+      res.textContent = (body.error || '日時変更に失敗しました。') + (body.code === 'CALENDAR_CONFLICT' || (body.details) ? ' 別の日時をお選びください。' : '');
+      res.className = 'msg bad';
+      submit.disabled = false;
+    }
+    return;
   }
-  document.getElementById('cr_submit').disabled = true;
-  res.textContent = '送信中…'; res.className = 'msg';
-  const { ok, body } = await api('/api/mypage/bookings/' + encodeURIComponent(_crNum) + '/change-request', jsonBody(payload));
+
+  // オプション変更・その他：従来どおり相談リクエスト（管理者が個別対応）
+  if (!message) { res.textContent = 'ご希望・ご連絡事項を入力してください'; res.className = 'msg bad'; return; }
+  submit.disabled = true; res.textContent = '送信中…'; res.className = 'msg';
+  const { ok, body } = await api('/api/mypage/bookings/' + num + '/change-request', jsonBody({ type, message }));
   if (ok) {
     res.textContent = body.message || '受け付けました。';
     res.className = 'msg ok';
@@ -979,7 +1013,7 @@ async function submitChangeReq() {
   } else {
     res.textContent = body.error || '送信に失敗しました。';
     res.className = 'msg bad';
-    document.getElementById('cr_submit').disabled = false;
+    submit.disabled = false;
   }
 }
 function toggleArchive() {

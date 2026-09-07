@@ -24,6 +24,25 @@ export async function refundPayment(secretKey: string, paymentIntentId: string):
 }
 
 /**
+ * 未入金の PaymentIntent をキャンセルする（支払い方法の切替時に、旧・銀行振込/コンビニの
+ * 未入金 PaymentIntent を無効化して二重入金を防ぐ）。既に確定/返金済み等でキャンセル不可でも
+ * 例外にせず ok:false を返す（切替処理をブロックしないため best-effort で使う）。
+ */
+export async function cancelPaymentIntent(secretKey: string, paymentIntentId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    const json = (await res.json()) as { id?: string; status?: string; error?: { message?: string } };
+    if (!res.ok || !json.id) return { ok: false, error: json.error?.message || `cancel failed (${res.status})` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
  * 決済を返金する（一部返金対応）。amountJpy を渡すとその金額だけ、省略すると全額返金。
  * payment_intent 単位。JPY はゼロ小数通貨なので amount にそのまま円を渡す。
  * 成功可否と、成功時は返金IDを返す（失敗しても例外にせず ok:false）。

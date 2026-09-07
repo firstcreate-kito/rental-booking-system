@@ -41,6 +41,7 @@ import { executeReschedule } from '../lib/reschedule-exec';
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import { computeChangeSettlement } from '../lib/change-settlement';
 import { cancelFormulaLines, rescheduleFormulaLines } from '../lib/settlement-formula';
+import { createCardSwitchSession } from '../lib/payment-switch';
 import { deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { claimPendingTicketsForCustomer } from '../lib/ticket-migration';
 import { pointExpiryStatus } from '../lib/points';
@@ -98,6 +99,24 @@ app.put('/password', async (c) => {
 app.get('/bookings', async (c) => {
   const bookings = await getCustomerBookingGroups(c.env.DB, c.get('customer').id);
   return c.json({ bookings });
+});
+
+/**
+ * POST /api/mypage/bookings/:number/switch-to-card 支払い方法をカードに切替（本人のみ）
+ * 未入金の銀行振込／コンビニ／請求書払いの予約に、全額のカード決済リンクを発行して返す。
+ * カード入金で自動的に「入金済み・確定」になり、旧・未入金PaymentIntentはキャンセルされる。
+ */
+app.post('/bookings/:number/switch-to-card', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  if (!g.customer_id || g.customer_id !== c.get('customer').id) {
+    return c.json({ error: 'この予約は対象外です' }, 403);
+  }
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const r = await createCardSwitchSession(c.env, g, origin);
+  if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
+  return c.json({ ok: true, url: r.url });
 });
 
 /** GET /api/mypage/usual 「いつもの予約」（最頻スペースの代表予約）#98 */

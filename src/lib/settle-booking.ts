@@ -10,8 +10,10 @@ import {
   releaseUnpaidStripeHold,
   getCustomerProfile,
   getBookingCalendarData,
+  setGroupPaymentMethod,
+  getPendingStripePaymentIntentForGroup,
 } from '../db/repository';
-import { refundPayment } from './stripe';
+import { refundPayment, cancelPaymentIntent } from './stripe';
 import { notifyPaymentConfirmed, notifyBookingEstablished, notifyBookingFailed, notifyLatePaymentOnReleased, notifyAdditionalPaid } from './notify';
 import { finalizeImmediateBooking } from './finalize';
 import { syncBookingCalendarEvents, deleteBookingFromCalendar } from './gcal-sync';
@@ -71,6 +73,20 @@ export async function settlePaidBookingSession(
   const r = await markBookingPaymentPaid(env.DB, sessionId, nowJST(), { paymentIntent });
   if (!r.ok) return { ok: false };
   const groupId = r.groupId!;
+
+  // 支払い方法の切替（振込/コンビニ → カード）：カード入金が新規に確定したら、
+  // 支払い方法をカードに更新し、旧・未入金の PaymentIntent をキャンセルして二重入金を防ぐ。
+  // その後は通常の「confirmed への入金確定」経路（領収書＋入金確認メール）で処理される。
+  if (bookingPay.kind === 'switch' && !r.already) {
+    try {
+      await setGroupPaymentMethod(env.DB, groupId, 'stripe');
+      const oldPi = await getPendingStripePaymentIntentForGroup(env.DB, groupId, sessionId);
+      if (oldPi && env.STRIPE_SECRET_KEY) await cancelPaymentIntent(env.STRIPE_SECRET_KEY, oldPi);
+      await recordBookingEvent(env.DB, { groupId, type: 'payment_method_changed', summary: '支払い方法をカードに変更（カード入金を確認）', actor: 'system' }, nowJST());
+    } catch {
+      /* 切替の後処理（方法更新・旧PIキャンセル・履歴）の失敗は入金確定に影響させない */
+    }
+  }
 
   // 仮押さえを解放（自動キャンセル）した後に着金したレアケース（主に銀行振込）。
   // 枠は既に手放しているため自動確定はせず、入金だけ記録して管理者へ要対応通知する（#39）。

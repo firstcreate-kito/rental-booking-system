@@ -131,6 +131,7 @@ import { qrSvg } from '../lib/qrcode';
 import { LOGIN_WINDOW_MIN, isLoginLocked, LOGIN_LOCK_MESSAGE } from '../lib/login-throttle';
 import { verifyTurnstile } from '../lib/turnstile';
 import { refundPaymentAmount, retrievePaymentIntentMethodType, createCheckoutSession, stripeConfigured } from '../lib/stripe';
+import { createCardSwitchSession } from '../lib/payment-switch';
 import { refundPaypalCapture, paypalConfigured } from '../lib/paypal';
 import { refundModeFor, maxRefundable, validateRefundAmount } from '../lib/refund-policy';
 import { optionSubtotal, normalizeQuantity, hasStock } from '../lib/options';
@@ -140,7 +141,7 @@ import { nowJST, todayJST, todayYmdJST, addDaysJST } from '../lib/clock';
 import { getDayType, isClosed, type HolidayType } from '../lib/calendar';
 import { computeAdjustment } from '../lib/cancellation';
 import { computeGroupCancel } from '../lib/cancellation-service';
-import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, refundAccountRequestEmail, changeCompletedEmail, adminChangeSettlementResolvedEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
+import { sendEmail, bookingConfirmationEmail, cancellationEmail, refundEmail, adminCancellationEmail, rescheduleEmail, adminRescheduleEmail, changeRequestRejectedEmail, adminPaymentActionAlertEmail, additionalChargeEmail, refundAccountRequestEmail, changeCompletedEmail, adminChangeSettlementResolvedEmail, cardPaymentLinkEmail, viewingConfirmedEmail, viewingProposedEmail, viewingDeclinedEmail, booklyMigrationNoticeEmail, booklyTicketMigrationNoticeEmail } from '../lib/email';
 import { bookingIcsAttachment } from '../lib/ics';
 import { VIEWING_DURATION_MIN } from '../lib/viewing';
 import { notifyPaymentConfirmed, adminRecipients } from '../lib/notify';
@@ -1498,6 +1499,48 @@ app.post('/bookings/:number/additional-charge', async (c) => {
   } catch (err) {
     return c.json({ error: '追加請求リンクの作成に失敗しました：' + (err as Error).message }, 502);
   }
+});
+
+/**
+ * POST /api/admin/bookings/:number/payment-link 支払い方法をカードに切替（管理者発行）
+ * 未入金の銀行振込／コンビニ／請求書払いの予約に、全額のカード決済リンクを発行。
+ * お客様へメール送信し、その場でコピーできるよう url も返す。カード入金で自動確定。
+ */
+app.post('/bookings/:number/payment-link', async (c) => {
+  const db = c.env.DB;
+  const g = await getBookingGroupByNumber(db, c.req.param('number'));
+  if (!g) return c.json({ error: 'booking not found' }, 404);
+  const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
+  const r = await createCardSwitchSession(c.env, g, origin);
+  if (!r.ok) return c.json({ error: r.error }, (r.httpStatus ?? 400) as 400);
+
+  // お客様へ決済リンクをメール（宛先があれば）。管理画面ではコピー用に url も返す。
+  const [space, prof] = await Promise.all([
+    getSpaceById(db, g.space_id),
+    g.customer_id ? getCustomerProfile(db, g.customer_id) : Promise.resolve(null),
+  ]);
+  const email = prof?.email ? String(prof.email) : '';
+  let emailed = false;
+  if (email && r.url) {
+    c.executionCtx.waitUntil(
+      sendEmail(c.env, {
+        to: email,
+        ...cardPaymentLinkEmail({
+          customerName: prof?.contact_name ? String(prof.contact_name) : 'お客様',
+          bookingNumber: g.booking_number,
+          spaceName: space?.name ?? '',
+          amount: g.total_amount,
+          payUrl: r.url,
+        }),
+      }),
+    );
+    emailed = true;
+  }
+  try {
+    const admin = c.get('admin');
+    await recordBookingEvent(db, { groupId: g.id, type: 'payment_link_issued', summary: 'カード決済リンクを発行（支払い方法の切替）', actor: admin?.email ? 'admin:' + admin.email : 'admin' }, nowJST());
+  } catch { /* 履歴記録の失敗は発行に影響させない */ }
+  return c.json({ ok: true, url: r.url, emailed });
 });
 
 /**

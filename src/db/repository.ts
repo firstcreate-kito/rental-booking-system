@@ -2901,7 +2901,7 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
 // ---------------------------------------------------------------------------
 export async function createBookingPayment(
   db: D1Database,
-  p: { id: string; groupId: string; provider: string; amount: number; sessionId: string; kind?: 'booking' | 'additional' },
+  p: { id: string; groupId: string; provider: string; amount: number; sessionId: string; kind?: 'booking' | 'additional' | 'switch' },
   now: string,
 ): Promise<void> {
   await db
@@ -2953,6 +2953,33 @@ export async function getBookingSummaryForGroup(db: D1Database, groupId: string)
 /** 銀行振込の振込先（仮想口座）情報をJSONで保存する。 */
 export async function setBookingPaymentBankInfo(db: D1Database, paymentId: string, infoJson: string): Promise<void> {
   await db.prepare('UPDATE booking_payments SET bank_transfer_info = ? WHERE id = ?').bind(infoJson, paymentId).run();
+}
+
+/** 予約グループの支払い方法を更新する（支払い方法の切替時に使用）。 */
+export async function setGroupPaymentMethod(db: D1Database, groupId: string, method: string): Promise<void> {
+  await db.prepare('UPDATE booking_groups SET payment_method = ? WHERE id = ?').bind(method, groupId).run();
+}
+
+/**
+ * 予約グループの「未入金（pending）の Stripe 決済」の payment_intent を返す（切替時に旧・銀行振込等を
+ * キャンセルして二重入金を防ぐため）。excludeSessionId で今回発行した切替セッションを除外する。無ければ null。
+ */
+export async function getPendingStripePaymentIntentForGroup(
+  db: D1Database,
+  groupId: string,
+  excludeSessionId?: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT stripe_payment_intent FROM booking_payments
+        WHERE group_id = ? AND provider = 'stripe' AND status != 'paid'
+          AND stripe_payment_intent IS NOT NULL
+          AND (? IS NULL OR stripe_session_id != ?)
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(groupId, excludeSessionId ?? null, excludeSessionId ?? null)
+    .first<{ stripe_payment_intent: string | null }>();
+  return row?.stripe_payment_intent ?? null;
 }
 
 /** 予約グループの銀行振込 振込先情報（未入金の案内表示用）。無ければ null。 */

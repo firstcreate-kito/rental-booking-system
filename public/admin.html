@@ -1622,6 +1622,10 @@ function renderBookings(rows) {
       if (b.payment_method === 'invoice') {
         actions += ' <button class="btn sm" style="background:#0d9488" onclick="issueReceipt(\'' + b.booking_number + '\')">領収書発行</button>';
       }
+      // 未入金（銀行振込／コンビニ／請求書払い）はカード決済リンクを発行できる（支払い方法の切替）
+      if (b.payment_status === 'unpaid') {
+        actions += ' <button class="btn sm" style="background:#16a34a" onclick="sendPaymentLink(\'' + b.booking_number + '\')">カード決済リンク</button>';
+      }
     }
     // 返金ボタン：入金済みの本予約・キャンセル済みに表示（差額返金・キャンセル返金／過去日でも可）
     if (b.payment_status === 'paid' && (b.status === 'confirmed' || b.status === 'cancelled')) {
@@ -1656,6 +1660,20 @@ async function issueReceipt(number) {
   const { ok, body } = await api('/api/admin/documents/issue-receipt', jsonBody({ bookingNumber: number }));
   if (!ok) { alert('エラー: ' + (body.error || '発行に失敗しました')); return; }
   window.open(body.url, '_blank', 'noopener');
+}
+// 支払い方法の切替：未入金予約のカード決済リンクを発行し、お客様へメール＋その場でコピー。
+async function sendPaymentLink(number) {
+  if (!confirm('予約 ' + number + ' のカード決済リンクを発行し、お客様へメール送信します。\n（カードでのお支払いが確認されると自動的に入金済みになります）よろしいですか？')) return;
+  const { ok, body } = await api('/api/admin/bookings/' + number + '/payment-link', jsonBody({}));
+  if (!ok) { alert('エラー: ' + (body.error || 'リンクを発行できませんでした')); return; }
+  const url = body.url || '';
+  const head = body.emailed ? 'お客様へ決済リンクをメール送信しました。' : 'メール送信先が無いため、下記リンクを直接お渡しください。';
+  try {
+    await navigator.clipboard.writeText(url);
+    alert(head + '\n\nリンクをクリップボードにコピーしました：\n' + url);
+  } catch (e) {
+    prompt(head + '\n\n下記をコピーしてお渡しください：', url);
+  }
 }
 async function testEmail() {
   const to = prompt('テストメールの送信先アドレスを入力してください。\n※onboarding@resend.dev を使用中は、Resend登録アドレス宛のみ届きます。', (A.admin && A.admin.email) || '');

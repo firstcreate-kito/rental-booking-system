@@ -279,6 +279,7 @@
     <section id="view-documents" class="card hidden">
       <h2>書類（請求書・領収書）</h2>
       <div class="muted" style="margin:6px 0 8px">「表示」を開き、ブラウザの「PDFとして保存 / 印刷」からPDFで保存できます。</div>
+      <div id="docUnpaidNotice"></div>
       <div id="docList"></div>
       <div class="muted" id="docEmpty"></div>
     </section>
@@ -624,6 +625,26 @@ function showTab(t) {
 async function loadAll() { loadBookings(); loadPoints(); loadCoupons(); loadTickets(); loadDocuments(); loadFavorites(); loadProfile(); }
 
 async function loadDocuments() {
+  // 未入金（銀行振込／コンビニ／請求書払い）の予約は、カードでお支払いいただくと即時に領収書を発行できる旨を案内。
+  try {
+    const bk = await api('/api/mypage/bookings');
+    const unpaid = (bk.body && bk.body.bookings || []).filter(b => b.status === 'confirmed' && b.payment_status === 'unpaid' && Number(b.total_amount) > 0);
+    const notice = document.getElementById('docUnpaidNotice');
+    if (notice) {
+      notice.innerHTML = unpaid.length ? (
+        '<div style="margin:0 0 12px;padding:12px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px">' +
+        '<div style="font-weight:700;margin-bottom:4px">お支払い前のご予約があります</div>' +
+        '<div style="font-size:13px;margin-bottom:8px">クレジットカードでお支払いいただくと、<strong>すぐに領収書を発行</strong>できます（銀行振込の場合はご入金確認後の発行となります）。</div>' +
+        unpaid.map(b =>
+          '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">' +
+          '<span>' + b.booking_number + '（' + (b.space_name || '') + '）' + yen(b.total_amount) + '</span>' +
+          '<button class="btn sm" style="background:#16a34a" onclick="payByCard(\'' + b.booking_number + '\')">💳 今すぐカードで支払う</button>' +
+          '</div>'
+        ).join('') +
+        '</div>'
+      ) : '';
+    }
+  } catch (e) { /* 案内の失敗は書類一覧の表示に影響させない */ }
   const { body } = await api('/api/mypage/documents');
   const docs = body.documents || [];
   document.getElementById('docEmpty').textContent = docs.length ? '' : '発行済みの書類はありません。ご予約・お支払いが確定すると、こちらに請求書・領収書が表示されます。';
@@ -649,6 +670,10 @@ function bookingRow(b) {
       _bankInfoMap[b.booking_number] = { info: JSON.parse(b.bank_transfer_info), amount: b.total_amount };
       action += ' <button class="btn sm" style="background:#0068b7" onclick="showBankInfo(\'' + b.booking_number + '\')">🏦 振込先</button>';
     } catch (e) {}
+  }
+  // 未入金（銀行振込／コンビニ／請求書払い）の予約は「カードで今すぐ支払う」を出す（支払い方法の切替）
+  if (b.status === 'confirmed' && b.payment_status === 'unpaid' && Number(b.total_amount) > 0) {
+    action += ' <button class="btn sm" style="background:#16a34a" onclick="payByCard(\'' + b.booking_number + '\')">💳 カードで今すぐ支払う</button>';
   }
   // 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
   action += ' <button class="btn ghost sm" onclick="showHistory(\'' + b.booking_number + '\')">履歴</button>';
@@ -682,6 +707,13 @@ function showBankInfo(num) {
   document.getElementById('biOverlay').classList.remove('hidden');
 }
 function closeBankInfo() { document.getElementById('biOverlay').classList.add('hidden'); }
+// 支払い方法の切替：未入金の予約をカード決済に切り替える。決済リンクを取得してStripeへ遷移。
+async function payByCard(num) {
+  if (!confirm('クレジットカードでのお支払いに進みます。よろしいですか？\n\n（銀行振込でお申し込みの場合、カードでお支払いいただくと振込は不要になります）')) return;
+  const { ok, body } = await api('/api/mypage/bookings/' + encodeURIComponent(num) + '/switch-to-card', jsonBody({}));
+  if (ok && body && body.url) { location.href = body.url; return; }
+  alert((body && body.error) || 'お支払いページを開けませんでした。お手数ですが時間をおいて再度お試しください。');
+}
 // 変更履歴（日時変更・追加請求・返金・キャンセル等）#93
 function hxIcon(t) { return ({ reschedule:'🕔', cancel:'✖', refund:'↩', additional_issued:'＋', additional_paid:'✅', payment_confirmed:'✅' })[t] || '・'; }
 async function showHistory(number) {

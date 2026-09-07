@@ -953,6 +953,42 @@ ${breakdownHtml}
   return withSignature({ subject, html, text });
 }
 
+/** 支払い方法をカードに切り替えるための決済リンク案内（顧客向け・管理者発行） */
+export function cardPaymentLinkEmail(d: {
+  customerName: string;
+  bookingNumber: string;
+  spaceName: string;
+  amount: number;
+  payUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `【レンタルスペースALBE】カードでのお支払いのご案内（${d.bookingNumber}）`;
+  const text = `${d.customerName} 様
+
+ご予約について、クレジットカードでのお支払いページをご用意しました。
+下記のリンクからお支払いいただくと、ご予約のお支払いが完了します。
+
+予約番号: ${d.bookingNumber}
+スペース: ${d.spaceName}
+お支払い金額（税込）: ${yen(d.amount)}
+
+お支払いページ:
+${d.payUrl}
+
+※お支払いの確認をもって完了となります。銀行振込でお申し込みの場合、こちらでカードのお支払いを確認後は振込は不要です。`;
+  const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
+<p>${escapeHtml(d.customerName)} 様</p>
+<p>ご予約について、<strong>クレジットカードでのお支払いページ</strong>をご用意しました。<br>下記のボタンからお支払いいただくと、ご予約のお支払いが完了します。</p>
+<table style="border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+</table>
+<p style="font-size:18px">お支払い金額（税込）: <strong>${yen(d.amount)}</strong></p>
+<p style="margin:14px 0"><a href="${escapeHtml(d.payUrl)}" style="display:inline-block;background:#0068b7;color:#fff;padding:12px 20px;border-radius:8px;font-weight:700;text-decoration:none">カードでお支払いへ進む ▶</a></p>
+<p style="color:#6b7280;font-size:13px">※お支払いの確認をもって完了となります。銀行振込でお申し込みの場合、カードのお支払いを確認後は<strong>お振込は不要</strong>です。</p>
+</div>`;
+  return withSignature({ subject, html, text });
+}
+
 /**
  * 追加料金の入金確認＆予約確定メール（顧客向け）。
  * 予約内容変更で発生した差額（追加請求リンク）の入金が確認できたときに送る。

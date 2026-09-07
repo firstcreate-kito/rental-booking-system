@@ -50,7 +50,15 @@ app.get('/:token', async (c) => {
   // 宛名：請求書名（指定時）> 会社名 > 申込者の個人名 の順（#41・A案）
   const recipientName = pickRecipientName(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
   // 敬称：会社→御中／個人（お名前のみ）→様（宛名指定は会社を示す語があれば御中）
-  const recipientHonorific = pickRecipientHonorific(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
+  const autoHonorific = pickRecipientHonorific(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
+  // お客様が領収書ページで敬称（様／御中／なし）を選べる（レアケース対応）。
+  // ?honorific=sama|onchu|none。未指定なら自動判定に従う。印刷・PDFにも反映される。
+  const honQuery = String(c.req.query('honorific') || '').toLowerCase();
+  const HON_BY_TOKEN: Record<string, '御中' | '様' | ''> = { sama: '様', onchu: '御中', none: '' };
+  const recipientHonorific = honQuery in HON_BY_TOKEN ? HON_BY_TOKEN[honQuery] : autoHonorific;
+  // 現在有効な敬称の選択トークン（画面のセレクタ表示・PDFリンクに使う）
+  const honToken: 'sama' | 'onchu' | 'none' =
+    recipientHonorific === '御中' ? 'onchu' : recipientHonorific === '様' ? 'sama' : 'none';
 
   const data: DocumentData = {
     type: doc.type,
@@ -126,9 +134,11 @@ app.get('/:token', async (c) => {
   return c.html(
     renderDocumentHtml({
       ...data,
-      pdfHref: pdfEnabled ? '?format=pdf' : undefined,
+      // PDFにも現在の敬称選択を反映（?format=pdf は ?format=html を内部で開いて生成するため、honorific も引き継ぐ）
+      pdfHref: pdfEnabled ? `?format=pdf&honorific=${honToken}` : undefined,
       mailApiPath: emailEnabled ? `/api/documents/${token}/email` : undefined,
       defaultEmail: emailEnabled ? defaultEmail : undefined,
+      honorificChoice: honToken,
     }),
   );
 });

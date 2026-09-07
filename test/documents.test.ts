@@ -71,6 +71,27 @@ describe('renderDocumentHtml 敬称', () => {
     const html = renderDocumentHtml({ ...base, recipientName: '株式会社サンプル' });
     expect(html).toContain('株式会社サンプル 御中');
   });
+  it('honorificChoice 未指定なら敬称セレクタ（リンク）を出さない（従来どおり）', () => {
+    const html = renderDocumentHtml({ ...base, recipientName: '山田 太郎', recipientHonorific: '様' });
+    expect(html).not.toContain('href="?honorific=');
+  });
+  it('honorificChoice 指定で 様／御中／なし のセレクタを表示し、選択中を強調（PDFリンクにも反映）', () => {
+    const html = renderDocumentHtml({
+      ...base,
+      recipientName: '山田 太郎',
+      recipientHonorific: '様',
+      honorificChoice: 'sama',
+      pdfHref: '?format=pdf&honorific=sama',
+    });
+    expect(html).toContain('href="?honorific=sama"');
+    expect(html).toContain('href="?honorific=onchu"');
+    expect(html).toContain('href="?honorific=none"');
+    // 選択中（様）だけ on クラスが付く
+    expect(html).toContain('class="hon-opt on" href="?honorific=sama"');
+    expect(html).toContain('class="hon-opt" href="?honorific=onchu"');
+    // PDFダウンロードは選択中の敬称を引き継ぐ（href内の & はHTMLエスケープされる）
+    expect(html).toContain('?format=pdf&amp;honorific=sama');
+  });
 });
 
 describe('taxBreakdown', () => {

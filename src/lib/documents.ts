@@ -93,6 +93,11 @@ export interface DocumentData {
   mailApiPath?: string;
   /** メール送信フォームの既定の宛先（顧客の登録メール）。 */
   defaultEmail?: string;
+  /**
+   * 宛名の敬称の選択状態（お客様が画面で選べる・レアケース対応）。
+   * 'sama'=様／'onchu'=御中／'none'=なし（空白）。未指定なら敬称セレクタを出さない。
+   */
+  honorificChoice?: 'sama' | 'onchu' | 'none';
 }
 
 /** 税込金額から消費税(10%)を割り戻す */
@@ -168,6 +173,11 @@ export function renderDocumentHtml(d: DocumentData): string {
   .toolbar .btn-mail { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .toolbar .tb-row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
   .toolbar .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+  /* 宛名の敬称セレクタ（様／御中／なし）。印刷・PDFには出ない（toolbarごと非表示） */
+  .toolbar .hon-row { align-items:center; gap:6px; margin-top:12px; }
+  .toolbar .hon-label { color:var(--muted); font-size:13px; }
+  .toolbar .hon-opt { background:#fff; color:var(--brand); border:1px solid var(--brand); border-radius:999px; padding:6px 14px; font-size:13px; text-decoration:none; display:inline-block; min-height:36px; line-height:22px; }
+  .toolbar .hon-opt.on { background:var(--brand); color:#fff; }
   .toolbar .mailform { max-width:420px; margin:12px auto 0; text-align:left; }
   .toolbar .mailrow { display:flex; gap:8px; }
   .toolbar .mailform input { flex:1; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
@@ -236,6 +246,15 @@ export function renderDocumentHtml(d: DocumentData): string {
         : `<button onclick="window.print()">🖨 PDFとして保存 / 印刷</button>`}
       ${d.mailApiPath ? `<button class="btn-mail" onclick="toggleMail()">✉ メールで送信</button>` : ''}
     </div>
+    ${d.honorificChoice
+      ? `<div class="tb-row hon-row">
+           <span class="hon-label">宛名の敬称：</span>
+           <a class="hon-opt${d.honorificChoice === 'sama' ? ' on' : ''}" href="?honorific=sama">様</a>
+           <a class="hon-opt${d.honorificChoice === 'onchu' ? ' on' : ''}" href="?honorific=onchu">御中</a>
+           <a class="hon-opt${d.honorificChoice === 'none' ? ' on' : ''}" href="?honorific=none">なし（空白）</a>
+         </div>
+         <div class="hint">通常は会社名なら「御中」、個人名なら「様」です。必要に応じて選び直してから「PDFをダウンロード」してください。</div>`
+      : ''}
     <div class="hint">${d.pdfHref
       ? 'スマホは「PDFをダウンロード」がおすすめです。PCでは「印刷」→「PDFに保存」も使えます。'
       : 'ボタンから「送信先：PDFに保存」を選ぶとPDFで保存できます。スマホで動かない場合は、Safari / Chrome で開いてお試しください。'}</div>

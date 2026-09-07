@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeCancelCharge, type CancelPolicyTier } from '../src/lib/cancellation';
 import { ticketCancelAction, ticketChangePlan } from '../src/lib/ticket-policy';
+import { applyRefundFee, REFUND_FEE_PCT } from '../src/lib/refund-fee';
 
 // 当初利用日を固定し、現在日時を動かして料率を確認するヘルパ
 const USE = '2026-10-01';
@@ -67,6 +68,30 @@ describe('🔒 チケット キャンセル＝ 前々日まで返還 / 当日・
   it('前日・当日は失効', () => {
     expect(ticketCancelAction(1)).toBe('forfeit'); // 前日
     expect(ticketCancelAction(0)).toBe('forfeit'); // 当日
+  });
+});
+
+describe('🔒 返金時の決済手数料＝ カード/PayPal 3.7%（切り上げ）控除 / 振込・コンビニ・請求書は控除なし', () => {
+  it('料率は 3.7% で固定', () => {
+    expect(REFUND_FEE_PCT).toBe(3.7);
+  });
+  it('カード（stripe）・PayPal は 3.7%（切り上げ）を差し引く', () => {
+    // 1650 × 3.7% = 61.05 → 切り上げ 62 → net 1588
+    expect(applyRefundFee(1650, 'stripe')).toEqual({ gross: 1650, fee: 62, net: 1588, applied: true, pct: 3.7 });
+    expect(applyRefundFee(1650, 'paypal')).toEqual({ gross: 1650, fee: 62, net: 1588, applied: true, pct: 3.7 });
+    // 10000 × 3.7% = 370（丁度）→ net 9630
+    expect(applyRefundFee(10000, 'stripe')).toEqual({ gross: 10000, fee: 370, net: 9630, applied: true, pct: 3.7 });
+  });
+  it('銀行振込・コンビニ・請求書払いは控除なし（全額返金）', () => {
+    for (const m of ['bank_transfer', 'konbini', 'invoice', null, undefined]) {
+      const r = applyRefundFee(10000, m as string | null | undefined);
+      expect(r.applied).toBe(false);
+      expect(r.fee).toBe(0);
+      expect(r.net).toBe(10000);
+    }
+  });
+  it('返金0円以下は手数料なし（applied=false）', () => {
+    expect(applyRefundFee(0, 'stripe')).toEqual({ gross: 0, fee: 0, net: 0, applied: false, pct: 3.7 });
   });
 });
 

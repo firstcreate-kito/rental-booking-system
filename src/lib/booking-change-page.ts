@@ -184,11 +184,16 @@ function renderCancelQuote(){
     $('c_agree').checked = true; $('submitBtn').disabled = false; return;
   }
   var yen = function(n){ return '¥' + Math.round(n).toLocaleString('ja-JP'); };
+  // カード／PayPal決済は決済手数料（3.7%）控除後の額を返金（ご返金額は控除後の net）。
+  var feeNote = (q.refundFee && q.refundFee.applied)
+    ? '<br><span style="font-size:12px">クレジットカード／PayPal決済のため、決済手数料（' + q.refundFee.pct + '%）を差し引いた金額をご返金いたします。</span>'
+    : '';
   lines.innerHTML =
     '<strong>キャンセルにかかる金額</strong><br>' +
     'キャンセル料：<b>' + yen(q.cancelFee) + '</b>（' + q.chargePctMax + '%）<br>' +
     'ご返金額：<b>' + yen(q.refundAmount) + '</b>' +
     (q.paidAmount === 0 ? '<br><span style="font-size:12px">※お支払い前のため、返金はありません。</span>' : '') +
+    feeNote +
     '<br><span style="font-size:12px">最終確認・返金のお手続きは担当者が行います。</span>';
 }
 

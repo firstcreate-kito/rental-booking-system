@@ -41,6 +41,7 @@ import { executeReschedule } from '../lib/reschedule-exec';
 import { computeCancelCharge, selectCancelPolicy, type CancelPolicyTier } from '../lib/cancellation';
 import { computeChangeSettlement } from '../lib/change-settlement';
 import { cancelFormulaLines, rescheduleFormulaLines } from '../lib/settlement-formula';
+import { applyRefundFee } from '../lib/refund-fee';
 import { createCardSwitchSession } from '../lib/payment-switch';
 import { deleteBookingFromCalendar } from '../lib/gcal-sync';
 import { claimPendingTicketsForCustomer } from '../lib/ticket-migration';
@@ -169,6 +170,8 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
   const q = ticketPlan ? { ...quote, cancelFee: 0, refundAmount: 0 } : quote;
   // 計算式（内訳）を同梱：モーダルとメールで同一の文言にする（settlement-formula）。
   const space = await getSpaceById(db, g.space_id);
+  // カード／PayPal決済は返金額から決済手数料（3.7%）を差し引く。控除前(gross)を計算式の算術に、控除後(net)を提示額に使う。
+  const rf = applyRefundFee(q.refundAmount, g.payment_method);
   const formula = cancelFormulaLines({
     spaceName: space?.name ?? '',
     daysBefore: q.daysBefore,
@@ -179,9 +182,11 @@ app.get('/bookings/:number/cancel-quote', async (c) => {
     totalAmount: q.totalAmount,
     breakdown: q.breakdown,
     ticket,
+    refundFee: rf.applied ? { fee: rf.fee, net: rf.net, pct: rf.pct } : undefined,
   });
-  // 支払方法も返す（'invoice'＝自社口座への直接振込のみ、返金時に振込手数料の注記を表示）
-  return c.json({ ...q, paymentMethod: g.payment_method, ticket, formula });
+  // 支払方法も返す（'invoice'＝自社口座への直接振込のみ、返金時に振込手数料の注記を表示）。
+  // お客様提示のご返金額(refundAmount)は決済手数料控除後(net)。gross・手数料は refundFee に同梱。
+  return c.json({ ...q, refundAmount: rf.net, refundFee: { applied: rf.applied, gross: rf.gross, fee: rf.fee, net: rf.net, pct: rf.pct }, paymentMethod: g.payment_method, ticket, formula });
 });
 
 /**
@@ -216,6 +221,10 @@ app.get('/bookings/:number/reschedule-quote', async (c) => {
   );
   const cancelChargePct = computeCancelCharge(tiers, refDate, now, originalTotal).chargePct;
   const quote = await quoteReschedule(db, g, space, [{ date, startTime: start, endTime: end }], cancelChargePct);
+  // 減額返金はカード／PayPal決済時に決済手数料（3.7%）を差し引く。控除前(gross)を計算式に、控除後(net)を提示額に。
+  const rf = quote.settlement.kind === 'decrease'
+    ? applyRefundFee(quote.settlement.refund, g.payment_method)
+    : applyRefundFee(0, g.payment_method);
   // 計算式（内訳）を同梱：モーダルとメールで同一の文言にする（settlement-formula）。
   const formula = rescheduleFormulaLines({
     spaceName: space.name,
@@ -226,8 +235,11 @@ app.get('/bookings/:number/reschedule-quote', async (c) => {
     refund: quote.settlement.refund,
     charge: quote.settlement.charge,
     ticket: quote.ticket,
+    refundFee: rf.applied ? { fee: rf.fee, net: rf.net, pct: rf.pct } : undefined,
   });
-  return c.json({ ...quote, formula });
+  // お客様提示の返金額は決済手数料控除後(net)。settlement.refund は控除後に差し替え、gross・手数料は refundFee に同梱。
+  const settlement = rf.applied ? { ...quote.settlement, refund: rf.net } : quote.settlement;
+  return c.json({ ...quote, settlement, refundFee: { applied: rf.applied, gross: rf.gross, fee: rf.fee, net: rf.net, pct: rf.pct }, formula });
 });
 
 /**
@@ -258,7 +270,10 @@ app.post('/bookings/:number/cancel', async (c) => {
 
   // キャンセル見積り（当初利用日基準・確定額）。チケットは現金0に上書き。
   const quote = await quoteCancellation(db, g, bookings, now);
-  const refundAmount = ticketPlan ? 0 : quote.refundAmount;
+  const grossRefund = ticketPlan ? 0 : quote.refundAmount; // 決済手数料控除前
+  // カード／PayPal決済は返金額から決済手数料（3.7%）を差し引いた net をお客様へ返金・保存・通知する。
+  const rf = applyRefundFee(grossRefund, g.payment_method);
+  const refundAmount = rf.net;
 
   // クーポン利用があれば残時間を返却（チケット・ポイントと同様）。
   const couponRestore = await buildCouponRestoreStmts(db, g.id);
@@ -313,10 +328,11 @@ app.post('/bookings/:number/cancel', async (c) => {
     chargePctMax: quote.chargePctMax,
     cancelFee: ticketPlan ? 0 : quote.cancelFee,
     paidAmount: quote.paidAmount,
-    refundAmount,
+    refundAmount: grossRefund, // 計算式の算術は控除前（gross）で表示
     totalAmount: quote.totalAmount,
     breakdown: quote.breakdown,
     ticket: ticketPlan ? { isTicket: true, action: ticketPlan.action, hours: ticketPlan.hours } : { isTicket: false },
+    refundFee: rf.applied ? { fee: rf.fee, net: rf.net, pct: rf.pct } : undefined,
   }).join('\n');
   const settlementId = await createChangeSettlement(
     db,
@@ -468,6 +484,8 @@ app.post('/bookings/:number/reschedule', async (c) => {
   // 精算額を算出。チケット予約は現金精算なし（direction none）。
   let direction: ChangeSettlementDirection;
   let quotedAmount: number;
+  let grossRefund = 0; // 減額返金の決済手数料控除前（計算式の算術に使う）
+  let refundFeeApplied: { fee: number; net: number; pct: number } | undefined;
   let kind: string;
   let note: string;
   if (exec.ticket.isTicket) {
@@ -489,7 +507,11 @@ app.post('/bookings/:number/reschedule', async (c) => {
       quotedAmount = s.charge;
     } else if (s.kind === 'decrease') {
       direction = 'refund';
-      quotedAmount = s.refund;
+      grossRefund = s.refund;
+      // カード／PayPal決済は返金額から決済手数料（3.7%）を差し引いた net をお客様へ返金・保存・通知。
+      const rf = applyRefundFee(grossRefund, g.payment_method);
+      quotedAmount = rf.net;
+      refundFeeApplied = rf.applied ? { fee: rf.fee, net: rf.net, pct: rf.pct } : undefined;
     } else {
       direction = 'none';
       quotedAmount = 0;
@@ -503,9 +525,10 @@ app.post('/bookings/:number/reschedule', async (c) => {
     currentTotal: g.total_amount,
     newTotal: exec.newTotal,
     cancelChargePct,
-    refund: direction === 'refund' ? quotedAmount : 0,
+    refund: direction === 'refund' ? grossRefund : 0, // 計算式の算術は控除前（gross）
     charge: direction === 'charge' ? quotedAmount : 0,
     ticket: exec.ticket.isTicket,
+    refundFee: refundFeeApplied,
   }).join('\n');
   const settlementId = await createChangeSettlement(
     db,
@@ -646,7 +669,8 @@ app.post('/bookings/:number/change-request', async (c) => {
     const bookings = await getBookingsByGroup(db, g.id);
     const q = await quoteCancellation(db, g, bookings, now);
     cancelFee = q.cancelFee;
-    refundAmount = q.refundAmount;
+    // カード／PayPal決済は決済手数料（3.7%）控除後の実返金額を記録する。
+    refundAmount = applyRefundFee(q.refundAmount, g.payment_method).net;
   }
   const yen = (n: number) => '¥' + Math.round(n).toLocaleString('ja-JP');
   let agreedNote = cancelFee !== undefined ? `\n【お客様が同意した金額】キャンセル料 ${yen(cancelFee)}／ご返金額 ${yen(refundAmount ?? 0)}` : '';
@@ -673,7 +697,8 @@ app.post('/bookings/:number/change-request', async (c) => {
       } else if (s.kind === 'increase') {
         agreedNote += `\n【お客様が同意した金額】追加請求 ${yen(s.charge)}（変更後 ${yen(rq.newTotal)}）`;
       } else if (s.kind === 'decrease') {
-        agreedNote += `\n【お客様が同意した金額】ご返金 ${yen(s.refund)}（変更後 ${yen(rq.newTotal)}／減少分の${pct}%はキャンセル料）`;
+        const rfNet = applyRefundFee(s.refund, g.payment_method).net; // カード／PayPalは決済手数料控除後
+        agreedNote += `\n【お客様が同意した金額】ご返金 ${yen(rfNet)}（変更後 ${yen(rq.newTotal)}／減少分の${pct}%はキャンセル料）`;
       } else {
         agreedNote += `\n【お客様が同意した金額】差額なし（${yen(rq.newTotal)}）`;
       }

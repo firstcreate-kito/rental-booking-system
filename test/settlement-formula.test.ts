@@ -35,6 +35,30 @@ describe('cancelFormulaLines（キャンセル計算式）', () => {
     });
     expect(lines.join('\n')).toContain('2時間を返還');
   });
+
+  it('カード決済：決済手数料（3.7%）控除行と説明文を追記（算術は控除前で表示）', () => {
+    const lines = cancelFormulaLines({
+      spaceName: '東別院24hピアノスタジオ',
+      daysBefore: 20, chargePctMax: 0, cancelFee: 0,
+      paidAmount: 1650, refundAmount: 1650, totalAmount: 1650,
+      breakdown: [{ date: '2026-09-22', price: 1650, chargePct: 0, cancelFee: 0 }],
+      refundFee: { fee: 62, net: 1588, pct: 3.7 },
+    });
+    const text = lines.join('\n');
+    expect(text).toContain('お支払い ¥1,650 − キャンセル料 ¥0 = ¥1,650'); // 算術は控除前(gross)
+    expect(text).toContain('決済手数料（カード／PayPal決済 3.7%）：− ¥62');
+    expect(text).toContain('お客様へのご返金額：¥1,588');
+    expect(text).toContain('決済手数料（3.7%）を差し引いた金額を返金いたします');
+  });
+
+  it('未入金・手数料指定なし：手数料行は出ない', () => {
+    const lines = cancelFormulaLines({
+      spaceName: '名駅フリースペース', daysBefore: 40, chargePctMax: 0, cancelFee: 0,
+      paidAmount: 0, refundAmount: 0, totalAmount: 6000,
+      breakdown: [{ date: '2026-10-20', price: 6000, chargePct: 0, cancelFee: 0 }],
+    });
+    expect(lines.join('\n')).not.toContain('決済手数料');
+  });
 });
 
 describe('rescheduleFormulaLines（日時変更計算式）', () => {
@@ -46,6 +70,18 @@ describe('rescheduleFormulaLines（日時変更計算式）', () => {
     const text = lines.join('\n');
     expect(text).toContain('短縮分：¥33,880 − ¥24,200 = ¥9,680');
     expect(text).toContain('¥9,680 × (100 − 80)% = ¥1,936');
+  });
+
+  it('減額・カード決済：決済手数料（3.7%）控除行と説明文を追記', () => {
+    const lines = rescheduleFormulaLines({
+      spaceName: '名駅フリースペース', kind: 'decrease',
+      currentTotal: 33880, newTotal: 24200, cancelChargePct: 0, refund: 9680, charge: 0,
+      refundFee: { fee: 359, net: 9321, pct: 3.7 }, // 9680×3.7%=358.16→切上359
+    });
+    const text = lines.join('\n');
+    expect(text).toContain('短縮分を全額返金 ¥9,680'); // 算術は控除前(gross)
+    expect(text).toContain('決済手数料（カード／PayPal決済 3.7%）：− ¥359');
+    expect(text).toContain('お客様へのご返金額：¥9,321');
   });
 
   it('増額：差額＝追加請求', () => {

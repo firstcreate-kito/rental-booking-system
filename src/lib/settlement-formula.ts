@@ -8,16 +8,38 @@
 
 const yen = (n: number): string => '¥' + Math.round(n).toLocaleString('ja-JP');
 
+/**
+ * 決済手数料の控除表示（カード／PayPal決済時のみ）。
+ * fee>0 のときだけ「決済手数料」「お客様へのご返金額」「説明文」を追記する。
+ * gross（控除前の返金額）は各計算式の「＝ ¥…」行にそのまま用いる（算術を崩さない）。
+ */
+export interface RefundFeeDisplay {
+  fee: number; // 差し引く決済手数料
+  net: number; // 手数料控除後の実返金額
+  pct: number; // 適用率（%）
+}
+
+/** 決済手数料の控除行＋説明文（fee>0 のときだけ返す。それ以外は空配列） */
+function refundFeeLines(rf?: RefundFeeDisplay): string[] {
+  if (!rf || !(rf.fee > 0)) return [];
+  return [
+    `・決済手数料（カード／PayPal決済 ${rf.pct}%）：− ${yen(rf.fee)}`,
+    `・お客様へのご返金額：${yen(rf.net)}`,
+    `※クレジットカード／PayPal決済のため、決済手数料（${rf.pct}%）を差し引いた金額を返金いたします。`,
+  ];
+}
+
 export interface CancelFormulaInput {
   spaceName: string;
   daysBefore: number | null; // 当初利用日までの残日数
   chargePctMax: number; // 適用キャンセル料率（%）
   cancelFee: number; // キャンセル料（合計）
   paidAmount: number; // 入金済み金額（未入金は0）
-  refundAmount: number; // ご返金額
+  refundAmount: number; // ご返金額（決済手数料控除前）
   totalAmount: number; // 予約合計
   breakdown: ReadonlyArray<{ date: string; price: number; chargePct: number; cancelFee: number }>;
   ticket?: { isTicket: boolean; action?: string; hours?: number | null };
+  refundFee?: RefundFeeDisplay; // カード／PayPal決済時の決済手数料控除
 }
 
 /** キャンセル料・返金の計算式（1行=1要素） */
@@ -42,6 +64,7 @@ export function cancelFormulaLines(d: CancelFormulaInput): string[] {
   }
   if (d.paidAmount > 0) {
     lines.push(`・ご返金額：お支払い ${yen(d.paidAmount)} − キャンセル料 ${yen(d.cancelFee)} = ${yen(d.refundAmount)}`);
+    lines.push(...refundFeeLines(d.refundFee));
   } else {
     lines.push('・ご返金額：お支払い前のため なし（¥0）');
   }
@@ -54,9 +77,10 @@ export interface RescheduleFormulaInput {
   currentTotal: number; // 変更前の料金
   newTotal: number; // 変更後の料金
   cancelChargePct: number; // 当初利用日基準のキャンセル料率（減額按分・キャンセル扱い判定）
-  refund: number; // ご返金額（減額時）
+  refund: number; // ご返金額（減額時・決済手数料控除前）
   charge: number; // 追加請求額（増額）／新予約満額（キャンセル扱い）
   ticket?: boolean; // チケット予約
+  refundFee?: RefundFeeDisplay; // カード／PayPal決済時の決済手数料控除（減額返金時）
 }
 
 /** 日時変更の返金/追加請求/キャンセル扱いの計算式（1行=1要素） */
@@ -91,6 +115,7 @@ export function rescheduleFormulaLines(d: RescheduleFormulaInput): string[] {
     } else {
       lines.push(`・ご返金：短縮分を全額返金 ${yen(d.refund)}`);
     }
+    lines.push(...refundFeeLines(d.refundFee));
     return lines;
   }
   return ['【日時変更】', '・同じ時間数のため料金の変更はありません（無償）'];

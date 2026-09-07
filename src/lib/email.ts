@@ -2508,6 +2508,18 @@ function rescheduleDaysHtml(oldDays: DayList, newDays: DayList): string {
   );
 }
 
+/** キャンセルメール用：「キャンセルする予約の日時」を表示する（テキスト版）。 */
+function cancelDaysText(days: DayList): string {
+  return days && days.length ? `\n\n【キャンセルする予約の日時】\n${daysBlockText(days)}` : '';
+}
+
+/** キャンセルメール用：「キャンセルする予約の日時」を表示する（HTML版）。 */
+function cancelDaysHtml(days: DayList): string {
+  return days && days.length
+    ? `<p style="margin:8px 0 2px;color:#6b7280">キャンセルする予約の日時</p><ul style="margin:2px 0">${daysBlockHtml(days)}</ul>`
+    : '';
+}
+
 /**
  * 申込受付メール（お客様宛・Phase B）。
  * 変更/キャンセルの枠は即時反映済みで、金額は担当者の確認後に確定する旨を伝える。
@@ -2527,8 +2539,8 @@ export function changeSettlementReceivedEmail(d: {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【レンタルスペースALBE】${actionJa}のお申し込みを受け付けました（${d.bookingNumber}）`;
   const amountLine = settlementAmountLine(d.direction, d.amount);
-  // 日時変更は「変更前 → 変更後」を必ず併記する（元の日時・変更先の日時の両方）。
-  const newBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : '';
+  // 日時変更は「変更前 → 変更後」を必ず併記。キャンセルは「キャンセルする予約の日時」を表示。
+  const newBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : cancelDaysText(d.oldDays);
   const text = `${d.customerName} 様
 
 ご予約の${actionJa}のお申し込みを受け付けました。
@@ -2540,7 +2552,7 @@ ${amountLine}
 ${d.breakdown ? `\n${d.breakdown}\n` : ''}${d.note ? `\n${d.note}` : ''}
 
 ※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。`;
-  const newHtml = d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : '';
+  const newHtml = d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : cancelDaysHtml(d.oldDays);
   const breakdownHtml = d.breakdown
     ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
     : '';
@@ -2583,8 +2595,8 @@ export function adminChangeSettlementPendingEmail(d: {
   const amountLine = settlementAmountLine(d.direction, d.amount);
   const pm = paymentMethodJp(d.paymentMethod) || (d.paymentMethod ?? '—');
   const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
-  // 日時変更は「変更前 → 変更後」を必ず併記する。
-  const daysBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : '';
+  // 日時変更は「変更前 → 変更後」を必ず併記。キャンセルは「キャンセルする予約の日時」を表示。
+  const daysBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : cancelDaysText(d.oldDays);
   const text = `お客様が${actionJa}をお申し込みになり、枠は即時反映済みです。
 管理画面の「精算待ち」から金額を確認・承認してください（お金の実処理は承認時に行います）。
 
@@ -2608,7 +2620,7 @@ ${d.adminUrl ? `\n管理画面: ${d.adminUrl}` : ''}`;
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(contact)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(pm)}</td></tr>
 </table>
-${d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : ''}
+${d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : cancelDaysHtml(d.oldDays)}
 <div style="margin:12px 0;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
 ${breakdownHtml}
 ${d.note ? `<p style="color:#6b7280;font-size:13px;white-space:pre-wrap">${escapeHtml(d.note)}</p>` : ''}

@@ -361,6 +361,7 @@ app.post('/bookings/:number/cancel', async (c) => {
         amount: refundAmount,
         note,
         breakdown: cancelBreakdown,
+        oldDays: bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time })),
       }),
     }),
   );
@@ -382,6 +383,7 @@ app.post('/bookings/:number/cancel', async (c) => {
           customerEmail: customer.email,
           note,
           breakdown: cancelBreakdown,
+          oldDays: bookings.map((b) => ({ date: b.date, startTime: b.start_time, endTime: b.end_time })),
           adminUrl: `${origin}/admin.html`,
         }),
       }),

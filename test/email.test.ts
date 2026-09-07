@@ -797,3 +797,24 @@ describe('email - 日時変更メールは「変更前＋変更後」を必ず�
     expect(m.text).not.toContain('変更後の日時');
   });
 });
+
+describe('email - キャンセルメールにキャンセル対象の日時を表示', () => {
+  const days = [{ date: '2026-09-22', startTime: '10:00', endTime: '11:00' }];
+  it('changeSettlementReceivedEmail（お客様・キャンセル）に対象日時が出る', () => {
+    const m = changeSettlementReceivedEmail({
+      customerName: '前原', bookingNumber: '20260902-005', spaceName: '東別院防音室24時間グランドピアノ音楽練習室',
+      type: 'cancel', direction: 'refund', amount: 1650, oldDays: days,
+    });
+    expect(m.text).toContain('キャンセルする予約の日時');
+    expect(m.text).toContain('2026-09-22');
+    expect(m.html).toContain('キャンセルする予約の日時');
+  });
+  it('adminChangeSettlementPendingEmail（管理者・キャンセル）に対象日時が出る', () => {
+    const m = adminChangeSettlementPendingEmail({
+      bookingNumber: '20260902-005', spaceName: 'S', eventName: 'レッスン', type: 'cancel',
+      direction: 'refund', amount: 1650, paymentMethod: 'stripe', customerName: '前原', oldDays: days,
+    });
+    expect(m.text).toContain('キャンセルする予約の日時');
+    expect(m.text).toContain('2026-09-22');
+  });
+});

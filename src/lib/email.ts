@@ -1175,7 +1175,12 @@ export function refundAccountRequestEmail(d: {
   /** 連絡先（返信先）メールアドレス。既定は本部。 */
   replyTo?: string;
   breakdown?: string; // 返金額の計算式（内訳・複数行）
+  /** 返金額が既に返金手数料（一律¥350＋消費税10%）控除後の場合 true（振込・コンビニ・請求書払いのセルフキャンセル/変更）。 */
+  feeAlreadyDeducted?: boolean;
 }): { subject: string; html: string; text: string } {
+  const feeNote = d.feeAlreadyDeducted
+    ? '※上記のご返金額は、返金手数料（一律¥350＋消費税10%）を差し引いた金額です。'
+    : '※振込手数料は当方が負担いたします。';
   const reason = d.context === 'cancel' ? 'ご予約のキャンセル' : 'ご予約内容の変更（減額）';
   const replyTo = d.replyTo || 'rental@space-albe.com';
   const subject = `【レンタルスペースALBE】ご返金先口座のご連絡のお願い（${d.bookingNumber}）`;
@@ -1196,7 +1201,7 @@ ${d.breakdown ? `\n${d.breakdown}\n` : ''}
 　・口座名義（カタカナ）
 
 口座情報を確認のうえ、ご登録の口座へお振込みにて返金いたします。
-※振込手数料は当方が負担いたします。`;
+${feeNote}`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
 <p>${escapeHtml(d.customerName)} 様</p>
 <p>${escapeHtml(reason)}に伴い、下記の通りご返金がございます。<br>お支払い方法が<strong>銀行振込／コンビニ払い</strong>のため、ご返金先の口座情報をご連絡いただく必要がございます。</p>
@@ -1213,7 +1218,7 @@ ${d.breakdown ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;
 <li>銀行名</li><li>支店名</li><li>預金種別（普通／当座）</li><li>口座番号</li><li>口座名義（カタカナ）</li>
 </ul>
 </div>
-<p style="color:#6b7280;font-size:13px">口座情報を確認のうえ、ご登録の口座へお振込みにて返金いたします。<br>※振込手数料は当方が負担いたします。</p>
+<p style="color:#6b7280;font-size:13px">口座情報を確認のうえ、ご登録の口座へお振込みにて返金いたします。<br>${escapeHtml(feeNote)}</p>
 </div>`;
   return withSignature({ subject, html, text });
 }

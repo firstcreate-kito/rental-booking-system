@@ -1064,7 +1064,7 @@ async function performGroupRefund(
       c.executionCtx.waitUntil(
         sendEmail(c.env, {
           to,
-          ...refundAccountRequestEmail({ customerName: custName, bookingNumber: g.booking_number, spaceName: sp?.name ?? '', refundAmount: amount, context: g.status === 'cancelled' ? 'cancel' : 'reschedule', breakdown: breakdown ?? undefined }),
+          ...refundAccountRequestEmail({ customerName: custName, bookingNumber: g.booking_number, spaceName: sp?.name ?? '', refundAmount: amount, context: g.status === 'cancelled' ? 'cancel' : 'reschedule', breakdown: breakdown ?? undefined, feeAlreadyDeducted: true }), // Phase B 承認：amount は返金手数料控除後の net
         }),
       );
     }

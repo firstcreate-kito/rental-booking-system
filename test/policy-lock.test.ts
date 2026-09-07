@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeCancelCharge, type CancelPolicyTier } from '../src/lib/cancellation';
 import { ticketCancelAction, ticketChangePlan } from '../src/lib/ticket-policy';
-import { applyRefundFee, REFUND_FEE_PCT, REFUND_FEE_TAX_PCT } from '../src/lib/refund-fee';
+import { applyRefundFee, REFUND_FEE_PCT, REFUND_FEE_TAX_PCT, REFUND_TRANSFER_FEE } from '../src/lib/refund-fee';
 
 // 当初利用日を固定し、現在日時を動かして料率を確認するヘルパ
 const USE = '2026-10-01';
@@ -71,28 +71,35 @@ describe('🔒 チケット キャンセル＝ 前々日まで返還 / 当日・
   });
 });
 
-describe('🔒 返金時の決済手数料＝ カード/PayPal 3.7%＋消費税10%（実効4.07%・切り上げ）控除 / 振込・コンビニ・請求書は控除なし', () => {
-  it('料率は 3.7%（税抜）＋消費税10% で固定', () => {
+describe('🔒 返金手数料＝ カード/PayPal 3.7%＋税10%（率）／振込・コンビニ・請求書 一律¥350＋税10%（定額）', () => {
+  it('率・定額・消費税の定数を固定', () => {
     expect(REFUND_FEE_PCT).toBe(3.7);
     expect(REFUND_FEE_TAX_PCT).toBe(10);
+    expect(REFUND_TRANSFER_FEE).toBe(350);
   });
   it('カード（stripe）・PayPal は 3.7%＋消費税10%（切り上げ）を差し引く', () => {
     // 1650 × 3.7% × 1.10 = 67.155 → 切り上げ 68 → net 1582
-    expect(applyRefundFee(1650, 'stripe')).toEqual({ gross: 1650, fee: 68, net: 1582, applied: true, pct: 3.7, taxPct: 10 });
-    expect(applyRefundFee(1650, 'paypal')).toEqual({ gross: 1650, fee: 68, net: 1582, applied: true, pct: 3.7, taxPct: 10 });
+    expect(applyRefundFee(1650, 'stripe')).toEqual({ gross: 1650, fee: 68, net: 1582, applied: true, kind: 'card', pct: 3.7, taxPct: 10, flatBase: 350 });
+    expect(applyRefundFee(1650, 'paypal')).toEqual({ gross: 1650, fee: 68, net: 1582, applied: true, kind: 'card', pct: 3.7, taxPct: 10, flatBase: 350 });
     // 10000 × 3.7% × 1.10 = 407（丁度）→ net 9593
-    expect(applyRefundFee(10000, 'stripe')).toEqual({ gross: 10000, fee: 407, net: 9593, applied: true, pct: 3.7, taxPct: 10 });
+    expect(applyRefundFee(10000, 'stripe')).toEqual({ gross: 10000, fee: 407, net: 9593, applied: true, kind: 'card', pct: 3.7, taxPct: 10, flatBase: 350 });
   });
-  it('銀行振込・コンビニ・請求書払いは控除なし（全額返金）', () => {
-    for (const m of ['bank_transfer', 'konbini', 'invoice', null, undefined]) {
-      const r = applyRefundFee(10000, m as string | null | undefined);
-      expect(r.applied).toBe(false);
-      expect(r.fee).toBe(0);
-      expect(r.net).toBe(10000);
+  it('銀行振込・コンビニ・請求書払いは 一律¥350＋消費税10%（＝¥385）を差し引く', () => {
+    for (const m of ['bank_transfer', 'konbini', 'invoice']) {
+      // 350 × 1.10 = 385（定額）→ 10000 − 385 = 9615
+      expect(applyRefundFee(10000, m)).toEqual({ gross: 10000, fee: 385, net: 9615, applied: true, kind: 'transfer', pct: 3.7, taxPct: 10, flatBase: 350 });
     }
   });
-  it('返金0円以下は手数料なし（applied=false）', () => {
-    expect(applyRefundFee(0, 'stripe')).toEqual({ gross: 0, fee: 0, net: 0, applied: false, pct: 3.7, taxPct: 10 });
+  it('手数料が返金額を上回る場合は 返金額を上限に控除し ご返金額0円（マイナス返金にしない）', () => {
+    // 振込：返金¥200 < 手数料¥385 → 手数料は¥200まで、net 0
+    expect(applyRefundFee(200, 'bank_transfer')).toEqual({ gross: 200, fee: 200, net: 0, applied: true, kind: 'transfer', pct: 3.7, taxPct: 10, flatBase: 350 });
+    expect(applyRefundFee(1, 'konbini').net).toBe(0);
+  });
+  it('対象外の決済方法・返金0円以下は控除なし（applied=false）', () => {
+    expect(applyRefundFee(10000, 'unknown').applied).toBe(false);
+    expect(applyRefundFee(10000, null).applied).toBe(false);
+    expect(applyRefundFee(0, 'stripe')).toEqual({ gross: 0, fee: 0, net: 0, applied: false, kind: null, pct: 3.7, taxPct: 10, flatBase: 350 });
+    expect(applyRefundFee(0, 'bank_transfer').applied).toBe(false);
   });
 });
 

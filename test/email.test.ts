@@ -615,6 +615,15 @@ describe('email - 返金先口座のご連絡のお願い（顧客向け）', ()
     expect(m.html).toContain('&lt;b&gt;');
     expect(m.html).not.toContain('<b>x</b>');
   });
+  it('既定は「振込手数料は当方が負担」（管理画面からの直接キャンセル等）', () => {
+    const m = refundAccountRequestEmail({ ...base, context: 'cancel' });
+    expect(m.text).toContain('振込手数料は当方が負担');
+  });
+  it('feeAlreadyDeducted=true は「返金手数料控除後」と明記（セルフ変更/キャンセル）', () => {
+    const m = refundAccountRequestEmail({ ...base, context: 'cancel', feeAlreadyDeducted: true });
+    expect(m.text).toContain('返金手数料（一律¥350＋消費税10%）を差し引いた金額');
+    expect(m.text).not.toContain('当方が負担');
+  });
 });
 
 describe('email - 管理者向け新規予約通知の入金待ち表記', () => {

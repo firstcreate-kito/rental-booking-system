@@ -42,13 +42,28 @@ describe('cancelFormulaLines（キャンセル計算式）', () => {
       daysBefore: 20, chargePctMax: 0, cancelFee: 0,
       paidAmount: 1650, refundAmount: 1650, totalAmount: 1650,
       breakdown: [{ date: '2026-09-22', price: 1650, chargePct: 0, cancelFee: 0 }],
-      refundFee: { fee: 68, net: 1582, pct: 3.7, taxPct: 10 },
+      refundFee: { fee: 68, net: 1582, kind: 'card', pct: 3.7, taxPct: 10, flatBase: 350 },
     });
     const text = lines.join('\n');
     expect(text).toContain('お支払い ¥1,650 − キャンセル料 ¥0 = ¥1,650'); // 算術は控除前(gross)
     expect(text).toContain('決済手数料（カード／PayPal決済 3.7%＋消費税10%）：− ¥68');
     expect(text).toContain('お客様へのご返金額：¥1,582');
     expect(text).toContain('決済手数料（3.7%＋消費税10%）を差し引いた金額を返金いたします');
+  });
+
+  it('銀行振込：返金手数料（一律¥350＋消費税10%＝¥385）控除行と説明文を追記', () => {
+    const lines = cancelFormulaLines({
+      spaceName: '名駅フリースペース',
+      daysBefore: 20, chargePctMax: 0, cancelFee: 0,
+      paidAmount: 10000, refundAmount: 10000, totalAmount: 10000,
+      breakdown: [{ date: '2026-09-22', price: 10000, chargePct: 0, cancelFee: 0 }],
+      refundFee: { fee: 385, net: 9615, kind: 'transfer', pct: 3.7, taxPct: 10, flatBase: 350 },
+    });
+    const text = lines.join('\n');
+    expect(text).toContain('お支払い ¥10,000 − キャンセル料 ¥0 = ¥10,000'); // 算術は控除前(gross)
+    expect(text).toContain('返金手数料（銀行振込・コンビニ・請求書払い 一律¥350＋消費税10%）：− ¥385');
+    expect(text).toContain('お客様へのご返金額：¥9,615');
+    expect(text).toContain('返金手数料（一律¥350＋消費税10%）を差し引いた金額を返金いたします');
   });
 
   it('未入金・手数料指定なし：手数料行は出ない', () => {
@@ -76,7 +91,7 @@ describe('rescheduleFormulaLines（日時変更計算式）', () => {
     const lines = rescheduleFormulaLines({
       spaceName: '名駅フリースペース', kind: 'decrease',
       currentTotal: 33880, newTotal: 24200, cancelChargePct: 0, refund: 9680, charge: 0,
-      refundFee: { fee: 394, net: 9286, pct: 3.7, taxPct: 10 }, // 9680×3.7%×1.10=393.976→切上394
+      refundFee: { fee: 394, net: 9286, kind: 'card', pct: 3.7, taxPct: 10, flatBase: 350 }, // 9680×3.7%×1.10=393.976→切上394
     });
     const text = lines.join('\n');
     expect(text).toContain('短縮分を全額返金 ¥9,680'); // 算術は控除前(gross)

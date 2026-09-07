@@ -14,15 +14,25 @@ const yen = (n: number): string => '¥' + Math.round(n).toLocaleString('ja-JP');
  * gross（控除前の返金額）は各計算式の「＝ ¥…」行にそのまま用いる（算術を崩さない）。
  */
 export interface RefundFeeDisplay {
-  fee: number; // 差し引く決済手数料（消費税込）
+  fee: number; // 差し引く手数料（消費税込）
   net: number; // 手数料控除後の実返金額
-  pct: number; // 決済手数料率（%・税抜）
-  taxPct: number; // 決済手数料への消費税率（%）
+  kind: 'card' | 'transfer' | null; // 'card'＝率／'transfer'＝定額
+  pct: number; // カード／PayPal の決済手数料率（%・税抜）
+  taxPct: number; // 手数料への消費税率（%）
+  flatBase: number; // 振込・コンビニ・請求書払いの一律手数料（円・税抜）
 }
 
-/** 決済手数料の控除行＋説明文（fee>0 のときだけ返す。それ以外は空配列） */
+/** 手数料の控除行＋説明文（fee>0 のときだけ返す。それ以外は空配列） */
 function refundFeeLines(rf?: RefundFeeDisplay): string[] {
   if (!rf || !(rf.fee > 0)) return [];
+  if (rf.kind === 'transfer') {
+    const label = `一律${yen(rf.flatBase)}＋消費税${rf.taxPct}%`;
+    return [
+      `・返金手数料（銀行振込・コンビニ・請求書払い ${label}）：− ${yen(rf.fee)}`,
+      `・お客様へのご返金額：${yen(rf.net)}`,
+      `※銀行振込／コンビニ／請求書払いのため、返金手数料（${label}）を差し引いた金額を返金いたします。`,
+    ];
+  }
   const label = `カード／PayPal決済 ${rf.pct}%＋消費税${rf.taxPct}%`;
   return [
     `・決済手数料（${label}）：− ${yen(rf.fee)}`,

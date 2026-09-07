@@ -942,6 +942,15 @@ function crFormulaBox(formula) {
   return '<div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;line-height:1.8;white-space:pre-wrap">'
     + formula.map(escLine).join('\n') + '</div>';
 }
+// 返金手数料の一文（カード/PayPal＝率／振込・コンビニ・請求書＝定額）。控除ありのときのみ表示。
+function refundFeeNote(rf) {
+  if (!rf || !rf.applied) return '';
+  var yen = function (n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); };
+  var msg = rf.kind === 'transfer'
+    ? '銀行振込／コンビニ／請求書払いのため、返金手数料（一律' + yen(rf.flatBase) + '＋消費税' + rf.taxPct + '%）を差し引いた金額をご返金いたします。'
+    : 'クレジットカード／PayPal決済のため、決済手数料（' + rf.pct + '%＋消費税' + rf.taxPct + '%）を差し引いた金額をご返金いたします。';
+  return '<div class="muted" style="font-size:12px;margin-top:4px">' + msg + '</div>';
+}
 async function loadRescheduleQuote() {
   if (document.getElementById('cr_type').value !== 'reschedule') return;
   const box = document.getElementById('cr_rescheduleQuote');
@@ -989,11 +998,7 @@ async function loadRescheduleQuote() {
   } else if (s.kind === 'decrease') {
     // 減額は「減少分の一部キャンセル」。キャンセル料率が付く時期は返金が按分される旨を明示。
     // 自社口座への直接振込（請求書払い=invoice）の返金のみ、振込手数料を差し引く旨を表示。
-    const feeNote = (body.refundFee && body.refundFee.applied)
-      ? '<div class="muted" style="font-size:12px;margin-top:4px">クレジットカード／PayPal決済のため、決済手数料（' + body.refundFee.pct + '%＋消費税' + body.refundFee.taxPct + '%）を差し引いた金額をご返金いたします。</div>'
-      : body.paymentMethod === 'invoice'
-        ? '<div class="muted" style="font-size:12px;margin-top:4px">振込手数料を差し引いてご返金させていただきます。ご了承くださいませ。</div>'
-        : '';
+    const feeNote = refundFeeNote(body.refundFee);
     const pctNote = pct > 0
       ? '<div class="muted" style="font-size:12px;margin-top:4px">時間短縮分は「一部キャンセル」として、キャンセル料（' + pct + '%）を差し引いた額をご返金します。</div>'
       : '';
@@ -1038,13 +1043,8 @@ async function loadCancelQuote() {
       '<div class="muted" style="font-size:12px;margin-top:4px">最終確認・お手続きは担当者が行います。</div>';
     return;
   }
-  // カード／PayPal決済は決済手数料（3.7%）を差し引いてご返金する旨を明記（refundAmount は控除後の額）。
-  // 自社口座への直接振込（請求書払い=invoice）は従来どおり振込手数料の注記を表示。
-  const feeNote = (body.refundFee && body.refundFee.applied)
-    ? '<div class="muted" style="font-size:12px;margin-top:4px">クレジットカード／PayPal決済のため、決済手数料（' + body.refundFee.pct + '%＋消費税' + body.refundFee.taxPct + '%）を差し引いた金額をご返金いたします。</div>'
-    : (body.paymentMethod === 'invoice' && body.paidAmount > 0 && body.refundAmount > 0)
-      ? '<div class="muted" style="font-size:12px;margin-top:4px">振込手数料を差し引いてご返金させていただきます。ご了承くださいませ。</div>'
-      : '';
+  // 返金手数料（カード/PayPal＝率／振込・コンビニ・請求書＝定額）を差し引く旨を明記（refundAmount は控除後の額）。
+  const feeNote = refundFeeNote(body.refundFee);
   lines.innerHTML =
     '<div style="font-weight:700;color:#9a3412;margin-bottom:4px">キャンセルにかかる金額</div>' +
     '<div>キャンセル料：<strong>' + yen(body.cancelFee) + '</strong>（' + body.chargePctMax + '%）</div>' +

@@ -23,6 +23,9 @@ import {
   paymentConfirmedEmail,
   paymentMethodJp,
   thankYouEmail,
+  changeSettlementReceivedEmail,
+  changeCompletedEmail,
+  adminChangeSettlementPendingEmail,
 } from '../src/lib/email';
 
 const sampleDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '13:00' }];
@@ -750,5 +753,47 @@ describe('sendEmail 送信ログ記録（email_logs）', () => {
     expect(r.ok).toBe(false);
     expect(db.rows.length).toBe(1);
     expect(db.rows[0][5]).toBe('failed');
+  });
+});
+
+describe('email - 日時変更メールは「変更前＋変更後」を必ず併記する', () => {
+  const oldDays = [{ date: '2026-09-10', startTime: '10:00', endTime: '12:00' }];
+  const newDays = [{ date: '2026-09-15', startTime: '14:00', endTime: '16:00' }];
+  it('changeSettlementReceivedEmail（お客様・申込受付）に変更前・変更後の両方が出る', () => {
+    const m = changeSettlementReceivedEmail({
+      customerName: '山田', bookingNumber: 'B1', spaceName: 'S',
+      type: 'reschedule', direction: 'none', amount: 0, oldDays, newDays,
+    });
+    expect(m.text).toContain('変更前の日時');
+    expect(m.text).toContain('変更後の日時');
+    expect(m.text).toContain('2026-09-10');
+    expect(m.text).toContain('2026-09-15');
+    expect(m.html).toContain('変更前の日時');
+    expect(m.html).toContain('変更後の日時');
+  });
+  it('changeCompletedEmail（お客様・完了）に変更前・変更後の両方が出る', () => {
+    const m = changeCompletedEmail({
+      customerName: '山田', bookingNumber: 'B1', spaceName: 'S', type: 'reschedule', oldDays, newDays,
+    });
+    expect(m.text).toContain('変更前の日時');
+    expect(m.text).toContain('変更後の日時');
+    expect(m.text).toContain('2026-09-10');
+    expect(m.text).toContain('2026-09-15');
+  });
+  it('adminChangeSettlementPendingEmail（管理者・承認待ち）に変更前・変更後の両方が出る', () => {
+    const m = adminChangeSettlementPendingEmail({
+      bookingNumber: 'B1', spaceName: 'S', eventName: 'E', type: 'reschedule',
+      direction: 'refund', amount: 500, paymentMethod: 'stripe', customerName: '山田', oldDays, newDays,
+    });
+    expect(m.text).toContain('変更前の日時');
+    expect(m.text).toContain('変更後の日時');
+    expect(m.text).toContain('2026-09-10');
+    expect(m.text).toContain('2026-09-15');
+  });
+  it('cancel では変更前後ブロックを出さない', () => {
+    const m = changeSettlementReceivedEmail({
+      customerName: '山田', bookingNumber: 'B1', spaceName: 'S', type: 'cancel', direction: 'refund', amount: 1000,
+    });
+    expect(m.text).not.toContain('変更後の日時');
   });
 });

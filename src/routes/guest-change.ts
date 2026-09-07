@@ -69,7 +69,7 @@ app.post('/lookup', async (c) => {
   // 当初利用日までの残日数（#76・キャンセル可否/文言表示の材料）
   const daysUntilUse = contact.original_date ? leadDays(contact.original_date, todayJST()) : null;
   // キャンセル時の確定額（キャンセル料・返金額）を事前提示用に算出（#100）
-  let cancelQuote: { cancelFee: number; refundAmount: number; chargePctMax: number; paidAmount: number; refundFee: { applied: boolean; fee: number; net: number; pct: number } } | null = null;
+  let cancelQuote: { cancelFee: number; refundAmount: number; chargePctMax: number; paidAmount: number; refundFee: { applied: boolean; fee: number; net: number; pct: number; taxPct: number } } | null = null;
   if (contact.status !== 'cancelled') {
     const grp = await getBookingGroupByNumber(c.env.DB, String(b.bookingNumber).trim());
     if (grp) {
@@ -77,7 +77,7 @@ app.post('/lookup', async (c) => {
       const q = await quoteCancellation(c.env.DB, grp, bks, nowJST());
       // カード／PayPal決済は決済手数料（3.7%）控除後の net を提示（refundFee に控除内訳を同梱）。
       const rf = applyRefundFee(q.refundAmount, grp.payment_method);
-      cancelQuote = { cancelFee: q.cancelFee, refundAmount: rf.net, chargePctMax: q.chargePctMax, paidAmount: q.paidAmount, refundFee: { applied: rf.applied, fee: rf.fee, net: rf.net, pct: rf.pct } };
+      cancelQuote = { cancelFee: q.cancelFee, refundAmount: rf.net, chargePctMax: q.chargePctMax, paidAmount: q.paidAmount, refundFee: { applied: rf.applied, fee: rf.fee, net: rf.net, pct: rf.pct, taxPct: rf.taxPct } };
     }
   }
   return c.json({

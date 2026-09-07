@@ -14,18 +14,20 @@ const yen = (n: number): string => '¥' + Math.round(n).toLocaleString('ja-JP');
  * gross（控除前の返金額）は各計算式の「＝ ¥…」行にそのまま用いる（算術を崩さない）。
  */
 export interface RefundFeeDisplay {
-  fee: number; // 差し引く決済手数料
+  fee: number; // 差し引く決済手数料（消費税込）
   net: number; // 手数料控除後の実返金額
-  pct: number; // 適用率（%）
+  pct: number; // 決済手数料率（%・税抜）
+  taxPct: number; // 決済手数料への消費税率（%）
 }
 
 /** 決済手数料の控除行＋説明文（fee>0 のときだけ返す。それ以外は空配列） */
 function refundFeeLines(rf?: RefundFeeDisplay): string[] {
   if (!rf || !(rf.fee > 0)) return [];
+  const label = `カード／PayPal決済 ${rf.pct}%＋消費税${rf.taxPct}%`;
   return [
-    `・決済手数料（カード／PayPal決済 ${rf.pct}%）：− ${yen(rf.fee)}`,
+    `・決済手数料（${label}）：− ${yen(rf.fee)}`,
     `・お客様へのご返金額：${yen(rf.net)}`,
-    `※クレジットカード／PayPal決済のため、決済手数料（${rf.pct}%）を差し引いた金額を返金いたします。`,
+    `※クレジットカード／PayPal決済のため、決済手数料（${rf.pct}%＋消費税${rf.taxPct}%）を差し引いた金額を返金いたします。`,
   ];
 }
 

@@ -186,7 +186,7 @@ function renderCancelQuote(){
   var yen = function(n){ return '¥' + Math.round(n).toLocaleString('ja-JP'); };
   // カード／PayPal決済は決済手数料（3.7%）控除後の額を返金（ご返金額は控除後の net）。
   var feeNote = (q.refundFee && q.refundFee.applied)
-    ? '<br><span style="font-size:12px">クレジットカード／PayPal決済のため、決済手数料（' + q.refundFee.pct + '%）を差し引いた金額をご返金いたします。</span>'
+    ? '<br><span style="font-size:12px">クレジットカード／PayPal決済のため、決済手数料（' + q.refundFee.pct + '%＋消費税' + q.refundFee.taxPct + '%）を差し引いた金額をご返金いたします。</span>'
     : '';
   lines.innerHTML =
     '<strong>キャンセルにかかる金額</strong><br>' +

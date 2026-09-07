@@ -36,10 +36,18 @@
   .btn.danger { background:#fff; color:var(--bad); border:1px solid var(--bad); }
   /* 予約履歴などの操作ボタン群：折り返しても重ならないよう間隔を確保して整列（#98関連の重なり修正） */
   .actwrap { display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:flex-end; }
-  /* 予約情報の下に置く操作ボタン行：全幅で左寄せに並べる（折り返しOK） */
-  .actwrap.below { justify-content:flex-start; }
-  /* 操作ボタン行（bkactions）：情報行の直下に、区切りを付けて配置 */
-  tr.bkactions > td.act { padding:8px 6px 12px; }
+  /* 予約履歴：1件＝1枠のカード表示（上下の予約の境目を明確にする） */
+  .bklist { display:flex; flex-direction:column; gap:12px; margin-top:4px; }
+  .bkcard { border:1px solid var(--line); border-radius:10px; background:#fff; padding:12px 14px; }
+  .bkcard-info { display:flex; flex-wrap:wrap; gap:6px 22px; font-size:13px; }
+  .bkf { display:flex; gap:6px; align-items:baseline; }
+  .bkfl { color:var(--muted); font-size:12px; font-weight:600; white-space:nowrap; }
+  .bkcard-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); }
+  @media (max-width: 640px) {
+    .bkcard-info { flex-direction:column; gap:6px; }
+    .bkf { justify-content:space-between; }
+    .bkcard-actions .btn { flex:1 1 auto; }
+  }
   .tabs { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
   .tabs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; font-size:13px; }
   .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
@@ -228,30 +236,21 @@
       <h2>予約履歴</h2>
       <!-- 「いつもの予約」：最頻スペースをワンクリックで再予約（#98） -->
       <div id="usualCard" class="hidden" style="margin:0 0 14px;padding:14px 16px;background:#eef7ff;border:1px solid #bfdbfe;border-radius:10px"></div>
-      <div class="tablewrap"><table class="resp">
-        <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
-        <tbody id="bkBody"></tbody>
-      </table></div>
+      <div id="bkBody" class="bklist"></div>
       <div class="muted" id="bkEmpty"></div>
       <div id="bkMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('upcoming')"></button></div>
       <!-- 過去のご利用（利用日が経過した予約）#56 -->
       <div id="bkPastWrap" class="hidden" style="margin-top:16px">
         <button id="bkPastToggle" class="btn ghost sm" onclick="togglePast()" style="margin-bottom:8px"></button>
         <div id="bkPastList" class="hidden">
-          <div class="tablewrap"><table class="resp">
-            <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
-            <tbody id="bkPastBody"></tbody>
-          </table></div>
+          <div id="bkPastBody" class="bklist"></div>
           <div id="bkPastMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('past')"></button></div>
         </div>
       </div>
       <div id="bkArchiveWrap" class="hidden" style="margin-top:16px">
         <button id="bkArchiveToggle" class="btn ghost sm" onclick="toggleArchive()" style="margin-bottom:8px"></button>
         <div id="bkArchiveList" class="hidden">
-          <div class="tablewrap"><table class="resp">
-            <thead><tr><th>予約番号</th><th>スペース</th><th>イベント</th><th>日程</th><th>金額</th><th>状態</th></tr></thead>
-            <tbody id="bkArchiveBody"></tbody>
-          </table></div>
+          <div id="bkArchiveBody" class="bklist"></div>
           <div id="bkArchiveMore" class="hidden" style="margin-top:8px;text-align:center"><button class="btn ghost sm" onclick="bkShowMore('cancelled')"></button></div>
         </div>
       </div>
@@ -689,22 +688,25 @@ function bookingRow(b) {
     } catch (e) {}
   }
   btns.push('<button class="btn ghost sm" onclick="showHistory(\'' + b.booking_number + '\')">履歴</button>');
-  // 情報行（bkinfo）＋ 操作ボタン行（bkactions・colspanで全幅）の2行構成。
-  return '<tr class="bkinfo">' +
-    '<td data-label="予約番号">' + b.booking_number + '</td>' +
-    '<td data-label="スペース">' + (b.space_name||'') + '</td>' +
-    '<td data-label="イベント">' + b.event_name + '</td>' +
-    '<td data-label="日程">' + span + '</td>' +
-    '<td data-label="金額">' + yen(b.total_amount) + '</td>' +
-    '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' +
-      ((b.status === 'confirmed' && b.payment_status === 'unpaid' && Number(b.total_amount) > 0)
-        ? ' <span class="pill" style="background:#fee2e2;color:#991b1b">未入金</span>'
-        : (b.status === 'confirmed' && b.payment_status === 'paid'
-          ? ' <span class="pill" style="background:#dcfce7;color:#166534">入金済</span>'
-          : '')) +
-    '</td>' +
-    '</tr>' +
-    '<tr class="bkactions"><td colspan="6" class="act"><div class="actwrap below">' + btns.join('') + '</div></td></tr>';
+  // 予約ごとに枠付きカードで表示（上下の予約の境目を明確にする）。
+  const statusCell = '<span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' +
+    ((b.status === 'confirmed' && b.payment_status === 'unpaid' && Number(b.total_amount) > 0)
+      ? ' <span class="pill" style="background:#fee2e2;color:#991b1b">未入金</span>'
+      : (b.status === 'confirmed' && b.payment_status === 'paid'
+        ? ' <span class="pill" style="background:#dcfce7;color:#166534">入金済</span>'
+        : ''));
+  const f = (label, val) => '<div class="bkf"><span class="bkfl">' + label + '</span><span class="bkfv">' + val + '</span></div>';
+  return '<div class="bkcard">' +
+    '<div class="bkcard-info">' +
+      f('予約番号', '<strong>' + b.booking_number + '</strong>') +
+      f('スペース', b.space_name || '') +
+      f('イベント', b.event_name || '') +
+      f('日程', span) +
+      f('金額', yen(b.total_amount)) +
+      f('状態', statusCell) +
+    '</div>' +
+    (btns.length ? '<div class="bkcard-actions">' + btns.join('') + '</div>' : '') +
+  '</div>';
 }
 // 領収書ボタン：書類タブに切り替え、該当予約の領収書があればそのPDFを開く（無ければ書類タブを表示）。
 async function openReceipt(number) {

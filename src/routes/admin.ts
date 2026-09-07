@@ -2214,6 +2214,8 @@ app.post('/change-settlements/:id/approve', async (c) => {
             bookingNumber: s.booking_number ?? g.booking_number,
             spaceName: s.space_name ?? '',
             type: s.type,
+            paymentMethod: g.payment_method,
+            paymentStatus: g.payment_status,
             oldDays: s.old_items ? (JSON.parse(s.old_items) as Array<{ date: string; startTime: string; endTime: string }>) : undefined,
             newDays: s.new_items ? (JSON.parse(s.new_items) as Array<{ date: string; startTime: string; endTime: string }>) : undefined,
             breakdown: s.breakdown ?? undefined,
@@ -2238,6 +2240,8 @@ app.post('/change-settlements/:id/approve', async (c) => {
           direction: s.direction,
           amount: finalAmount,
           actionTaken,
+          paymentMethod: g.payment_method,
+          paymentStatus: g.payment_status,
         }),
       }),
     );

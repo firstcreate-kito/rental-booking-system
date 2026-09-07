@@ -282,6 +282,17 @@ export function paymentMethodJp(method: string | null | undefined): string {
 }
 
 /**
+ * お客様向け：支払い方法＋入金状況の一文（例「クレジットカード（入金済み）」「銀行振込（未入金）」）。
+ * 変更・キャンセル関連メールで必ず表示する。方法不明なら空文字（呼び出し側で行を出し分け）。
+ */
+export function customerPayLine(method: string | null | undefined, status?: string | null): string {
+  const m = paymentMethodJp(method) || (method ? String(method) : '');
+  if (!m) return '';
+  const s = status ? (({ paid: '入金済み', unpaid: '未入金' } as Record<string, string>)[String(status)] || '') : '';
+  return s ? `${m}（${s}）` : m;
+}
+
+/**
  * スペース固有の案内文（入室方法・解錠番号など）を差し込むブロック。
  * 管理画面でスペースごとに設定した自由記述を、改行を保ったまま目立つ枠で表示する。
  * 空欄・未設定なら何も出さない。可変値はエスケープ。
@@ -2533,12 +2544,15 @@ export function changeSettlementReceivedEmail(d: {
   amount: number;
   note?: string;
   breakdown?: string; // 計算式（内訳・複数行）
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
   oldDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
 }): { subject: string; html: string; text: string } {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【レンタルスペースALBE】${actionJa}のお申し込みを受け付けました（${d.bookingNumber}）`;
   const amountLine = settlementAmountLine(d.direction, d.amount);
+  const payLine = customerPayLine(d.paymentMethod, d.paymentStatus); // 支払い方法＋入金状況（必ず明記）
   // 日時変更は「変更前 → 変更後」を必ず併記。キャンセルは「キャンセルする予約の日時」を表示。
   const newBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : cancelDaysText(d.oldDays);
   const text = `${d.customerName} 様
@@ -2548,7 +2562,7 @@ ${d.type === 'cancel' ? 'ご予約枠はキャンセル（解放）いたしま�
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
-${amountLine}
+${payLine ? `お支払い方法: ${payLine}\n` : ''}${amountLine}
 ${d.breakdown ? `\n${d.breakdown}\n` : ''}${d.note ? `\n${d.note}` : ''}
 
 ※お申し込みは受け付けました。金額（返金・追加請求）は担当者の確認後に確定し、あらためてご連絡いたします。`;
@@ -2563,6 +2577,7 @@ ${newHtml}
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+${payLine ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(payLine)}</td></tr>` : ''}
 </table>
 <div style="margin:12px 0;padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px"><strong>${escapeHtml(amountLine)}</strong></div>
 ${breakdownHtml}
@@ -2581,6 +2596,7 @@ export function adminChangeSettlementPendingEmail(d: {
   direction: 'refund' | 'charge' | 'none';
   amount: number;
   paymentMethod: string | null;
+  paymentStatus?: string | null;
   customerName: string;
   customerEmail?: string;
   customerPhone?: string;
@@ -2593,7 +2609,8 @@ export function adminChangeSettlementPendingEmail(d: {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【承認待ち】${actionJa}の精算確認／${d.spaceName}（${d.bookingNumber}）`;
   const amountLine = settlementAmountLine(d.direction, d.amount);
-  const pm = paymentMethodJp(d.paymentMethod) || (d.paymentMethod ?? '—');
+  // 支払い方法＋入金状況（入金済み/未入金）を必ず明記（返金・追加請求の判断材料）。
+  const pm = paymentMethodStatusLabel(d.paymentMethod, d.paymentStatus) || (d.paymentMethod ?? '—');
   const contact = d.customerEmail ? `${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）` : d.customerName;
   // 日時変更は「変更前 → 変更後」を必ず併記。キャンセルは「キャンセルする予約の日時」を表示。
   const daysBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : cancelDaysText(d.oldDays);
@@ -2635,6 +2652,8 @@ export function changeCompletedEmail(d: {
   bookingNumber: string;
   spaceName: string;
   type: 'reschedule' | 'cancel';
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
   oldDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   newDays?: ReadonlyArray<{ date: string; startTime: string; endTime: string }>;
   breakdown?: string; // 計算式（内訳・複数行。チケット/無償変更の説明など）
@@ -2642,7 +2661,8 @@ export function changeCompletedEmail(d: {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【レンタルスペースALBE】ご予約の${actionJa}が完了しました（${d.bookingNumber}）`;
   // 日時変更は「変更前 → 変更後」を必ず併記する。
-  const newBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : '';
+  const newBlock = d.type === 'reschedule' ? rescheduleDaysText(d.oldDays, d.newDays) : cancelDaysText(d.oldDays);
+  const payLine = customerPayLine(d.paymentMethod, d.paymentStatus); // 支払い方法＋入金状況（必ず明記）
   const text = `${d.customerName} 様
 
 ご予約の${actionJa}が完了しました。
@@ -2650,8 +2670,8 @@ export function changeCompletedEmail(d: {
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
-${d.breakdown ? `\n${d.breakdown}` : ''}`;
-  const newHtml = d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : '';
+${payLine ? `お支払い方法: ${payLine}\n` : ''}${d.breakdown ? `\n${d.breakdown}` : ''}`;
+  const newHtml = d.type === 'reschedule' ? rescheduleDaysHtml(d.oldDays, d.newDays) : cancelDaysHtml(d.oldDays);
   const breakdownHtml = d.breakdown
     ? `<div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;white-space:pre-wrap">${escapeHtml(d.breakdown)}</div>`
     : '';
@@ -2662,6 +2682,7 @@ ${newHtml}
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+${payLine ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(payLine)}</td></tr>` : ''}
 </table>
 ${breakdownHtml}
 </div>`;
@@ -2676,14 +2697,18 @@ export function adminChangeSettlementResolvedEmail(d: {
   direction: 'refund' | 'charge' | 'none';
   amount: number;
   actionTaken: string; // 実行した処理の説明
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
 }): { subject: string; html: string; text: string } {
   const actionJa = d.type === 'cancel' ? 'キャンセル' : '日時変更';
   const subject = `【控え】${actionJa}の精算を確定しました／${d.spaceName}（${d.bookingNumber}）`;
   const amountLine = settlementAmountLine(d.direction, d.amount);
+  const pm = paymentMethodStatusLabel(d.paymentMethod ?? null, d.paymentStatus);
   const text = `${actionJa}の精算を確定しました（控え）。
 
 予約番号: ${d.bookingNumber}
 スペース: ${d.spaceName}
+お支払い方法: ${pm}
 ${amountLine}
 実行内容: ${d.actionTaken}`;
   const html = `<div style="font-family:sans-serif;line-height:1.7;color:#1f2937">
@@ -2691,6 +2716,7 @@ ${amountLine}
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">予約番号</td><td><strong>${escapeHtml(d.bookingNumber)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">スペース</td><td>${escapeHtml(d.spaceName)}</td></tr>
+<tr><td style="padding:4px 12px 4px 0;color:#6b7280">お支払い方法</td><td>${escapeHtml(pm)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">金額</td><td>${escapeHtml(amountLine)}</td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">実行内容</td><td>${escapeHtml(d.actionTaken)}</td></tr>
 </table>

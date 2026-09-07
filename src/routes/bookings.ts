@@ -950,9 +950,10 @@ app.get('/payment-status', async (c) => {
   let pay = await getBookingPaymentBySession(c.env.DB, sessionId);
   if (!pay) return c.json({ status: 'unknown' });
   let g = await getBookingGroupById(c.env.DB, pay.group_id);
-  // Webhook が遅延・不達でも確定できるよう、未入金・pending のときは Stripe に直接照会して
+  // Webhook が遅延・不達でも確定できるよう、未入金のときは Stripe に直接照会して
   // 入金済みなら Webhook と同じ確定処理をここで実行する（#68 補強・カード決済先行の取りこぼし防止）。
-  if (pay.status !== 'paid' && g?.status === 'pending' && stripeConfigured(c.env)) {
+  // pending（決済先行）だけでなく confirmed（銀行振込/コンビニの入金待ち → 支払い方法をカードに切替）も対象。
+  if (pay.status !== 'paid' && (g?.status === 'pending' || g?.status === 'confirmed') && stripeConfigured(c.env)) {
     try {
       const sess = await retrieveCheckoutSession(c.env.STRIPE_SECRET_KEY!, sessionId);
       if (sess && sess.paymentStatus === 'paid') {

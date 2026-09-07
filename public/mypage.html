@@ -687,7 +687,13 @@ function bookingRow(b) {
     '<td data-label="イベント">' + b.event_name + '</td>' +
     '<td data-label="日程">' + span + '</td>' +
     '<td data-label="金額">' + yen(b.total_amount) + '</td>' +
-    '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span></td>' +
+    '<td data-label="状態"><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' +
+      ((b.status === 'confirmed' && b.payment_status === 'unpaid' && Number(b.total_amount) > 0)
+        ? ' <span class="pill" style="background:#fee2e2;color:#991b1b">未入金</span>'
+        : (b.status === 'confirmed' && b.payment_status === 'paid'
+          ? ' <span class="pill" style="background:#dcfce7;color:#166534">入金済</span>'
+          : '')) +
+    '</td>' +
     '<td class="act"><div class="actwrap">' + action + '</div></td></tr>';
 }
 // 銀行振込の振込先（予約番号→口座情報）。bookingRow 描画時に格納。

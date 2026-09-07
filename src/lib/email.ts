@@ -5,12 +5,16 @@
  *   未設定なら no-op（ローカル開発や送信前段階でも予約処理は正常に完了する）。
  * - 送信失敗は握りつぶす（メールの失敗で予約処理を止めない）。呼び出し側は
  *   executionCtx.waitUntil() でバックグラウンド送信するとよい。
+ * - env.DB があれば、全ての送信試行（送信/失敗/スキップ）を email_logs に記録する（管理画面で検索用）。
  */
+import { nowJST } from './clock';
 
 export interface EmailEnv {
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
   MAIL_ADMIN?: string;
+  /** 送信ログ記録先（任意）。設定時は email_logs に送信試行を記録する。 */
+  DB?: D1Database;
   /** 返信先。送信元を noreply@… にしてもお客様の返信がこの受信箱に届く（任意）。 */
   MAIL_REPLY_TO?: string;
   /**
@@ -43,6 +47,8 @@ export interface EmailMessage {
    * お客様が予約をカレンダーへ追加できるよう、予約確定メール等に booking.ics を添える。
    */
   attachments?: Array<{ filename: string; content: string; contentType?: string }>;
+  /** 送信ログの種別タグ（任意・検索用。例: 'weekly_report'）。未指定なら件名で判別する。 */
+  kind?: string;
 }
 
 export interface SendResult {
@@ -51,13 +57,42 @@ export interface SendResult {
   error?: string;
 }
 
-/** Resend API で1通送信する。失敗しても例外は投げない。 */
+/** 送信試行を email_logs に記録（env.DB があるときのみ・失敗しても本処理に影響させない）。 */
+async function recordEmailLog(
+  env: EmailEnv,
+  data: { recipients: string[]; subject: string; kind?: string; status: 'sent' | 'failed' | 'skipped'; error?: string },
+): Promise<void> {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      'INSERT INTO email_logs (id, created_at, recipients, subject, kind, status, error) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(
+        crypto.randomUUID(),
+        nowJST(),
+        data.recipients.join(', ').slice(0, 500),
+        (data.subject || '').slice(0, 300),
+        data.kind ?? null,
+        data.status,
+        data.error ? data.error.slice(0, 500) : null,
+      )
+      .run();
+  } catch (e) {
+    console.error('[email] log failed', { error: (e as Error).message });
+  }
+}
+
+/** Resend API で1通送信する。失敗しても例外は投げない。送信試行は email_logs に記録する。 */
 export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendResult> {
+  // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）。ログにも使うので先に確定させる。
+  const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
+  const logBase = { recipients, subject: msg.subject, kind: msg.kind };
   // 【安全装置】ステージング（テスト環境）からは実メールを送らない。
   // 誤って本物のお客様宛に通知が飛ぶ事故を防ぐ。テスト目的で送りたいときのみ
   // STAGING_ALLOW_EMAIL='true' を明示的にセットする（既定は送らない）。
   if ((env.APP_ENV ?? '').trim() === 'staging' && env.STAGING_ALLOW_EMAIL !== 'true') {
     console.log('[email] skipped on staging (safety guard)', { subject: msg.subject });
+    await recordEmailLog(env, { ...logBase, status: 'skipped', error: 'staging安全装置により送信停止' });
     return { ok: false, skipped: true };
   }
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) {
@@ -67,12 +102,12 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
       hasFrom: !!env.MAIL_FROM,
       subject: msg.subject,
     });
+    await recordEmailLog(env, { ...logBase, status: 'skipped', error: 'RESEND_API_KEY / MAIL_FROM 未設定' });
     return { ok: false, skipped: true };
   }
-  // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）
-  const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
   if (recipients.length === 0) {
     console.warn('[email] no recipient', { subject: msg.subject });
+    await recordEmailLog(env, { ...logBase, status: 'failed', error: '宛先なし' });
     return { ok: false, error: 'no recipient' };
   }
   // 返信先（任意）：送信元を noreply@… にしてもお客様の返信が実際の受信箱に届くようにする。
@@ -119,12 +154,15 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
       const detail = await res.text().catch(() => '');
       // Resend からのエラー（ドメイン未認証・APIキー不正・レート制限など）を記録。
       console.error('[email] resend error', { status: res.status, detail: detail.slice(0, 300), to: recipients.length, subject: msg.subject });
+      await recordEmailLog(env, { ...logBase, status: 'failed', error: `resend ${res.status}: ${detail.slice(0, 200)}` });
       return { ok: false, error: `resend ${res.status}: ${detail.slice(0, 200)}` };
     }
     console.log('[email] sent', { to: recipients.length, subject: msg.subject });
+    await recordEmailLog(env, { ...logBase, status: 'sent' });
     return { ok: true };
   } catch (err) {
     console.error('[email] send exception', { error: (err as Error).message, subject: msg.subject });
+    await recordEmailLog(env, { ...logBase, status: 'failed', error: (err as Error).message });
     return { ok: false, error: (err as Error).message };
   }
 }

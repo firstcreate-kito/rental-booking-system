@@ -222,6 +222,7 @@
       <button id="tab-customers" onclick="showTab('customers')">顧客・特典</button>
       <button id="tab-export" onclick="showTab('export')">エクスポート</button>
       <button id="tab-issuer" onclick="showTab('issuer')">事業者情報</button>
+      <button id="tab-emaillogs" onclick="showTab('emaillogs')">メール送信ログ</button>
       <button id="tab-sysstatus" onclick="showTab('sysstatus')">システム状態</button>
     </div>
 
@@ -412,6 +413,23 @@
       </div>
       <p class="muted" style="font-size:13px">お客様がマイページから変更・キャンセルをお申し込みになり、<strong>枠は即時反映済み</strong>です。金額（返金／追加請求）をご確認のうえ、必要に応じて調整して「承認」してください。承認で返金・追加請求が実行されます。金額のやり取りが不要なもの（無償変更・チケット等）は「承認」で完了メールを送ります。</p>
       <div id="csList"><div class="muted">読み込み中…</div></div>
+    </section>
+
+    <!-- メール送信ログ（送信履歴の可視化・調査用） -->
+    <section id="view-emaillogs" class="card hidden">
+      <h2 style="margin:0 0 6px">メール送信ログ</h2>
+      <p class="muted" style="font-size:13px">システムから送信を試みた全メールの履歴です（宛先・件名・日時・成否）。「送ったはず／届いていない」の確認にお使いください。<strong>送信＝当システムがメール配信（Resend）へ渡せたことを示します。</strong>実際の到達・迷惑メール振り分けまでは配信元のダッシュボードでご確認ください。</p>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0">
+        <input id="elQ" type="text" placeholder="宛先・件名で検索（例：sakae-chapel / 翌週）" style="flex:1;min-width:200px;padding:8px;border:1px solid var(--line,#ddd);border-radius:8px" onkeydown="if(event.key==='Enter')loadEmailLogs()">
+        <select id="elStatus" style="padding:8px;border:1px solid var(--line,#ddd);border-radius:8px" onchange="loadEmailLogs()">
+          <option value="">すべての状態</option>
+          <option value="sent">送信（sent）</option>
+          <option value="failed">失敗（failed）</option>
+          <option value="skipped">スキップ（skipped）</option>
+        </select>
+        <button class="btn sm" onclick="loadEmailLogs()">検索</button>
+      </div>
+      <div id="elList"><div class="muted">読み込み中…</div></div>
     </section>
 
     <!-- 見学申込（#81） -->
@@ -1438,12 +1456,13 @@ function resetProxyPrice() {
 }
 
 function showTab(t) {
-  ['list','changereq','settlements','viewing','proxy','tent','spaces','calendar','issuer','sysstatus','options','questions','pricing','tickets','customers','export'].forEach(x => {
+  ['list','changereq','settlements','viewing','proxy','tent','spaces','calendar','issuer','sysstatus','options','questions','pricing','tickets','customers','export','emaillogs'].forEach(x => {
     document.getElementById('view-' + x).classList.toggle('hidden', x !== t);
     document.getElementById('tab-' + x).classList.toggle('active', x === t);
   });
   if (t === 'changereq') loadChangeRequests();
   if (t === 'settlements') loadChangeSettlements();
+  if (t === 'emaillogs') loadEmailLogs();
   if (t === 'viewing') loadViewingRequests();
   if (t === 'spaces') loadSpacesAdmin();
   if (t === 'calendar') loadCalendarMgmt();
@@ -3551,6 +3570,43 @@ function csCard(r) {
     (r.breakdown ? '<div style="white-space:pre-wrap;background:#f1f5f9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.7"><span class="muted" style="font-size:12px">お客様に提示した計算式</span>\n' + crEsc(r.breakdown) + '</div>' : '') +
     amountUi +
   '</div>';
+}
+// メール送信ログ（送信履歴の可視化・調査用）
+const EL_STATUS = { sent: { t: '送信', bg: '#dcfce7', c: '#166534' }, failed: { t: '失敗', bg: '#fee2e2', c: '#991b1b' }, skipped: { t: 'スキップ', bg: '#f3f4f6', c: '#6b7280' } };
+async function loadEmailLogs() {
+  const box = document.getElementById('elList');
+  if (!box) return;
+  const esc = x => String(x == null ? '' : x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const q = (document.getElementById('elQ') || {}).value || '';
+  const status = (document.getElementById('elStatus') || {}).value || '';
+  const p = new URLSearchParams();
+  if (q.trim()) p.set('q', q.trim());
+  if (status) p.set('status', status);
+  p.set('limit', '200');
+  box.innerHTML = '<div class="muted">読み込み中…</div>';
+  const { ok, body } = await api('/api/admin/email-logs?' + p.toString());
+  if (!ok) { box.innerHTML = '<div class="muted">読み込みに失敗しました</div>'; return; }
+  const logs = (body && body.logs) || [];
+  if (!logs.length) { box.innerHTML = '<div class="muted">該当するメール送信ログはありません。</div>'; return; }
+  const rows = logs.map(l => {
+    const s = EL_STATUS[l.status] || { t: l.status, bg: '#f3f4f6', c: '#6b7280' };
+    const pill = '<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:' + s.bg + ';color:' + s.c + '">' + esc(s.t) + '</span>';
+    const err = l.error ? '<div class="muted" style="font-size:12px;color:#991b1b">' + esc(l.error) + '</div>' : '';
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + esc((l.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
+      '<td>' + pill + (l.kind ? ' <span class="muted" style="font-size:11px">' + esc(l.kind) + '</span>' : '') + '</td>' +
+      '<td style="word-break:break-all">' + esc(l.recipients) + '</td>' +
+      '<td>' + esc(l.subject) + err + '</td>' +
+    '</tr>';
+  }).join('');
+  box.innerHTML = '<div class="muted" style="font-size:12px;margin-bottom:6px">最新' + logs.length + '件（新しい順）</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr>' +
+      '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--line);white-space:nowrap">日時</th>' +
+      '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--line)">状態</th>' +
+      '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--line)">宛先</th>' +
+      '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--line)">件名</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 async function approveSettlement(id, inputId) {
   let amount = null;

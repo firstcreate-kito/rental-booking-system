@@ -79,19 +79,20 @@ export async function buildWeeklyReports(env: Env, today: string = todayJST()): 
 
 /**
  * 週次まとめメールを実送信する（cron・手動の両方から利用）。
- * 宛先ありかつ予約1件以上のスペースにのみ送る（0件のスペースは送らない＝ノイズ抑制）。
- * ステージングは sendEmail 側で実送信が停止される。
+ * 宛先が設定されているスペースには、予約0件でも送る（オーナーが「今週は予定なし」を
+ * 毎週確実に受け取れるようにするため。0件時は本文が「翌週のご予約はありません。」になる）。
+ * 宛先が無いスペースのみスキップする。ステージングは sendEmail 側で実送信が停止される。
  */
 export async function runWeeklyReport(env: Env, today: string = todayJST()): Promise<{ sent: number; skipped: number }> {
   const reports = await buildWeeklyReports(env, today);
   let sent = 0;
   let skipped = 0;
   for (const rep of reports) {
-    if (rep.recipients.length === 0 || rep.count === 0) {
+    if (rep.recipients.length === 0) {
       skipped++;
       continue;
     }
-    await sendEmail(env, { to: rep.recipients, ...rep.mail, internal: true });
+    await sendEmail(env, { to: rep.recipients, ...rep.mail, internal: true, kind: 'weekly_report' });
     sent++;
   }
   console.log(`[weekly-report] spaces=${reports.length} sent=${sent} skipped=${skipped}`);

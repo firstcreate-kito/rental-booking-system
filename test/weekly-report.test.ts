@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import { mondayOfWeekJST, weekdayLabelJST } from '../src/lib/clock';
 import { weeklyReportEmail } from '../src/lib/email';
-import { resolveWeeklyRecipients, buildWeeklyReports } from '../src/lib/weekly-report';
+import { resolveWeeklyRecipients, buildWeeklyReports, runWeeklyReport } from '../src/lib/weekly-report';
 
 let DatabaseSync: any;
 let sqliteOk = true;
@@ -75,11 +75,12 @@ d('#111 buildWeeklyReports（実SQL）', () => {
         event_name TEXT, headcount INTEGER, status TEXT);
       CREATE TABLE bookings (id TEXT PRIMARY KEY, group_id TEXT, space_id TEXT, date TEXT, start_time TEXT, end_time TEXT, status TEXT);
     `);
-    // スペースA（週次宛先あり）・B（notifyのみ）・C（宛先なし）
+    // スペースA（週次宛先あり）・B（notifyのみ）・C（宛先なし）・D（宛先あり・翌週0件）
     db.db.prepare(`INSERT INTO spaces (id,name,is_active,sort_order,notify_email,weekly_report_recipients) VALUES
       ('A','A室',1,1,'na@x.com','wa@x.com,wb@x.com'),
       ('B','B室',1,2,'nb@x.com',NULL),
-      ('C','C室',1,3,NULL,NULL)`).run();
+      ('C','C室',1,3,NULL,NULL),
+      ('D','D室',1,4,'nd@x.com',NULL)`).run();
     db.db.prepare(`INSERT INTO customers (id,contact_name,phone,email) VALUES ('c1','山田','090-1','y@x.com')`).run();
     // 基準日 today=2026-09-02（今週=8/31〜9/6）。送信対象は「翌週」9/07(月)〜9/13(日)。
     // A: 翌週2件（確定・商談中）＋今週1件（除外）＋翌週のcancelled1件（除外）
@@ -106,7 +107,7 @@ d('#111 buildWeeklyReports（実SQL）', () => {
   it('翌週分をスペース別に集計し、今週・cancelled は除外する', async () => {
     const reports = await buildWeeklyReports(env, '2026-09-02'); // 今週の水曜 → 対象は翌週
     const byId = Object.fromEntries(reports.map((r) => [r.spaceId, r]));
-    expect(reports.length).toBe(3); // active 3スペース
+    expect(reports.length).toBe(4); // active 4スペース
 
     // A: 翌週2件（今週分・cancelled は除外）
     expect(byId.A.count).toBe(2);
@@ -121,5 +122,16 @@ d('#111 buildWeeklyReports（実SQL）', () => {
     // C: 今週のみ→翌週0件・宛先なし
     expect(byId.C.count).toBe(0);
     expect(byId.C.recipients).toEqual([]);
+
+    // D: 翌週0件だが宛先あり（notify）
+    expect(byId.D.count).toBe(0);
+    expect(byId.D.recipients).toEqual(['nd@x.com']);
+  });
+
+  it('runWeeklyReport：宛先があれば予約0件でも送る（宛先なしのスペースのみスキップ）', async () => {
+    const r = await runWeeklyReport(env, '2026-09-02');
+    // A(2件)・B(1件)・D(0件だが宛先あり) を送信／ C(宛先なし) のみスキップ
+    expect(r.sent).toBe(3);
+    expect(r.skipped).toBe(1);
   });
 });

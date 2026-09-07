@@ -96,6 +96,7 @@ import {
   listChangeSettlements,
   getChangeSettlementById,
   approveChangeSettlement,
+  listEmailLogs,
   dismissChangeSettlement,
   type ChangeSettlementRow,
   type BookingGroupRow,
@@ -2151,6 +2152,15 @@ app.get('/change-settlements', async (c) => {
   const status = c.req.query('status') ?? undefined;
   const rows = await listChangeSettlements(c.env.DB, status);
   return c.json({ settlements: rows.map(serializeSettlement) });
+});
+
+/** GET /api/admin/email-logs?q=&status=&limit= メール送信ログ検索（宛先/件名の部分一致・ステータス絞り込み） */
+app.get('/email-logs', async (c) => {
+  const q = c.req.query('q') ?? undefined;
+  const status = c.req.query('status') ?? undefined;
+  const limitRaw = c.req.query('limit');
+  const rows = await listEmailLogs(c.env.DB, { q, status, limit: limitRaw ? Number(limitRaw) : undefined });
+  return c.json({ logs: rows });
 });
 
 /**

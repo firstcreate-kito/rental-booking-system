@@ -4258,3 +4258,48 @@ export async function buildCouponRestoreStmts(
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// メール送信ログ（#111関連・送信履歴の可視化）
+// 全メール送信の試行（送信/失敗/スキップ）を email_logs に記録し、管理画面から検索する。
+// ---------------------------------------------------------------------------
+
+export interface EmailLogRow {
+  id: string;
+  created_at: string;
+  recipients: string;
+  subject: string;
+  kind: string | null;
+  status: string; // sent / failed / skipped
+  error: string | null;
+}
+
+/** メール送信ログを新しい順に取得（宛先/件名の部分一致・ステータス絞り込み対応）。 */
+export async function listEmailLogs(
+  db: D1Database,
+  opts: { q?: string; status?: string; limit?: number; offset?: number } = {},
+): Promise<EmailLogRow[]> {
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.status && opts.status.trim()) {
+    where.push('status = ?');
+    binds.push(opts.status.trim());
+  }
+  if (opts.q && opts.q.trim()) {
+    where.push('(recipients LIKE ? OR subject LIKE ?)');
+    const like = '%' + opts.q.trim() + '%';
+    binds.push(like, like);
+  }
+  const limit = Math.min(Math.max(Number(opts.limit) || 100, 1), 500);
+  const offset = Math.max(Number(opts.offset) || 0, 0);
+  const sql =
+    'SELECT id, created_at, recipients, subject, kind, status, error FROM email_logs' +
+    (where.length ? ' WHERE ' + where.join(' AND ') : '') +
+    ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  binds.push(limit, offset);
+  const { results } = await db
+    .prepare(sql)
+    .bind(...binds)
+    .all<EmailLogRow>();
+  return results ?? [];
+}

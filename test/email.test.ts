@@ -706,3 +706,49 @@ describe('email - お礼メールのGoogle口コミ導線（#53拡張）', () =>
     expect(m.html).not.toContain('a=1&b=2"');
   });
 });
+
+describe('sendEmail 送信ログ記録（email_logs）', () => {
+  function fakeDB() {
+    const rows: any[] = [];
+    return {
+      rows,
+      prepare(sql: string) {
+        return {
+          _sql: sql,
+          _args: [] as any[],
+          bind(...args: any[]) { this._args = args; return this; },
+          async run() { rows.push(this._args); return {}; },
+        };
+      },
+    };
+  }
+  // 記録順: id, created_at, recipients, subject, kind, status, error
+  it('RESEND未設定でも skipped としてログを残す（宛先・件名・状態）', async () => {
+    const db = fakeDB();
+    const r = await sendEmail({ DB: db } as any, { to: 'a@x.com', subject: '件名A', html: '', text: '' });
+    expect(r.skipped).toBe(true);
+    expect(db.rows.length).toBe(1);
+    expect(db.rows[0][2]).toBe('a@x.com');
+    expect(db.rows[0][3]).toBe('件名A');
+    expect(db.rows[0][5]).toBe('skipped');
+  });
+  it('staging安全装置でも skipped ログを残す（複数宛先はカンマ結合・kindも記録）', async () => {
+    const db = fakeDB();
+    await sendEmail({ DB: db, APP_ENV: 'staging' } as any, { to: ['a@x.com', 'b@x.com'], subject: 'S', html: '', text: '', kind: 'weekly_report' });
+    expect(db.rows.length).toBe(1);
+    expect(db.rows[0][2]).toBe('a@x.com, b@x.com');
+    expect(db.rows[0][4]).toBe('weekly_report');
+    expect(db.rows[0][5]).toBe('skipped');
+  });
+  it('DB未指定ならログは残さない（従来どおり動作）', async () => {
+    const r = await sendEmail({} as any, { to: 'a@x.com', subject: 'X', html: '', text: '' });
+    expect(r.skipped).toBe(true); // RESEND未設定でスキップ・例外なし
+  });
+  it('宛先ゼロは failed としてログを残す', async () => {
+    const db = fakeDB();
+    const r = await sendEmail({ DB: db, RESEND_API_KEY: 'k', MAIL_FROM: 'f@x.com' } as any, { to: '', subject: 'N', html: '', text: '' });
+    expect(r.ok).toBe(false);
+    expect(db.rows.length).toBe(1);
+    expect(db.rows[0][5]).toBe('failed');
+  });
+});

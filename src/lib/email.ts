@@ -860,6 +860,26 @@ export function paymentPendingBookingEmail(d: {
   const detailHtml = viaStripe
     ? '<li>お支払い方法・お振込先（または払込番号）は、<strong>Stripe（決済代行）から届くメール</strong>に記載されています。そちらをご確認のうえお支払いください。</li>'
     : '<li>お振込先・お支払い金額は、<strong>別途お送りする請求書（マイページからもダウンロード可）</strong>に記載しております。そちらをご確認のうえお振込みください。</li>';
+  // クレジットカードでも領収書が入手できることの案内（銀行振込のお客様に多い誤解の解消）。
+  // マイページから、この予約をそのままカード決済でき、カードでも領収書を発行できる旨を促す。
+  // 会員（マイページあり）のときだけ表示。
+  const cardPromoText = d.mypageUrl
+    ? `
+◆クレジットカードでのお支払いも可能です（領収書もすぐ発行）
+・マイページから、このご予約をそのまま「クレジットカードで今すぐお支払い」いただけます。
+・カードでお支払いの場合も領収書を発行いたします。お支払い後、マイページの「書類」からいつでもダウンロードいただけます。
+`
+    : '';
+  const cardPromoHtml = d.mypageUrl
+    ? `<div style="margin:14px 0;padding:14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px">
+<div style="font-weight:700;margin-bottom:6px">クレジットカードでのお支払いも可能です（領収書もすぐ発行）</div>
+<ul style="margin:6px 0 0;padding-left:18px">
+<li>マイページから、このご予約をそのまま<strong>「クレジットカードで今すぐお支払い」</strong>いただけます。</li>
+<li><strong>カードでお支払いの場合も領収書を発行いたします。</strong>お支払い後、マイページの「書類」からいつでもダウンロードいただけます。</li>
+</ul>
+<p style="margin:10px 0 0"><a href="${escapeHtml(d.mypageUrl)}" style="color:#0068b7;font-weight:700">マイページでカード払い・領収書を確認する ▶</a></p>
+</div>`
+    : '';
   const text = `${d.customerName} 様
 
 ご予約のお申し込みありがとうございます。下記の内容で「お支払い待ち」で承りました。
@@ -875,7 +895,7 @@ ${daysBlockText(d.days)}
 ${detailText}
 ・お支払いには期限があります。期限までにご入金が確認できない場合、ご予約は自動的にキャンセルとなります。
 ・ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。
-${mypageText}`;
+${cardPromoText}${mypageText}`;
   const eventHtml = d.eventName
     ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>`
     : '';
@@ -902,6 +922,7 @@ ${detailHtml}
 <li>ご入金の確認後、あらためて確定のご案内（確認メール・領収書）をお送りします。</li>
 </ul>
 </div>
+${cardPromoHtml}
 ${mypageHtml}
 </div>`;
   return withSignature({ subject, html, text });

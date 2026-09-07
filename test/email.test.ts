@@ -385,6 +385,10 @@ describe('email - お支払い待ち予約受付（銀行振込・コンビニ�
     expect(m.text).toContain('Stripe'); // 振込先・払込番号はStripeのメールを確認
     expect(m.text).toContain('自動的にキャンセル');
     expect(m.html).toContain('Stripe（決済代行）から届くメール');
+    // マイページありのときは「カード払いでも領収書が入手できる」案内とリンクを含む
+    expect(m.text).toContain('クレジットカードでのお支払いも可能です');
+    expect(m.text).toContain('カードでお支払いの場合も領収書を発行');
+    expect(m.html).toContain('マイページでカード払い・領収書を確認する');
   });
   it('銀行振込でも同じ骨子。可変値はエスケープする', () => {
     const m = paymentPendingBookingEmail({
@@ -399,6 +403,9 @@ describe('email - お支払い待ち予約受付（銀行振込・コンビニ�
     expect(m.html).toContain('A&amp;B');
     expect(m.html).toContain('&lt;script&gt;');
     expect(m.html).not.toContain('<script>x</script>');
+    // マイページURLなし（非会員）のときはカード払い案内を出さない
+    expect(m.text).not.toContain('クレジットカードでのお支払いも可能です');
+    expect(m.html).not.toContain('マイページでカード払い・領収書を確認する');
   });
   it('請求書払い（viaStripe:false）はStripeではなく当社発行の請求書を案内する', () => {
     const m = paymentPendingBookingEmail({

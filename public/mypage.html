@@ -663,7 +663,15 @@ async function loadDocuments() {
 }
 
 function bookingRow(b) {
-  const span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
+  // 日程は日付だけでなく時刻も表示する（防音室は1日に複数コマを予約するケースがあり、
+  // 時刻が無いと予約を区別できないため）。slots は「日付 開始〜終了」を改行区切りで持つ。
+  let span;
+  if (b.slots) {
+    span = String(b.slots).split('\n').filter(Boolean).join('<br>');
+    if (Number(b.day_count) > 1) span += '<br><span class="muted" style="font-size:12px">（' + b.day_count + '日）</span>';
+  } else {
+    span = b.first_date === b.last_date ? b.first_date : (b.first_date + '〜' + b.last_date) + '（' + b.day_count + '日）';
+  }
   // 変更リクエストボタンは「キャンセル以外」かつ「利用日が本日以降」の予約のみ
   const today = new Date().toISOString().slice(0, 10);
   const canRequest = b.status !== 'cancelled' && (b.last_date || '') >= today;

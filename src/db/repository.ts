@@ -926,7 +926,12 @@ export async function getCustomerBookingGroups(db: D1Database, customerId: strin
               (SELECT bp.bank_transfer_info FROM booking_payments bp
                  WHERE bp.group_id = bg.id AND bp.bank_transfer_info IS NOT NULL
                  ORDER BY bp.created_at DESC LIMIT 1) AS bank_transfer_info,
-              MIN(b.date) AS first_date, MAX(b.date) AS last_date, COUNT(b.id) AS day_count
+              MIN(b.date) AS first_date, MAX(b.date) AS last_date, COUNT(b.id) AS day_count,
+              (SELECT group_concat(slot, char(10)) FROM (
+                 SELECT b2.date || ' ' || b2.start_time || '〜' || b2.end_time AS slot
+                 FROM bookings b2 WHERE b2.group_id = bg.id
+                 ORDER BY b2.date, b2.start_time
+               )) AS slots
        FROM booking_groups bg
        LEFT JOIN bookings b ON b.group_id = bg.id
        LEFT JOIN spaces s ON s.id = bg.space_id

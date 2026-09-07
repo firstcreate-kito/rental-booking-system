@@ -261,10 +261,8 @@
       <div>保有ポイント：<span class="big" id="ptBal">-</span> P</div>
       <div id="ptExpiry" class="muted" style="font-size:13px;margin-top:4px;display:none">有効期限：<strong id="ptExpiryDate"></strong> まで</div>
       <div class="muted" style="font-size:13px;margin-top:6px">ご利用金額に応じてポイントが貯まります。1ポイント=1円で、次回以降のご予約にご利用いただけます（付与はご利用完了後に自動で行われます）。有効期限は最終のご利用・獲得から1年間で、ご利用があるたびに延長されます。</div>
-      <div class="tablewrap" style="margin-top:12px"><table class="resp">
-        <thead><tr><th>日時</th><th>種別</th><th>増減</th><th>残高</th><th>内容</th></tr></thead>
-        <tbody id="ptBody"></tbody>
-      </table></div>
+      <div id="ptBody" class="bklist" style="margin-top:12px"></div>
+      <div class="muted" id="ptEmpty"></div>
     </section>
 
     <section id="view-coupons" class="card hidden">
@@ -655,13 +653,27 @@ async function loadDocuments() {
   const docs = body.documents || [];
   document.getElementById('docEmpty').textContent = docs.length ? '' : '発行済みの書類はありません。ご予約・お支払いが確定すると、こちらに請求書・領収書が表示されます。';
   const typeLabel = t => t === 'receipt' ? '領収書' : '請求書';
-  document.getElementById('docList').innerHTML = docs.length ? ('<div class="tablewrap"><table class="resp">' +
-    '<thead><tr><th>種類</th><th>予約番号</th><th>金額</th><th>発行日</th><th></th></tr></thead>' +
-    docs.map(d => '<tr><td data-label="種類">' + typeLabel(d.type) + '</td><td data-label="予約番号">' + d.bookingNumber + '</td><td data-label="金額">' + yen(d.total) +
-      '</td><td data-label="発行日">' + (d.issuedAt||'').slice(0,10) + '</td><td class="act"><a class="btn sm" href="' + d.url + '" target="_blank" rel="noopener">表示 / PDF保存</a></td></tr>').join('') +
-    '</table></div>') : '';
+  document.getElementById('docList').innerHTML = docs.length ? ('<div class="bklist">' +
+    docs.map(d => mpCard([
+      ['種類', typeLabel(d.type)],
+      ['予約番号', d.bookingNumber],
+      ['金額', yen(d.total)],
+      ['発行日', (d.issuedAt||'').slice(0,10)],
+    ], '<a class="btn sm" href="' + d.url + '" target="_blank" rel="noopener">表示 / PDF保存</a>')).join('') +
+    '</div>') : '';
 }
 
+// マイページ共通のカード（予約履歴カードと同じ見た目）。各タブ（書類・ポイント・
+// クーポン・チケット・お気に入り）をこの部品で統一し、ページ間の見た目差をなくす。
+// fields: [ラベル, 値(HTML可)] の配列。actionsHtml: 下段のボタン群（任意）。
+function mpCard(fields, actionsHtml, extraCls) {
+  const f = (label, val) => '<div class="bkf"><span class="bkfl">' + label + '</span><span class="bkfv">' + (val == null || val === '' ? '—' : val) + '</span></div>';
+  const info = fields.map(function (kv) { return f(kv[0], kv[1]); }).join('');
+  return '<div class="bkcard' + (extraCls ? ' ' + extraCls : '') + '">' +
+    '<div class="bkcard-info">' + info + '</div>' +
+    (actionsHtml ? '<div class="bkcard-actions">' + actionsHtml + '</div>' : '') +
+  '</div>';
+}
 function bookingRow(b) {
   // 日程は日付だけでなく時刻も表示する（防音室は1日に複数コマを予約するケースがあり、
   // 時刻が無いと予約を区別できないため）。slots は「日付 開始〜終了」を改行区切りで持つ。
@@ -703,18 +715,14 @@ function bookingRow(b) {
       : (b.status === 'confirmed' && b.payment_status === 'paid'
         ? ' <span class="pill" style="background:#dcfce7;color:#166534">入金済</span>'
         : ''));
-  const f = (label, val) => '<div class="bkf"><span class="bkfl">' + label + '</span><span class="bkfv">' + val + '</span></div>';
-  return '<div class="bkcard">' +
-    '<div class="bkcard-info">' +
-      f('予約番号', '<strong>' + b.booking_number + '</strong>') +
-      f('スペース', b.space_name || '') +
-      f('イベント', b.event_name || '') +
-      f('日程', span) +
-      f('金額', yen(b.total_amount)) +
-      f('状態', statusCell) +
-    '</div>' +
-    (btns.length ? '<div class="bkcard-actions">' + btns.join('') + '</div>' : '') +
-  '</div>';
+  return mpCard([
+    ['予約番号', '<strong>' + b.booking_number + '</strong>'],
+    ['スペース', b.space_name || ''],
+    ['イベント', b.event_name || ''],
+    ['日程', span],
+    ['金額', yen(b.total_amount)],
+    ['状態', statusCell],
+  ], btns.length ? btns.join('') : '');
 }
 // 領収書ボタン：書類タブに切り替え、該当予約の領収書があればそのPDFを開く（無ければ書類タブを表示）。
 async function openReceipt(number) {
@@ -1237,23 +1245,37 @@ async function loadPoints() {
     earn: '獲得', use: '利用', manual_add: '手動付与', manual_remove: '手動減算',
     expire: '失効', adjust: '調整', refund: '返金'
   }[t] || t);
-  document.getElementById('ptBody').innerHTML = (body.log||[]).map(l =>
-    '<tr><td data-label="日時">' + l.created_at + '</td><td data-label="種別">' + ptTypeLabel(l.type) + '</td><td data-label="増減">' + (neg(l.type) ? '-' : '+') + Math.abs(l.amount) +
-    '</td><td data-label="残高">' + l.balance_after + '</td><td data-label="内容">' + (l.description||'') + '</td></tr>').join('');
+  const log = body.log || [];
+  document.getElementById('ptEmpty').textContent = log.length ? '' : 'ポイントの履歴はまだありません。';
+  document.getElementById('ptBody').innerHTML = log.map(l => {
+    const isNeg = neg(l.type);
+    const delta = (isNeg ? '-' : '+') + Math.abs(l.amount) + ' P';
+    const deltaHtml = '<span style="font-weight:700;color:' + (isNeg ? 'var(--bad)' : 'var(--ok)') + '">' + delta + '</span>';
+    return mpCard([
+      ['日時', l.created_at],
+      ['種別', ptTypeLabel(l.type)],
+      ['増減', deltaHtml],
+      ['残高', l.balance_after + ' P'],
+      ['内容', (l.description || '')],
+    ]);
+  }).join('');
 }
 async function loadCoupons() {
   const { body } = await api('/api/mypage/coupons');
   const rows = body.coupons || [];
   document.getElementById('cpEmpty').textContent = rows.length ? '' : '保有クーポンはありません';
-  document.getElementById('cpList').innerHTML = rows.map(c => {
+  document.getElementById('cpList').innerHTML = rows.length ? ('<div class="bklist">' + rows.map(c => {
     const off = c.discount_type === 'percent' ? (c.discount_value + '% OFF') : (yen(c.discount_value) + ' 引き');
     const pct = c.total_hours ? Math.round(c.remaining_hours / c.total_hours * 100) : 0;
-    return '<div class="coupon"><div class="row"><strong>' + c.name + '（' + c.code + '）</strong>' +
-      '<span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span></div>' +
-      '<div>' + off + '　残り ' + c.remaining_hours + ' / ' + c.total_hours + ' 時間（' + pct + '%）</div>' +
-      '<div class="muted">対象: ' + (c.spaces||'—') + '</div>' +
-      '<div class="muted">有効期限: ' + c.valid_from + ' 〜 ' + (c.valid_until ? c.valid_until : '無期限') + '</div></div>';
-  }).join('');
+    return mpCard([
+      ['クーポン', '<strong>' + c.name + '</strong>（' + c.code + '）'],
+      ['特典', off],
+      ['残り', c.remaining_hours + ' / ' + c.total_hours + ' 時間（' + pct + '%）'],
+      ['対象', (c.spaces || '—')],
+      ['有効期限', c.valid_from + ' 〜 ' + (c.valid_until ? c.valid_until : '無期限')],
+      ['状態', '<span class="pill ' + c.status + '">' + statusLabel(c.status) + '</span>'],
+    ]);
+  }).join('') + '</div>') : '';
 }
 // サムネイル用にスペース画像URLを1度だけ取得してキャッシュ
 let TK_SPACE_IMG = null;
@@ -1272,7 +1294,7 @@ async function loadTickets() {
   // お得訴求：時間数ごとの割安メッセージ（購入ページと同じ対応表）
   const paidMap = { 6: 5, 12: 10, 19: 15, 26: 20 };
   document.getElementById('tkEmpty').textContent = rows.length ? '' : '保有チケットはありません';
-  document.getElementById('tkList').innerHTML = rows.map(t => {
+  document.getElementById('tkList').innerHTML = rows.length ? ('<div class="bklist">' + rows.map(t => {
     const pct = t.total_hours ? Math.round(t.remaining_hours / t.total_hours * 100) : 0;
     const exhausted = t.status === 'exhausted' || t.remaining_hours <= 0;
     const low = t.status === 'active' && t.remaining_hours > 0 && t.remaining_hours <= LOW;
@@ -1290,23 +1312,26 @@ async function loadTickets() {
     const promo = paid ? '<div class="tk-promo">＜' + paid + '時間分の料金で' + t.total_hours + '時間使える＞</div>' : '';
     // 再度購入（リピート導線・チケット購入ページへ）
     const rebuy = '<div style="margin-top:8px"><a class="btn ghost sm" href="tickets.html">再度購入</a></div>';
-    return '<div class="coupon tkcard">' + thumb + '<div class="tk-info">' +
+    return '<div class="bkcard tkcard">' + thumb + '<div class="tk-info">' +
       '<div class="row"><strong>' + t.name + '</strong>' +
       '<span class="pill ' + t.status + '">' + statusLabel(t.status) + '</span></div>' +
       '<div>残り ' + t.remaining_hours + ' / ' + t.total_hours + ' 時間（' + pct + '%）</div>' +
       promo +
       '<div class="muted">対象: ' + (t.spaces || '全スペース') + '</div>' +
       '<div class="muted">有効期限: ' + t.valid_from + ' 〜 ' + t.valid_until + '</div>' + notice + rebuy + '</div></div>';
-  }).join('');
+  }).join('') + '</div>') : '';
 }
 async function loadFavorites() {
   const { body } = await api('/api/mypage/favorites');
   const rows = body.favorites || [];
   document.getElementById('favEmpty').textContent = rows.length ? '' : 'お気に入りはありません';
-  document.getElementById('favList').innerHTML = rows.map(f =>
-    '<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><span>' + f.space_name + '</span>' +
-    '<span style="display:flex;gap:8px"><a class="btn sm" href="index.html?space=' + encodeURIComponent(f.space_id) + '">予約する</a>' +
-    '<button class="btn danger sm" onclick="removeFav(\'' + f.space_id + '\')">削除</button></span></div>').join('');
+  document.getElementById('favList').innerHTML = rows.length ? ('<div class="bklist">' + rows.map(f =>
+    mpCard([
+      ['スペース', '<strong>' + f.space_name + '</strong>'],
+    ],
+    '<a class="btn sm" href="index.html?space=' + encodeURIComponent(f.space_id) + '">予約する</a>' +
+    '<button class="btn danger sm" onclick="removeFav(\'' + f.space_id + '\')">削除</button>')
+  ).join('') + '</div>') : '';
 }
 async function removeFav(spaceId) {
   await api('/api/mypage/favorites', jsonBody({ spaceId, action:'remove' }));

@@ -50,9 +50,11 @@
   /* お得訴求（例：＜10時間分の料金で12時間使える＞）。目立つ色で強調 */
   .prod .promo { margin-top:5px; color:#e8590c; font-weight:800; font-size:13.5px; letter-spacing:.01em; }
   /* 決済ボタン（カード／PayPal）を縦に並べる */
-  .pbtns { display:flex; flex-direction:column; gap:6px; align-items:flex-end; margin-top:2px; }
+  .pbtns { display:flex; flex-direction:column; gap:8px; align-items:stretch; margin-top:6px; }
   .btn.ppbtn { background:#ffc439; color:#003087; font-weight:700; }
   .btn.ppbtn:hover { background:#f0b429; }
+  /* チケット購入CTAは大きめ・タップしやすく（スマホ対応） */
+  .btn.buy { padding:13px 18px; font-size:16px; font-weight:700; width:100%; min-width:170px; border-radius:10px; }
   .prod .price { font-size:20px; font-weight:700; color:var(--brand); }
   .prod .callinks { margin-top:6px; display:flex; flex-direction:column; align-items:flex-start; gap:6px; max-width:100%; }
   .prod .callink { font-size:12px; color:var(--brand); text-decoration:none; border:1px solid var(--brand); border-radius:6px; padding:3px 8px; max-width:100%; white-space:normal; word-break:break-word; }
@@ -274,14 +276,14 @@ async function loadProducts() {
       // ログイン時：カード(Stripe)／PayPal のうち有効な決済ボタンを出す（両方あれば2つ）。
       let btn;
       if (!T.member) {
-        btn = '<button class="btn sm" onclick="promptLogin(\'' + p.id + '\')">購入する</button>';
+        btn = '<div class="pbtns"><button class="btn buy" onclick="promptLogin(\'' + p.id + '\')">購入する</button></div>';
       } else if (!T.paymentEnabled && !T.paypalEnabled) {
-        btn = '<button class="btn sm ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button>';
+        btn = '<div class="pbtns"><button class="btn buy ghost" onclick="demoBuy(\'' + p.id + '\',this)">テスト購入</button></div>';
       } else {
         const both = T.paymentEnabled && T.paypalEnabled;
         const parts = [];
-        if (T.paymentEnabled) parts.push('<button class="btn sm" onclick="buy(\'' + p.id + '\',this)">' + (both ? 'カードで購入' : '購入する') + '</button>');
-        if (T.paypalEnabled) parts.push('<button class="btn sm ppbtn" onclick="buyPaypal(\'' + p.id + '\',this)">PayPalで購入</button>');
+        if (T.paymentEnabled) parts.push('<button class="btn buy" onclick="buy(\'' + p.id + '\',this)">' + (both ? 'カードで購入' : '購入する') + '</button>');
+        if (T.paypalEnabled) parts.push('<button class="btn buy ppbtn" onclick="buyPaypal(\'' + p.id + '\',this)">PayPalで購入</button>');
         btn = '<div class="pbtns">' + parts.join('') + '</div>';
       }
       // 対象スペースの予約カレンダーへの導線（#36）

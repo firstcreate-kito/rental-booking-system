@@ -1,6 +1,6 @@
 // @ts-nocheck チケット払い予約のキャンセル方針（buildTicketCancelPlan）を検証。
-// 方針：チケット予約は現金キャンセル料¥0。利用日「前日以前」は消費時間を全額返還、
-// 「当日」は失効（返還なし）。非チケット予約は null を返す（従来のキャンセル料計算）。
+// 方針：チケット予約は現金キャンセル料¥0。利用日「前々日まで」は消費時間を全額返還、
+// 「前日・当日」は失効（返還なし）。非チケット予約は null を返す（従来のキャンセル料計算）。
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 

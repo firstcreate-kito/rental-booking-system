@@ -1523,7 +1523,7 @@ ${d.mypageUrl ? `\nマイページ「チケット」でご確認いただけま�
 ご予約時に選択すると、利用時間分がスペース料金に充当されます。
 
 【チケット予約のキャンセルについて】
-チケットでのご予約は現金でのキャンセル料はかかりません。利用日の前日までのキャンセルはチケット時間を全額返還（再予約に使えます）、当日のキャンセルはチケット時間が失効（返還なし）となります。`;
+チケット（回数券）でのご予約は、キャンセル料（料金のお支払い）は発生しません。キャンセルの扱いは「チケット時間」で調整します：利用日の前々日まで＝チケット時間を返還（再予約に使えます）／前日・当日＝チケット時間は失効（返還されません）。`;
   const btn = d.mypageUrl
     ? `<p style="margin:16px 0"><a href="${escapeHtml(d.mypageUrl)}" style="display:inline-block;background:#1f6feb;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none">マイページで確認する</a></p>`
     : '';
@@ -1540,7 +1540,7 @@ ${btn}
 <p style="color:#6b7280;font-size:13px">ご予約時に選択すると、利用時間分がスペース料金に充当されます。</p>
 <div style="margin-top:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;color:#9a3412">
 <strong>チケット予約のキャンセルについて</strong><br>
-チケットでのご予約は現金でのキャンセル料はかかりません。<strong>利用日の前日まで</strong>のキャンセルはチケット時間を<strong>全額返還</strong>（再予約に使えます）、<strong>当日</strong>のキャンセルはチケット時間が<strong>失効（返還なし）</strong>となります。
+チケット（回数券）でのご予約は、<strong>キャンセル料（料金のお支払い）は発生しません</strong>。キャンセルの扱いは「チケット時間」で調整します：<strong>利用日の前々日まで</strong>＝チケット時間を<strong>返還</strong>（再予約に使えます）／<strong>前日・当日</strong>＝チケット時間は<strong>失効（返還されません）</strong>。
 </div>
 </div>`;
   return withSignature({ subject, html, text });

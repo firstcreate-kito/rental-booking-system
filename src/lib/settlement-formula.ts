@@ -59,8 +59,8 @@ export function cancelFormulaLines(d: CancelFormulaInput): string[] {
   if (d.ticket?.isTicket) {
     const hrs = d.ticket.hours != null ? `${d.ticket.hours}時間` : 'チケット時間';
     return d.ticket.action === 'restore'
-      ? ['【チケット（回数券）でのご予約】', '・現金のキャンセル料・ご返金：なし（¥0）', `・前々日までのキャンセルのため、${hrs}を返還（再予約にご利用いただけます）`]
-      : ['【チケット（回数券）でのご予約】', '・現金のキャンセル料・ご返金：なし（¥0）', `・前日・当日のキャンセルのため、${hrs}は失効（返還なし）`];
+      ? ['【チケット（回数券）でのご予約】', '・キャンセル料（料金のお支払い）・ご返金：なし（¥0）', `・前々日までのキャンセルのため、${hrs}を返還（再予約にご利用いただけます）`]
+      : ['【チケット（回数券）でのご予約】', '・キャンセル料（料金のお支払い）・ご返金：なし（¥0）', `・前日・当日のキャンセルのため、${hrs}は失効（返還なし）`];
   }
   const period = d.daysBefore != null ? `ご利用日の${d.daysBefore}日前` : 'ご利用日基準';
   const lines: string[] = ['【キャンセル料の計算】'];

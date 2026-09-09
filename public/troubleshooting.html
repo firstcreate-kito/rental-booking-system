@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ALBE 予約トラブル解決ガイド</title>
+<meta name="description" content="レンタルスペースALBEの予約がうまくできないときの解決ガイド。症状のカテゴリーで絞り込み、手順とスクリーンショットで解決方法をご案内します。">
+<link rel="stylesheet" href="/assets/tokens.css">
+<link rel="stylesheet" href="/assets/albe-header.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0068b7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="icon" href="/assets/icon-192.png" type="image/png">
+<script src="/assets/pwa.js" defer></script>
+<script src="/assets/analytics.js" defer></script>
+<style>
+  :root { --brand:var(--key); --muted:var(--ink-2); --bg:var(--wash); --warn:var(--few); --bad:var(--full); }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:var(--f-sans); color:var(--ink); background:var(--bg); line-height:1.7; }
+  main { max-width:820px; margin:0 auto; padding:20px var(--pad,16px) 56px; }
+  a { color:var(--brand); }
+
+  .lead { margin:8px 0 18px; }
+  .lead h1 { font-size:20px; margin:0 0 6px; letter-spacing:.01em; }
+  .lead p { margin:0; color:var(--muted); font-size:14px; }
+
+  /* 最初に試す（クイックフィックス） */
+  .quick { background:var(--key-w,#eef5fb); border:1px solid #c7ddff; border-radius:var(--r-lg,12px); padding:14px 16px; margin-bottom:20px; }
+  .quick h2 { font-size:15px; margin:0 0 8px; color:#0a4f8a; }
+  .quick ol { margin:0; padding-left:1.2em; }
+  .quick li { margin:3px 0; font-size:14px; }
+
+  /* 検索 */
+  .search { position:relative; margin-bottom:12px; }
+  .search input { width:100%; min-height:var(--tap,44px); padding:10px 14px 10px 40px; font-size:15px;
+    border:1px solid var(--field,#8a867e); border-radius:var(--r,8px); background:#fff; }
+  .search::before { content:"🔍"; position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:16px; }
+
+  /* カテゴリ絞り込みチップ */
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:0 14px;
+    border:1px solid var(--line-2,#d8d5ce); border-radius:var(--r-pill,999px); background:#fff;
+    color:var(--ink); font-size:13.5px; cursor:pointer; user-select:none; white-space:nowrap; }
+  .chip:hover { background:var(--wash); }
+  .chip[aria-pressed="true"] { background:var(--brand); border-color:var(--brand); color:#fff; font-weight:700; }
+  .chip .cnt { font-size:11px; opacity:.75; }
+
+  /* 件数・該当なし */
+  .resultInfo { font-size:12.5px; color:var(--muted); margin:2px 2px 12px; }
+  .empty { text-align:center; color:var(--muted); padding:28px 12px; border:1px dashed var(--line-2,#d8d5ce); border-radius:var(--r-lg,12px); }
+
+  /* Q&A カード（アコーディオン） */
+  .tsq { background:#fff; border:1px solid var(--line,#eae8e3); border-radius:var(--r-lg,12px); margin-bottom:10px; overflow:hidden; }
+  .tsq[hidden] { display:none; }
+  .tsq > summary { list-style:none; cursor:pointer; padding:14px 44px 14px 16px; position:relative; font-weight:700; font-size:15px; }
+  .tsq > summary::-webkit-details-marker { display:none; }
+  .tsq > summary::after { content:"＋"; position:absolute; right:16px; top:50%; transform:translateY(-50%); color:var(--muted); font-weight:400; font-size:18px; }
+  .tsq[open] > summary::after { content:"−"; }
+  .tsq > summary .tag { display:inline-block; font-size:11px; font-weight:700; color:var(--brand);
+    background:var(--key-w,#eef5fb); border:1px solid #c7ddff; border-radius:var(--r-pill,999px); padding:1px 9px; margin-right:8px; vertical-align:1px; }
+  .tsq .body { padding:0 16px 16px; border-top:1px solid var(--line,#eae8e3); }
+  .tsq .body h4 { margin:14px 0 4px; font-size:13px; color:var(--muted); font-weight:700; }
+  .tsq .body p { margin:4px 0; font-size:14.5px; }
+  .tsq .body ol, .tsq .body ul { margin:4px 0; padding-left:1.3em; }
+  .tsq .body li { margin:4px 0; font-size:14.5px; }
+  .tsq .body .key { background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:8px 12px; font-size:14px; margin:8px 0; }
+  .tsq .body .btnrow { margin-top:12px; }
+  .tsq .body .act { display:inline-block; min-height:40px; line-height:40px; padding:0 16px; background:var(--brand); color:#fff;
+    border-radius:var(--r,8px); text-decoration:none; font-weight:700; font-size:14px; }
+  .tsq .body .act.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+
+  /* スクリーンショット枠（画像未設置時はプレースホルダを表示） */
+  figure.shot { margin:12px 0 4px; }
+  figure.shot img { display:block; width:100%; max-width:420px; border:1px solid var(--line-2,#d8d5ce); border-radius:10px; }
+  figure.shot .ph { display:flex; align-items:center; justify-content:center; text-align:center; max-width:420px;
+    min-height:150px; border:2px dashed var(--line-2,#d8d5ce); border-radius:10px; color:var(--ink-3,#a8a49c); font-size:13px; padding:16px; background:var(--wash); }
+  figure.shot figcaption { font-size:12px; color:var(--muted); margin-top:5px; max-width:420px; }
+
+  /* 最後の導線 */
+  .contact { margin-top:24px; background:#fff; border:1px solid var(--line,#eae8e3); border-radius:var(--r-lg,12px); padding:18px 16px; text-align:center; }
+  .contact h2 { font-size:16px; margin:0 0 6px; }
+  .contact p { margin:0 0 12px; font-size:14px; color:var(--muted); }
+  .contact .act { display:inline-block; min-height:46px; line-height:46px; padding:0 22px; background:var(--brand); color:#fff;
+    border-radius:var(--r,8px); text-decoration:none; font-weight:700; font-size:15px; }
+  .contact .hint { margin-top:12px; font-size:12.5px; color:var(--muted); text-align:left; }
+</style>
+</head>
+<body>
+<header class="albe-topbar">
+  <a class="albe-brand" href="https://space-albe.com/" aria-label="レンタルスペースALBE トップへ">
+    <img class="albe-logo" src="/assets/albe-logo.svg" alt="レンタルスペースALBE" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+    <span class="albe-brand-text">RENTAL SPACE ALBE</span>
+  </a>
+  <nav class="albe-nav">
+    <a class="albe-contact" href="https://space-albe.com/contact/">お問い合わせ</a>
+  </nav>
+</header>
+
+<main>
+  <div class="lead">
+    <h1>予約トラブル解決ガイド</h1>
+    <p>予約がうまくできないときは、下のカテゴリーで絞り込むか、キーワードで検索してお探しください。各項目をタップすると、手順と画面例が開きます。</p>
+  </div>
+
+  <div class="quick">
+    <h2>💡 まず試していただきたいこと</h2>
+    <ol>
+      <li>ページを一度<strong>再読み込み</strong>する（通信が不安定なときに有効です）</li>
+      <li>ブラウザを最新版に更新／別のブラウザ（Safari・Chrome）でお試しください</li>
+      <li>会員の方は<strong>一度ログインし直す</strong>と解決することがあります</li>
+    </ol>
+  </div>
+
+  <div class="search">
+    <input id="q" type="search" inputmode="search" placeholder="キーワードで検索（例：ボタン／規約／カード／届かない）" aria-label="キーワード検索" />
+  </div>
+
+  <div class="chips" id="chips" role="group" aria-label="カテゴリーで絞り込み">
+    <!-- JSで生成 -->
+  </div>
+
+  <div class="resultInfo" id="resultInfo"></div>
+
+  <div id="list">
+    <!-- カテゴリ: login / form / calendar / payment / ticket / change / email / other -->
+
+    <details class="tsq" data-cat="form" data-kw="ボタン 押せない 進めない 確定 予約する 規約 同意 必須 チェック エラー 反応しない">
+      <summary><span class="tag">入力・確定</span>「この内容で予約する」を押しても進まない</summary>
+      <div class="body">
+        <h4>考えられる原因</h4>
+        <p>必須項目が未入力だと、ボタンを押しても先へ進めず、画面に赤い注意文が表示されます。特に<strong>「ご利用規約に同意する」のチェック</strong>の入れ忘れが多いです。</p>
+        <div class="key">✅ 画面下の「<strong>ご利用規約に同意する（必須）</strong>」にチェックが入っているかご確認ください。</div>
+        <h4>確認する項目</h4>
+        <ul>
+          <li>利用目的／利用人数が選択・入力されているか</li>
+          <li>お名前（姓・名）・メールアドレス・電話番号が入力されているか</li>
+          <li>電話番号は数字のみでも可（ハイフンあり・なしどちらでも）</li>
+          <li>お支払い方法が選択されているか</li>
+        </ul>
+        <figure class="shot">
+          <img src="/assets/help/form-terms.png" alt="ご利用規約に同意するチェックの位置" loading="lazy"
+               onerror="this.insertAdjacentHTML('afterend','&lt;div class=&quot;ph&quot;&gt;スクリーンショット準備中：規約同意チェックと「この内容で予約する」ボタン&lt;/div&gt;');this.remove();">
+          <figcaption>「ご利用規約に同意する」にチェック → 「この内容で予約する」</figcaption>
+        </figure>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="form" data-kw="電話番号 エラー ハイフン 電話 入力 形式">
+      <summary><span class="tag">入力・確定</span>電話番号の入力でエラーになる</summary>
+      <div class="body">
+        <p>電話番号は<strong>数字8〜15桁</strong>で、ハイフンのあり・なしどちらでも受け付けます（例：090-1234-5678／09012345678）。海外番号は国番号（+）からご入力ください。全角の数字や記号が混ざっていないかご確認ください。</p>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="calendar" data-kw="時間 選べない 開始 終了 日時 選択 グレー 押せない 30分">
+      <summary><span class="tag">日時・空き枠</span>開始・終了の時間が選べない</summary>
+      <div class="body">
+        <h4>ご確認ください</h4>
+        <ul>
+          <li><strong>開始時刻と終了時刻の両方</strong>を選ぶと次へ進めます</li>
+          <li>すでに予約が入っている時間・過去の時間は選べません（グレー表示）</li>
+          <li>当日のご予約は締切（開始の一定時間前まで）を過ぎると選べません</li>
+          <li>最低利用時間（1時間〜）に満たない選択はできません</li>
+        </ul>
+        <figure class="shot">
+          <img src="/assets/help/time-select.png" alt="開始・終了時間の選択" loading="lazy"
+               onerror="this.insertAdjacentHTML('afterend','&lt;div class=&quot;ph&quot;&gt;スクリーンショット準備中：開始／終了の時間選択画面&lt;/div&gt;');this.remove();">
+          <figcaption>開始・終了の時間を選ぶと合計金額が表示されます</figcaption>
+        </figure>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="calendar" data-kw="空き 空き枠 表示されない カレンダー ○ × 満枠 休業 何日先 予約可能期間">
+      <summary><span class="tag">日時・空き枠</span>空き枠（○）が表示されない・希望日が選べない</summary>
+      <div class="body">
+        <ul>
+          <li>通信状況により表示されないことがあります。<strong>再読み込み</strong>をお試しください</li>
+          <li>×（満枠）・－（休業）の日はご予約いただけません</li>
+          <li>カレンダーは先の日付まで閲覧できますが、実際に予約できる期間はスペースにより異なります</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="login" data-kw="ログイン できない パスワード 忘れた 会員 メール コード 6桁">
+      <summary><span class="tag">ログイン</span>ログインできない／パスワードを忘れた</summary>
+      <div class="body">
+        <h4>解決方法</h4>
+        <ol>
+          <li>ログイン画面の「<strong>パスワードをお忘れの方</strong>」から再設定リンクをお送りできます</li>
+          <li>パスワードなしで入りたいときは「<strong>メールで6桁コードを送る</strong>」をご利用ください（コード入力でログイン）</li>
+          <li>Google／LINE でのログインにも対応しています</li>
+        </ol>
+        <figure class="shot">
+          <img src="/assets/help/login.png" alt="ログイン画面" loading="lazy"
+               onerror="this.insertAdjacentHTML('afterend','&lt;div class=&quot;ph&quot;&gt;スクリーンショット準備中：ログイン画面（パスワード再発行・6桁コード）&lt;/div&gt;');this.remove();">
+          <figcaption>「パスワードをお忘れの方」「メールで6桁コード」</figcaption>
+        </figure>
+        <div class="btnrow"><a class="act" href="/mypage.html#forgot">パスワードを再発行する</a></div>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="login" data-kw="回数券 チケット はじめて ログイン 反映 移行">
+      <summary><span class="tag">ログイン</span>回数券を持っているが、はじめてログインする</summary>
+      <div class="body">
+        <p>ログイン画面で「メールでログイン」を選び、<strong>回数券のご案内が届いたメールアドレス</strong>を入力してください。はじめてログインした時点で、回数券がマイページの「チケット」に自動反映されます。</p>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="payment" data-kw="カード クレジット 決済 エラー 進めない stripe 3d セキュア 支払い">
+      <summary><span class="tag">お支払い</span>カード決済ページに進めない／エラーになる</summary>
+      <div class="body">
+        <ul>
+          <li>カード番号・有効期限・セキュリティコードをご確認ください</li>
+          <li>本人認証（3Dセキュア）が求められる場合があります。カード会社からの認証を完了してください</li>
+          <li>別のカードや、時間をおいての再試行もお試しください</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="payment" data-kw="paypal ペイパル 戻ってこない 未確定 決済 支払い">
+      <summary><span class="tag">お支払い</span>PayPalで支払ったのに予約が確定しない</summary>
+      <div class="body">
+        <p>PayPalの決済完了画面が表示されるまで、ブラウザを閉じないでください。完了後は自動で予約が確定します。ご不安なときは<strong>マイページの予約一覧</strong>で状況をご確認ください。反映に少し時間がかかる場合があります。</p>
+        <div class="btnrow"><a class="act ghost" href="/mypage.html">マイページで確認する</a></div>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="payment" data-kw="コンビニ 銀行振込 選べない ゲスト 会員 支払い方法">
+      <summary><span class="tag">お支払い</span>コンビニ払い・銀行振込が選べない</summary>
+      <div class="body">
+        <ul>
+          <li>コンビニ払い・銀行振込は<strong>会員の方</strong>のみご利用いただけます（未登録の方はクレジットカード決済のみ）</li>
+          <li>利用日が近い場合は選べません（コンビニは5日前まで／振込は7日前まで）</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="ticket" data-kw="チケット 回数券 使えない 対象 有効期限 残り 選択">
+      <summary><span class="tag">チケット・特典</span>チケット（回数券）が使えない</summary>
+      <div class="body">
+        <ul>
+          <li>ログインした状態でご予約ください（未ログインだと選べません）</li>
+          <li>ご利用のスペースが<strong>チケットの対象</strong>か、<strong>有効期限内</strong>か、<strong>残り時間</strong>が足りているかをご確認ください</li>
+          <li>不足分は差額のお支払いになります</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="ticket" data-kw="クーポン ポイント 反映されない 割引 使えない">
+      <summary><span class="tag">チケット・特典</span>クーポン・ポイントが反映されない</summary>
+      <div class="body">
+        <p>クーポン・ポイントには適用条件や有効期限があります。ログイン済みか、対象のスペース・金額かをご確認ください。反映されない場合はお問い合わせください。</p>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="change" data-kw="変更 キャンセル 日時変更 マイページ できない ボタン ない 料金">
+      <summary><span class="tag">変更・キャンセル</span>予約の変更・キャンセルをしたい／できない</summary>
+      <div class="body">
+        <ul>
+          <li><strong>マイページ</strong>の予約詳細から、変更・キャンセルのお申し込みができます</li>
+          <li>金額（キャンセル料・返金・差額）が表示され、ご同意のうえ送信いただきます</li>
+          <li>過去日・商談中の予約は操作できません</li>
+        </ul>
+        <div class="btnrow"><a class="act ghost" href="/mypage.html">マイページを開く</a></div>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="email" data-kw="メール 届かない 確認メール 迷惑メール 受信 ドメイン指定">
+      <summary><span class="tag">メール</span>確認メールが届かない</summary>
+      <div class="body">
+        <ul>
+          <li><strong>迷惑メールフォルダ</strong>をご確認ください</li>
+          <li>ドメイン指定受信をしている場合は <strong>@space-albe.com</strong> からのメールを許可してください</li>
+          <li>入力したメールアドレスに誤りがないかご確認ください</li>
+          <li>ご予約自体は<strong>マイページの予約一覧</strong>で確認できます（メールが届かなくても予約は有効です）</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="tsq" data-cat="other" data-kw="画面 崩れる ボタン 小さい 表示 スマホ 端末 ブラウザ">
+      <summary><span class="tag">その他</span>画面が崩れる・ボタンが小さい・反応しない</summary>
+      <div class="body">
+        <ul>
+          <li>ブラウザを最新版に更新し、別のブラウザ（Safari・Chrome）でお試しください</li>
+          <li>画面を拡大している場合は等倍に戻す／端末を縦向きにするのもお試しください</li>
+          <li>プライベートブラウズや広告ブロックが影響することがあります</li>
+        </ul>
+      </div>
+    </details>
+
+  </div>
+
+  <section class="contact">
+    <h2>解決しない場合はお問い合わせください</h2>
+    <p>担当者が確認し、折り返しご案内いたします。</p>
+    <a class="act" href="https://space-albe.com/contact/">お問い合わせフォームへ</a>
+    <div class="hint">
+      スムーズなご案内のため、可能な範囲で以下をお知らせください：<br>
+      ・ご希望のスペース／日時　・予約番号（お持ちの場合）　・ご利用の端末とブラウザ（例：iPhone / Safari）<br>
+      ・どの操作でお困りか（できればスクリーンショット）
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var CATS = [
+    { id: 'all',      label: 'すべて' },
+    { id: 'form',     label: '入力・確定ボタン' },
+    { id: 'calendar', label: '日時・空き枠' },
+    { id: 'login',    label: 'ログイン・会員' },
+    { id: 'payment',  label: 'お支払い' },
+    { id: 'ticket',   label: 'チケット・特典' },
+    { id: 'change',   label: '変更・キャンセル' },
+    { id: 'email',    label: 'メール' },
+    { id: 'other',    label: 'その他' }
+  ];
+  var list = document.getElementById('list');
+  var items = Array.prototype.slice.call(list.querySelectorAll('.tsq'));
+  var chipsEl = document.getElementById('chips');
+  var info = document.getElementById('resultInfo');
+  var qInput = document.getElementById('q');
+  var current = 'all';
+
+  function count(catId) {
+    if (catId === 'all') return items.length;
+    return items.filter(function (el) { return el.getAttribute('data-cat') === catId; }).length;
+  }
+  // チップ生成（該当0件のカテゴリは出さない）
+  CATS.forEach(function (c) {
+    var n = count(c.id);
+    if (c.id !== 'all' && n === 0) return;
+    var b = document.createElement('button');
+    b.className = 'chip';
+    b.type = 'button';
+    b.setAttribute('data-cat', c.id);
+    b.setAttribute('aria-pressed', c.id === 'all' ? 'true' : 'false');
+    b.innerHTML = c.label + ' <span class="cnt">' + n + '</span>';
+    b.addEventListener('click', function () { current = c.id; syncChips(); apply(); });
+    chipsEl.appendChild(b);
+  });
+  function syncChips() {
+    Array.prototype.forEach.call(chipsEl.children, function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-cat') === current ? 'true' : 'false');
+    });
+  }
+  function apply() {
+    var q = (qInput.value || '').trim().toLowerCase();
+    var shown = 0;
+    items.forEach(function (el) {
+      var okCat = current === 'all' || el.getAttribute('data-cat') === current;
+      var hay = (el.textContent + ' ' + (el.getAttribute('data-kw') || '')).toLowerCase();
+      var okKw = !q || hay.indexOf(q) !== -1;
+      var show = okCat && okKw;
+      el.hidden = !show;
+      if (!show) el.open = false;
+      if (show) shown++;
+    });
+    var empty = document.getElementById('emptyMsg');
+    if (shown === 0) {
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.id = 'emptyMsg';
+        empty.className = 'empty';
+        empty.textContent = '該当する項目が見つかりませんでした。キーワードを変えるか、下の「お問い合わせ」からご連絡ください。';
+        list.appendChild(empty);
+      }
+      empty.hidden = false;
+    } else if (empty) {
+      empty.hidden = true;
+    }
+    info.textContent = shown + ' 件を表示中' + (q ? '（「' + qInput.value.trim() + '」で検索）' : '');
+  }
+  qInput.addEventListener('input', apply);
+  apply();
+})();
+</script>
+</body>
+</html>

@@ -49,6 +49,7 @@ export interface SpaceRow {
   image_url: string | null; // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）#74拡張
   email_note: string | null; // お客様宛メールに差し込む案内文（入室方法・解錠番号など・任意）
   google_review_url: string | null; // 利用後お礼メールに載せるGoogle口コミ投稿URL（スペース別・任意）
+  spacemarket_url: string | null; // スペースマーケットのプロモーションリンク（スペース別・任意）。予約フォームの支払い方法欄で他決済希望者を誘導
 }
 
 /** 支払いモード（#67） */
@@ -103,6 +104,8 @@ export interface SpaceInput {
   emailNote?: string | null;
   /** Google口コミ投稿URL（スペース別・Googleマイビジネスは施設単位のため）。利用後お礼メールに載せる。空欄=載せない */
   googleReviewUrl?: string | null;
+  /** スペースマーケットのプロモーションリンク（スペース別・任意）。設定時のみ予約フォームの支払い方法欄に誘導リンクを表示。空欄=表示なし */
+  spacemarketUrl?: string | null;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -161,6 +164,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.imageUrl ?? null,
     s.emailNote ?? null,
     s.googleReviewUrl ?? null,
+    s.spacemarketUrl ?? null,
   ];
 }
 
@@ -172,8 +176,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note, google_review_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note, google_review_url, spacemarket_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -187,7 +191,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?, google_review_url = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?, google_review_url = ?, spacemarket_url = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)

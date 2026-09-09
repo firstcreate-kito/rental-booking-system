@@ -2455,6 +2455,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       if (!v) return null;
       return /^https?:\/\//i.test(v) ? v.slice(0, 500) : null;
     })(),
+    // スペースマーケットのプロモーションリンク（スペース別・任意）。http(s)のみ許可・最大500文字。空欄=表示なし。
+    spacemarketUrl: (() => {
+      const v = String(body.spacemarketUrl ?? '').trim();
+      if (!v) return null;
+      return /^https?:\/\//i.test(v) ? v.slice(0, 500) : null;
+    })(),
   };
   return { input };
 }

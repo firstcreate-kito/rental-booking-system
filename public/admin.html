@@ -638,6 +638,9 @@
         <div class="sect">Google口コミ投稿URL <span class="h">利用後お礼メールに「クチコミ投稿」ボタンを表示</span></div>
         <input id="sp_google_review_url" type="url" style="width:100%" placeholder="https://g.page/r/XXXXXXXX/review" />
         <div class="muted" style="font-size:12px;margin-top:4px">このスペースの<b>Googleマイビジネス（口コミ投稿）URL</b>を入れると、利用後の<b>お礼メール（利用日の翌日）</b>にクチコミ投稿のお願いボタンを自動で表示します。Googleビジネスプロフィールの「レビューを増やす」→「プロフィールを共有」で取得できる短縮URL（例：<code>https://g.page/r/…/review</code>）を推奨。空欄ならボタンは出しません。</div>
+        <div class="sect">スペースマーケット誘導リンク <span class="h">支払い方法欄に「他の支払い方法はスペースマーケットで」の案内を表示</span></div>
+        <input id="sp_spacemarket_url" type="url" style="width:100%" placeholder="https://www.spacemarket.com/p/XXXXXXXX" />
+        <div class="muted" style="font-size:12px;margin-top:4px">このスペースの<b>スペースマーケットのプロモーションリンク</b>を入れると、予約フォームの<b>お支払い方法</b>欄の下に「その他のお支払い方法をご希望の場合はスペースマーケットさんでのご予約も可能です。」という案内文＋テキストリンクを表示します。後払い（Paid）・楽天ペイなど、当社が扱っていない決済を希望されるお客様の誘導用です。空欄なら表示しません。</div>
         <div class="row" style="margin-top:12px;justify-content:flex-end;gap:8px">
           <button class="btn ghost sm" onclick="collapseSpaceForm()">閉じる</button>
           <button class="btn" onclick="saveSpace()">保存</button>
@@ -1899,6 +1902,7 @@ function fillSpaceForm(s) {
   g('sp_image', s?.image_url);
   g('sp_email_note', s?.email_note);
   g('sp_google_review_url', s?.google_review_url);
+  g('sp_spacemarket_url', s?.spacemarket_url);
   g('sp_area', s?.area); g('sp_use', s?.use_category); g('sp_group', s?.room_group);
   g('sp_cutoff', s?.same_day_cutoff_hours != null ? s.same_day_cutoff_hours : 1);
   g('sp_prio', s?.same_day_priority != null ? s.same_day_priority : 100);
@@ -1973,6 +1977,7 @@ async function saveSpace() {
     closingDate: v('sp_closing') || null,
     emailNote: v('sp_email_note') || null,
     googleReviewUrl: v('sp_google_review_url') || null,
+    spacemarketUrl: v('sp_spacemarket_url') || null,
     hasMinimum: true, slotMinutes: 30,
   };
   const res = editing

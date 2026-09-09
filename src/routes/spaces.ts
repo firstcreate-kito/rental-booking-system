@@ -58,6 +58,7 @@ function toPublicSpace(s: SpaceRow) {
     paymentMode: s.payment_mode, // 支払いモード（#67）
     inquiryOnly: !!s.inquiry_only, // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）
     imageUrl: s.image_url ?? null, // サムネイル画像URL（予約トップのカードに表示）#74拡張
+    spacemarketUrl: s.spacemarket_url ?? null, // スペースマーケット誘導リンク（設定時のみ支払い方法欄に表示）
   };
 }
 

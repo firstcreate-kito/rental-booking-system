@@ -456,6 +456,8 @@
         <div class="muted" style="font-size:12px;margin-top:4px">会社名などの宛名がある場合はご入力ください。未入力の場合はお申込者のお名前で請求書・領収書を発行します。</div>
       </div>
       <div class="muted" id="payNote" style="font-size:12px;margin-top:6px"></div>
+      <!-- スペースマーケット誘導（スペースにリンク設定があるときだけ表示）。他決済（後払いPaid・楽天ペイ等）希望者向け -->
+      <div id="spacemarketNote" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px"></div>
     </div>
     <!-- チケット等で全額まかなえる場合の案内（お支払い方法の代わりに表示・#82関連） -->
     <div class="card hidden" id="zeroPayNotice" style="margin-top:14px;background:#eefaf1;border-color:#bfe3c8">
@@ -1790,6 +1792,23 @@ const PAY_KONBINI_LEAD_DAYS = 5;
 const PAY_TRANSFER_LEAD_DAYS = 7;
 function renderPayment() {
   const sp = S.space || {};
+  // スペースマーケット誘導リンク（スペースに設定がある場合のみ・支払い方法の下に案内文＋テキストリンク）
+  // 後払い（Paid）・楽天ペイなど当社が扱っていない決済を希望されるお客様向け。会員/ゲスト問わず表示。
+  const smWrap = document.getElementById('spacemarketNote');
+  if (smWrap) {
+    if (sp.spacemarketUrl) {
+      smWrap.textContent = 'その他のお支払い方法をご希望の場合は';
+      const a = document.createElement('a');
+      a.href = sp.spacemarketUrl; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = 'スペースマーケットさんでのご予約';
+      smWrap.appendChild(a);
+      smWrap.insertAdjacentText('beforeend', 'も可能です。');
+      smWrap.classList.remove('hidden');
+    } else {
+      smWrap.textContent = '';
+      smWrap.classList.add('hidden');
+    }
+  }
   // 最も早い利用日までの日数
   const earliest = (S.cart || []).map(c => c.date).sort()[0];
   let daysUntil = 999;

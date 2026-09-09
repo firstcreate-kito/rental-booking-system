@@ -82,9 +82,17 @@
   .contact { margin-top:24px; background:#fff; border:1px solid var(--line,#eae8e3); border-radius:var(--r-lg,12px); padding:18px 16px; text-align:center; }
   .contact h2 { font-size:16px; margin:0 0 6px; }
   .contact p { margin:0 0 12px; font-size:14px; color:var(--muted); }
+  .contact .btns { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; }
   .contact .act { display:inline-block; min-height:46px; line-height:46px; padding:0 22px; background:var(--brand); color:#fff;
     border-radius:var(--r,8px); text-decoration:none; font-weight:700; font-size:15px; }
+  .contact .act.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
   .contact .hint { margin-top:12px; font-size:12.5px; color:var(--muted); text-align:left; }
+  /* 上部の「戻る」導線 */
+  .backrow { margin:0 0 14px; }
+  .backlink { display:inline-flex; align-items:center; gap:4px; min-height:38px; padding:0 12px;
+    border:1px solid var(--line-2,#d8d5ce); border-radius:var(--r,8px); background:#fff; color:var(--ink);
+    text-decoration:none; font-size:13.5px; }
+  .backlink:hover { background:var(--wash); }
 </style>
 </head>
 <body>
@@ -99,6 +107,9 @@
 </header>
 
 <main>
+  <div class="backrow">
+    <a class="backlink" href="/" onclick="return albeGoBack(event)">← 前のページに戻る</a>
+  </div>
   <div class="lead">
     <h1>予約トラブル解決ガイド</h1>
     <p>予約がうまくできないときは、下のカテゴリーで絞り込むか、キーワードで検索してお探しください。各項目をタップすると、手順と画面例が開きます。</p>
@@ -296,7 +307,10 @@
   <section class="contact">
     <h2>解決しない場合はお問い合わせください</h2>
     <p>担当者が確認し、折り返しご案内いたします。</p>
-    <a class="act" href="https://space-albe.com/contact/">お問い合わせフォームへ</a>
+    <div class="btns">
+      <a class="act ghost" href="/" onclick="return albeGoBack(event)">← 前のページに戻る</a>
+      <a class="act" href="https://space-albe.com/contact/">お問い合わせフォームへ</a>
+    </div>
     <div class="hint">
       スムーズなご案内のため、可能な範囲で以下をお知らせください：<br>
       ・ご希望のスペース／日時　・予約番号（お持ちの場合）　・ご利用の端末とブラウザ（例：iPhone / Safari）<br>
@@ -306,6 +320,12 @@
 </main>
 
 <script>
+// 「前のページに戻る」：履歴があれば戻る／なければ予約トップへ。
+function albeGoBack(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  if (window.history.length > 1) { window.history.back(); } else { window.location.href = '/'; }
+  return false;
+}
 (function () {
   var CATS = [
     { id: 'all',      label: 'すべて' },

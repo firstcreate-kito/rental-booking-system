@@ -1971,9 +1971,10 @@ export interface SignageBookingRow {
   start_time: string;
   end_time: string;
   event_name: string;
+  contact_name?: string | null; // 表示名フォールバック（イベント名が無いとき「姓 様」に使う）#124
 }
 
-/** サイネージ用: 指定日の確定予約（イベント名付き）を時刻順で */
+/** サイネージ用: 指定日の確定予約（イベント名＋お客様名）を時刻順で */
 export async function getSignageBookings(
   db: D1Database,
   spaceId: string,
@@ -1981,8 +1982,10 @@ export async function getSignageBookings(
 ): Promise<SignageBookingRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT b.start_time, b.end_time, bg.event_name
-       FROM bookings b JOIN booking_groups bg ON bg.id = b.group_id
+      `SELECT b.start_time, b.end_time, bg.event_name, c.contact_name
+       FROM bookings b
+       JOIN booking_groups bg ON bg.id = b.group_id
+       LEFT JOIN customers c ON c.id = bg.customer_id
        WHERE b.space_id = ? AND b.date = ? AND b.status = 'confirmed'
        ORDER BY b.start_time`,
     )

@@ -1994,6 +1994,19 @@ export async function getSignageBookings(
   return results ?? [];
 }
 
+/**
+ * サイネージ用: 指定日・スペースの「自社予約が作成したGoogleカレンダー予定ID」一覧（#124拡張）。
+ * Googleカレンダーとマージ表示する際、自社予約由来のイベントを重複表示しないための除外キー。
+ * status不問（キャンセル済みは通常GCal側も削除済みだが、念のため非nullは全て集める）。
+ */
+export async function getSignageGoogleEventIds(db: D1Database, spaceId: string, date: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(`SELECT google_event_id FROM bookings WHERE space_id = ? AND date = ? AND google_event_id IS NOT NULL AND google_event_id != ''`)
+    .bind(spaceId, date)
+    .all<{ google_event_id: string }>();
+  return (results ?? []).map((r) => r.google_event_id);
+}
+
 export interface BookingGroupRow {
   id: string;
   booking_number: string;

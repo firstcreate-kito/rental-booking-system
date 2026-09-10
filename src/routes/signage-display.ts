@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
-import { getAllSpaces, getSpaceBySlugOrId, getSignageBookings } from '../db/repository';
-import { todayJST, nowJST } from '../lib/clock';
-import { buildSignageItems } from '../lib/signage-display';
+import { getAllSpaces, getSpaceBySlugOrId, getSignageBookings, getSignageGoogleEventIds } from '../db/repository';
+import { todayJST, nowJST, addDaysJST } from '../lib/clock';
+import { buildSignageItems, type SignageDisplayItem } from '../lib/signage-display';
+import { gcalConfigured, listEvents, toJstRfc3339, rfc3339ToJst, type CalendarEvent } from '../lib/gcal';
+import { parseExternalDisplayName } from '../lib/signage-external';
 
 /**
  * サイネージ（モニター常設）表示ページ（#124）。
@@ -18,6 +20,49 @@ import { buildSignageItems } from '../lib/signage-display';
 const app = new Hono<AppBindings>();
 
 const POLL_MS = 20000; // 表示データの再取得間隔（ミリ秒）
+
+// Googleカレンダー読み取りの短時間キャッシュ（モニター多数のポーリングでGoogle APIを叩きすぎない）。
+const GCAL_CACHE_TTL_MS = 30000;
+const gcalCache = new Map<string, { at: number; events: CalendarEvent[] }>();
+
+/**
+ * 指定スペース・当日のGoogleカレンダー予定（外部プラットフォーム予約を含む）を取得。
+ * - 自社予約由来（google_event_id が一致）は除外して「外部由来」だけ返す。
+ * - 30秒キャッシュ。失敗時は空配列（サイネージは止めない）。
+ */
+async function fetchExternalEvents(
+  env: AppBindings['Bindings'],
+  calendarId: string,
+  date: string,
+  excludeIds: Set<string>,
+): Promise<{ label: string; start: string; end: string; source: string | null }[]> {
+  if (!gcalConfigured(env) || !calendarId) return [];
+  const key = `${calendarId}|${date}`;
+  let events: CalendarEvent[] | null = null;
+  const cached = gcalCache.get(key);
+  if (cached && Date.now() - cached.at < GCAL_CACHE_TTL_MS) {
+    events = cached.events;
+  } else {
+    try {
+      const startISO = toJstRfc3339(date, '00:00');
+      const endISO = toJstRfc3339(addDaysJST(date, 1), '00:00');
+      events = await listEvents(env, calendarId, startISO, endISO, 100);
+      gcalCache.set(key, { at: Date.now(), events });
+    } catch {
+      events = cached?.events ?? []; // 失敗時は前回値 or 空
+    }
+  }
+  const out: { label: string; start: string; end: string; source: string | null }[] = [];
+  for (const e of events) {
+    if (e.id && excludeIds.has(e.id)) continue; // 自社予約由来は重複除外
+    const s = rfc3339ToJst(e.start);
+    const en = rfc3339ToJst(e.end);
+    if (s.date !== date) continue; // 当日開始のみ（日跨ぎの端は除外）
+    const { label, source } = parseExternalDisplayName(e.summary ?? '');
+    out.push({ label, start: s.time, end: en.time, source });
+  }
+  return out;
+}
 
 function esc(x: unknown): string {
   return String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
@@ -60,8 +105,27 @@ app.get('/room/:key/data.json', async (c) => {
   const date = todayJST();
   const now = nowJST().slice(11, 16);
   const rows = await getSignageBookings(c.env.DB, space.id, date);
-  const items = buildSignageItems(rows, now);
-  const totalToday = rows.length;
+  const d1Items = buildSignageItems(rows, now);
+
+  // Googleカレンダー由来の外部予約（スペースマーケット/インスタベース等）もマージ表示（#124拡張）。
+  // 自社予約由来のカレンダー予定は google_event_id で重複除外。
+  let externalRaw: { label: string; start: string; end: string; source: string | null }[] = [];
+  if (space.google_calendar_id) {
+    const ids = new Set(await getSignageGoogleEventIds(c.env.DB, space.id, date));
+    externalRaw = await fetchExternalEvents(c.env, space.google_calendar_id, date, ids);
+  }
+  const extItems: SignageDisplayItem[] = externalRaw
+    .filter((e) => e.end > now)
+    .map((e) => ({
+      label: e.label,
+      start: e.start,
+      end: e.end,
+      range: `${e.start}～${e.end}`,
+      status: e.start <= now ? ('ongoing' as const) : ('upcoming' as const),
+    }));
+
+  const items = [...d1Items, ...extItems].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const totalToday = rows.length + externalRaw.length;
   let message: string | null = null;
   if (totalToday === 0) message = '本日の予約はありません';
   else if (items.length === 0) message = '本日の予約は全て終了しました';

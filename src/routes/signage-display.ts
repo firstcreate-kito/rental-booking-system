@@ -152,13 +152,13 @@ app.get('/room/:key', async (c) => {
 .body{flex:1;display:flex;flex-direction:column;gap:clamp(10px,1.6vh,20px);overflow:hidden}
 .sec-label{font-size:clamp(13px,1.6vw,20px);color:#8fb0ff;font-weight:700;letter-spacing:.08em}
 .now-card{background:linear-gradient(135deg,#12336b,#1b4bd0);border-radius:18px;padding:clamp(16px,2.6vh,34px);display:flex;justify-content:space-between;align-items:center;gap:16px;box-shadow:0 6px 30px rgba(30,80,220,.25)}
-.now-card .label{font-size:clamp(26px,4.5vw,60px);font-weight:900;line-height:1.1;word-break:break-word}
-.now-card .time{font-size:clamp(22px,3.4vw,44px);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.now-card .label{font-size:clamp(52px,9vw,120px);font-weight:900;line-height:1.1;word-break:break-word}
+.now-card .time{font-size:clamp(44px,6.8vw,88px);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .badge{display:inline-block;background:#ff5470;color:#fff;font-size:clamp(11px,1.3vw,16px);font-weight:800;border-radius:999px;padding:.2em .8em;margin-bottom:.4em;letter-spacing:.06em}
 .list{display:flex;flex-direction:column;gap:clamp(8px,1.2vh,14px);overflow:auto}
 .row{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#141c33;border:1px solid #26304d;border-radius:14px;padding:clamp(12px,1.8vh,22px) clamp(14px,2vw,26px)}
-.row .label{font-size:clamp(20px,3vw,40px);font-weight:800;word-break:break-word}
-.row .time{font-size:clamp(18px,2.4vw,32px);font-weight:700;color:#cfe0ff;font-variant-numeric:tabular-nums;white-space:nowrap}
+.row .label{font-size:clamp(40px,6vw,80px);font-weight:800;word-break:break-word}
+.row .time{font-size:clamp(36px,4.8vw,64px);font-weight:700;color:#cfe0ff;font-variant-numeric:tabular-nums;white-space:nowrap}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;color:#9fb0c9;font-size:clamp(20px,3vw,40px);font-weight:700;text-align:center}
 .foot{color:#5f6f8c;font-size:clamp(10px,1.1vw,13px);text-align:center}
 .stale{opacity:.55}

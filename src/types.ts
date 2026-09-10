@@ -37,6 +37,9 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** コンビニ払いを本番で有効化（Stripeダッシュボード設定済みのとき 'true'）#67/#39 */
   STRIPE_KONBINI_ENABLED?: string;
+  /** SwitchBotロック連携（#123）。TOKEN と SECRET 両方セット時のみ有効。予約連動の自動解錠に使用 */
+  SWITCHBOT_TOKEN?: string;
+  SWITCHBOT_SECRET?: string;
   /** PayPal 決済。CLIENT_ID と CLIENT_SECRET 両方セット時のみ有効。MODE は 'sandbox'(既定)/'live' */
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;

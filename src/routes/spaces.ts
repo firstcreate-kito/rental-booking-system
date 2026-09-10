@@ -59,6 +59,8 @@ function toPublicSpace(s: SpaceRow) {
     inquiryOnly: !!s.inquiry_only, // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）
     imageUrl: s.image_url ?? null, // サムネイル画像URL（予約トップのカードに表示）#74拡張
     spacemarketUrl: s.spacemarket_url ?? null, // スペースマーケット誘導リンク（設定時のみ支払い方法欄に表示）
+    // SwitchBotロック連携の方式（#123）。deviceId等の機微情報は公開しない（モード名のみ）。
+    switchbotUnlockMode: s.switchbot_unlock_mode ?? 'off',
   };
 }
 

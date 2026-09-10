@@ -56,6 +56,7 @@ import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
 import { runDataRetention } from './lib/retention';
 import { runReleaseExpiredKonbiniHolds } from './lib/konbini-cleanup';
 import { runWeeklyReport } from './lib/weekly-report';
+import { runSwitchbotAutoUnlock } from './lib/switchbot-service';
 import { todayJST, nowJST, addDaysJST } from './lib/clock';
 
 const app = new Hono<AppBindings>();
@@ -453,6 +454,8 @@ export default {
   async scheduled(event: ScheduledController, env: AppBindings['Bindings'], ctx: ExecutionContext): Promise<void> {
     // GCal取りこぼし補完は毎回（5分間隔）実行。それ以外は1日1回（0:00 UTC=9:00 JST）。
     ctx.waitUntil(runCalendarReconcile(env));
+    // SwitchBotロック自動解錠（#123・mode=auto のスペース）も毎回（5分間隔）。施錠はしない（A案）。
+    ctx.waitUntil(runSwitchbotAutoUnlock(env).then(() => {}).catch(() => {}));
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(runUnpaidAlert(env));
       // コンビニ仮押さえの期限切れ解放（#39・Webhook不達時の安全網）

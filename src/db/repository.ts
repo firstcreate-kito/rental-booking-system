@@ -50,6 +50,10 @@ export interface SpaceRow {
   email_note: string | null; // お客様宛メールに差し込む案内文（入室方法・解錠番号など・任意）
   google_review_url: string | null; // 利用後お礼メールに載せるGoogle口コミ投稿URL（スペース別・任意）
   spacemarket_url: string | null; // スペースマーケットのプロモーションリンク（スペース別・任意）。予約フォームの支払い方法欄で他決済希望者を誘導
+  switchbot_unlock_mode: string; // SwitchBotロック解錠方式（off/auto/button/passcode）。既定 off。施錠はしない（A案）
+  switchbot_lock_device_id: string | null; // SwitchBotロックの deviceId
+  switchbot_keypad_device_id: string | null; // SwitchBot Keypad の deviceId（passcode方式・将来）
+  switchbot_unlock_lead_min: number; // 利用開始の何分前に解錠するか
 }
 
 /** 支払いモード（#67） */
@@ -106,6 +110,14 @@ export interface SpaceInput {
   googleReviewUrl?: string | null;
   /** スペースマーケットのプロモーションリンク（スペース別・任意）。設定時のみ予約フォームの支払い方法欄に誘導リンクを表示。空欄=表示なし */
   spacemarketUrl?: string | null;
+  /** SwitchBotロック解錠方式（off/auto/button/passcode）。既定 off。施錠はしない（A案） */
+  switchbotUnlockMode?: string;
+  /** SwitchBotロックの deviceId（auto/button で使用） */
+  switchbotLockDeviceId?: string | null;
+  /** SwitchBot Keypad の deviceId（passcode方式・将来） */
+  switchbotKeypadDeviceId?: string | null;
+  /** 利用開始の何分前に解錠するか（既定5分） */
+  switchbotUnlockLeadMin?: number;
 }
 
 /** 全スペース（非公開含む・管理用） */
@@ -165,6 +177,10 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.emailNote ?? null,
     s.googleReviewUrl ?? null,
     s.spacemarketUrl ?? null,
+    s.switchbotUnlockMode ?? 'off',
+    s.switchbotLockDeviceId ?? null,
+    s.switchbotKeypadDeviceId ?? null,
+    s.switchbotUnlockLeadMin ?? 5,
   ];
 }
 
@@ -176,8 +192,9 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available, weekend_available, slot_minutes, has_minimum, min_hours,
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
-        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note, google_review_url, spacemarket_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note, google_review_url, spacemarket_url,
+        switchbot_unlock_mode, switchbot_lock_device_id, switchbot_keypad_device_id, switchbot_unlock_lead_min)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -191,7 +208,8 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         weekday_available = ?, weekend_available = ?, slot_minutes = ?, has_minimum = ?, min_hours = ?,
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
-        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?, google_review_url = ?, spacemarket_url = ?
+        area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?, google_review_url = ?, spacemarket_url = ?,
+        switchbot_unlock_mode = ?, switchbot_lock_device_id = ?, switchbot_keypad_device_id = ?, switchbot_unlock_lead_min = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)
@@ -4305,5 +4323,97 @@ export async function listEmailLogs(
     .prepare(sql)
     .bind(...binds)
     .all<EmailLogRow>();
+  return results ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// SwitchBotロック解錠（#123・スペース別・A案＝解錠のみ）
+// ---------------------------------------------------------------------------
+
+/** 自動解錠の候補（本日の確定予約の各コマ）。 */
+export interface AutoUnlockCandidate {
+  groupId: string;
+  bookingNumber: string;
+  spaceId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+/** 指定日の確定予約（キャンセル以外）のコマ一覧を返す（自動解錠の判定用）。 */
+export async function getAutoUnlockCandidates(db: D1Database, ymd: string): Promise<AutoUnlockCandidate[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT b.group_id AS groupId, bg.booking_number AS bookingNumber, b.space_id AS spaceId,
+              b.date AS date, b.start_time AS startTime, b.end_time AS endTime
+       FROM bookings b JOIN booking_groups bg ON bg.id = b.group_id
+       WHERE b.date = ? AND b.status != 'cancelled' AND bg.status = 'confirmed'
+       ORDER BY b.start_time`,
+    )
+    .bind(ymd)
+    .all<AutoUnlockCandidate>();
+  return results ?? [];
+}
+
+export interface UnlockLogInput {
+  spaceId?: string | null;
+  groupId?: string | null;
+  bookingNumber?: string | null;
+  slotKey?: string | null;
+  deviceId?: string | null;
+  trigger: string; // 'auto' | 'button' | 'admin_test'
+  status: string; // 'success' | 'failed' | 'skipped'
+  detail?: string | null;
+}
+
+/** 解錠ログを1件記録する。 */
+export async function insertUnlockLog(db: D1Database, input: UnlockLogInput, now: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO switchbot_unlock_log (id, created_at, space_id, booking_group_id, booking_number, slot_key, device_id, trigger, status, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      now,
+      input.spaceId ?? null,
+      input.groupId ?? null,
+      input.bookingNumber ?? null,
+      input.slotKey ?? null,
+      input.deviceId ?? null,
+      input.trigger,
+      input.status,
+      input.detail ?? null,
+    )
+    .run();
+}
+
+/** 同一コマが既に自動解錠成功済みか（重複解錠の防止）。 */
+export async function hasAutoUnlocked(db: D1Database, groupId: string, slotKey: string): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT 1 AS x FROM switchbot_unlock_log WHERE booking_group_id = ? AND slot_key = ? AND trigger = 'auto' AND status = 'success' LIMIT 1`)
+    .bind(groupId, slotKey)
+    .first<{ x: number }>();
+  return !!row;
+}
+
+export interface UnlockLogRow {
+  id: string;
+  created_at: string;
+  space_id: string | null;
+  booking_number: string | null;
+  slot_key: string | null;
+  device_id: string | null;
+  trigger: string;
+  status: string;
+  detail: string | null;
+}
+
+/** 解錠ログ一覧（管理画面・新しい順）。 */
+export async function listUnlockLog(db: D1Database, limit = 100): Promise<UnlockLogRow[]> {
+  const { results } = await db
+    .prepare(`SELECT id, created_at, space_id, booking_number, slot_key, device_id, trigger, status, detail FROM switchbot_unlock_log ORDER BY created_at DESC LIMIT ?`)
+    .bind(Math.min(Math.max(1, limit), 500))
+    .all<UnlockLogRow>();
   return results ?? [];
 }

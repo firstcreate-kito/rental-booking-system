@@ -125,7 +125,10 @@ import {
   countLoginFailures,
   recordLoginFailure,
   clearLoginFailures,
+  listUnlockLog,
 } from '../db/repository';
+import { switchbotConfigured, listDevices, getDeviceStatus } from '../lib/switchbot';
+import { performUnlock } from '../lib/switchbot-service';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
 import { qrSvg } from '../lib/qrcode';
@@ -2461,6 +2464,25 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       if (!v) return null;
       return /^https?:\/\//i.test(v) ? v.slice(0, 500) : null;
     })(),
+    // SwitchBotロック連携（#123・スペース別・A案＝解錠のみ）。
+    // mode: off=無効 / auto=利用開始時刻に自動解錠 / button=手動解錠のみ（施錠は自動化しない）。
+    switchbotUnlockMode: (() => {
+      const v = String(body.switchbotUnlockMode ?? 'off').trim();
+      return v === 'auto' || v === 'button' ? v : 'off';
+    })(),
+    switchbotLockDeviceId: (() => {
+      const v = String(body.switchbotLockDeviceId ?? '').trim();
+      return v ? v.slice(0, 100) : null;
+    })(),
+    switchbotKeypadDeviceId: (() => {
+      const v = String(body.switchbotKeypadDeviceId ?? '').trim();
+      return v ? v.slice(0, 100) : null;
+    })(),
+    switchbotUnlockLeadMin: (() => {
+      const n = Number(body.switchbotUnlockLeadMin);
+      if (!Number.isFinite(n)) return 5;
+      return Math.min(60, Math.max(0, Math.floor(n)));
+    })(),
   };
   return { input };
 }
@@ -2569,6 +2591,55 @@ app.put('/spaces/:id/cancel-policy', requireRole('owner', 'manager'), async (c) 
   const preset = body.preset === 'piano' ? 'piano' : 'standard';
   await setSpaceCancelPolicyTiers(c.env.DB, c.req.param('id'), preset === 'piano' ? PIANO_CANCEL_TIERS : []);
   return c.json({ ok: true, preset });
+});
+
+// ---------------------------------------------------------------------------
+// SwitchBotロック連携（#123・A案＝解錠のみ／施錠は自動化しない）
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/switchbot/status 連携の有効/無効（トークン投入済みか）を返す。 */
+app.get('/switchbot/status', requireRole('owner', 'manager'), async (c) => {
+  return c.json({ configured: switchbotConfigured(c.env) });
+});
+
+/** GET /api/admin/switchbot/devices アカウント配下のデバイス一覧（deviceId確認用）。 */
+app.get('/switchbot/devices', requireRole('owner', 'manager'), async (c) => {
+  if (!switchbotConfigured(c.env)) {
+    return c.json({ error: 'SwitchBotが未設定です（トークン/シークレット未投入）' }, 400);
+  }
+  const r = await listDevices(c.env);
+  if (!r.ok) return c.json({ error: `デバイス一覧の取得に失敗しました（statusCode=${r.statusCode}）` }, 502);
+  const list = (r.body?.deviceList ?? []).map((d) => ({
+    deviceId: d.deviceId,
+    deviceName: d.deviceName,
+    deviceType: d.deviceType,
+  }));
+  return c.json({ devices: list });
+});
+
+/** GET /api/admin/switchbot/device-status?deviceId=... ロックの状態（施錠/解錠・電池等）。 */
+app.get('/switchbot/device-status', requireRole('owner', 'manager'), async (c) => {
+  const deviceId = String(c.req.query('deviceId') ?? '').trim();
+  if (!deviceId) return c.json({ error: 'deviceId が必要です' }, 400);
+  if (!switchbotConfigured(c.env)) return c.json({ error: 'SwitchBotが未設定です' }, 400);
+  const r = await getDeviceStatus(c.env, deviceId);
+  if (!r.ok) return c.json({ error: `状態取得に失敗しました（statusCode=${r.statusCode}）` }, 502);
+  return c.json({ status: r.body ?? {} });
+});
+
+/** POST /api/admin/spaces/:id/switchbot/unlock 管理者テスト解錠（今すぐ解錠）。施錠はしない。 */
+app.post('/spaces/:id/switchbot/unlock', requireRole('owner', 'manager'), async (c) => {
+  const space = await getSpaceById(c.env.DB, c.req.param('id'));
+  if (!space) return c.json({ error: 'space not found' }, 404);
+  const r = await performUnlock(c.env, space, { trigger: 'admin_test' });
+  return c.json({ ok: r.ok, message: r.message }, r.ok ? 200 : 400);
+});
+
+/** GET /api/admin/switchbot/log 解錠ログ一覧（新しい順）。 */
+app.get('/switchbot/log', requireRole('owner', 'manager'), async (c) => {
+  const limit = Math.min(500, Math.max(1, Number(c.req.query('limit') ?? 100) || 100));
+  const rows = await listUnlockLog(c.env.DB, limit);
+  return c.json({ log: rows });
 });
 
 // ---------------------------------------------------------------------------

@@ -118,7 +118,7 @@ app.get('/room/:key', async (c) => {
   var WD=['日','月','火','水','木','金','土'];
   function tickClock(){
     var d=new Date();
-    document.getElementById('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    document.getElementById('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes());
     document.getElementById('date').textContent=(d.getMonth()+1)+'月'+d.getDate()+'日（'+WD[d.getDay()]+'）';
   }
   function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}

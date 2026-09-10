@@ -161,7 +161,6 @@ app.get('/room/:key', async (c) => {
       }
     }
     // 取得が古い場合は薄く表示（通信断の視覚フィードバック）
-    document.getElementById('screen');
     var stale=state.ok && (Date.now()-lastOk>POLL*3);
     document.body.classList.toggle('stale',!!stale);
   }

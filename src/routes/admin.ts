@@ -128,7 +128,7 @@ import {
   listUnlockLog,
 } from '../db/repository';
 import { switchbotConfigured, listDevices, getDeviceStatus } from '../lib/switchbot';
-import { performUnlock } from '../lib/switchbot-service';
+import { performUnlock, runSwitchbotAutoUnlock } from '../lib/switchbot-service';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
 import { qrSvg } from '../lib/qrcode';
@@ -2633,6 +2633,17 @@ app.post('/spaces/:id/switchbot/unlock', requireRole('owner', 'manager'), async 
   if (!space) return c.json({ error: 'space not found' }, 404);
   const r = await performUnlock(c.env, space, { trigger: 'admin_test' });
   return c.json({ ok: r.ok, message: r.message }, r.ok ? 200 : 400);
+});
+
+/**
+ * POST /api/admin/switchbot/run-auto-unlock 自動解錠をいま判定・実行（テスト／検証用）。
+ * Cron を待たずに runSwitchbotAutoUnlock を1回実行する。ステージング（Cron停止）での検証に使う。
+ * 本日・mode=auto・現在が「開始lead分前〜開始+30分」の窓に入る確定予約を、未解錠なら解錠する。
+ */
+app.post('/switchbot/run-auto-unlock', requireRole('owner', 'manager'), async (c) => {
+  if (!switchbotConfigured(c.env)) return c.json({ error: 'SwitchBotが未設定です' }, 400);
+  const r = await runSwitchbotAutoUnlock(c.env);
+  return c.json({ ok: true, ...r });
 });
 
 /** GET /api/admin/switchbot/log 解錠ログ一覧（新しい順）。 */

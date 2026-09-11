@@ -663,6 +663,7 @@
         <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
           <button type="button" class="btn ghost sm" onclick="sbLoadDevices()">デバイス一覧を取得</button>
           <button type="button" class="btn ghost sm" onclick="sbTestUnlock()">今すぐ解錠（テスト）</button>
+          <button type="button" class="btn ghost sm" onclick="sbRunAuto()">自動解錠をいま判定・実行</button>
           <button type="button" class="btn ghost sm" onclick="sbLoadLog()">解錠ログを表示</button>
         </div>
         <div class="muted" id="sbDevices" style="font-size:12px;margin-top:8px"></div>
@@ -2022,6 +2023,17 @@ async function sbTestUnlock() {
   const { ok, body } = await api('/api/admin/spaces/' + editing + '/switchbot/unlock', jsonBody({}));
   if (ok && body.ok) { msg.className = 'msg ok'; msg.textContent = '✅ ' + (body.message || '解錠しました'); }
   else { msg.className = 'msg bad'; msg.textContent = '❌ ' + (body.message || body.error || '解錠に失敗しました'); }
+}
+async function sbRunAuto() {
+  const msg = document.getElementById('sbMsg');
+  msg.className = 'msg'; msg.textContent = '自動解錠を判定・実行中…';
+  const { ok, body } = await api('/api/admin/switchbot/run-auto-unlock', jsonBody({}));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = '❌ ' + (body.error || '実行に失敗しました'); return; }
+  const u = body.unlocked || 0, s = body.skipped || 0, f = body.failed || 0;
+  msg.className = u > 0 ? 'msg ok' : 'msg';
+  msg.textContent = `自動解錠を実行しました：解錠 ${u}件／スキップ ${s}件／失敗 ${f}件` +
+    (u === 0 ? '（対象は「本日・自動解錠ON・現在が開始5分前〜開始+30分の窓に入る確定予約」で、まだ解錠していないものです）' : '');
+  sbLoadLog();
 }
 async function sbLoadLog() {
   const el = document.getElementById('sbLog');

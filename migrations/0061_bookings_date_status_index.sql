@@ -1,0 +1,12 @@
+-- D1読み取り量の削減（空き状況ウィジェットの全走査対策）。
+-- 背景: getOccupyingBookingsAllSpaces は
+--   WHERE date >= ? AND date <= ? AND status IN ('confirmed','tentative','blocked','held')
+--   ORDER BY date, start_time
+-- で全スペース横断の予約を引くが、既存の idx_bookings_space_date は先頭列が
+-- space_id のため「日付だけ」の絞り込みには効かず、bookings テーブルを毎回フル走査していた。
+-- これが公式サイト埋め込みの /availability アクセスごとに発生し、D1 の rows_read を押し上げていた。
+--
+-- 対策: 先頭列を date にした複合インデックスを追加する。これにより上記クエリは
+-- 「日付レンジのインデックススキャン」になり、読み取り行数がテーブル全体ではなく
+-- 対象期間内の行数に比例するようになる（レスポンスも速くなる）。冪等（IF NOT EXISTS）。
+CREATE INDEX IF NOT EXISTS idx_bookings_date_status ON bookings(date, status);

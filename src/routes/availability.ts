@@ -34,7 +34,7 @@ availabilityApi.get('/', async (c) => {
   // 過去日は空き状況を引かない（本日にクランプ）。
   const date = isYmd(q) && q >= today ? q : today;
   const data = await assembleAvailability(c.env, date, { use: c.req.query('use'), area: c.req.query('area') });
-  c.header('Cache-Control', 'public, max-age=300'); // 同期間隔と同じ5分
+  c.header('Cache-Control', 'public, max-age=60'); // 現実データ優先・キャッシュ最小（旧5分→1分に短縮）
   return c.json(data);
 });
 
@@ -56,7 +56,7 @@ export async function availabilityPage(c: import('hono').Context<AppBindings>): 
     loginUrl: '/mypage.html',
     embed, // WEBサイト等への iframe 埋め込み（#19）
   });
-  c.header('Cache-Control', 'public, max-age=300');
+  c.header('Cache-Control', 'public, max-age=60'); // 現実データ優先・キャッシュ最小（旧5分→1分に短縮）
   return c.html(html);
 }
 

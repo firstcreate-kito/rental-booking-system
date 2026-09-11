@@ -345,9 +345,9 @@
       <label>ご希望の日時（分かる範囲でOK）</label>
       <div class="row" style="gap:8px;flex-wrap:wrap">
         <input id="cr_date" type="date" style="flex:1;min-width:140px" onchange="loadRescheduleQuote()" />
-        <select id="cr_start" style="width:110px" onchange="loadRescheduleQuote()"></select>
+        <select id="cr_start" style="width:110px" onchange="onCrStartChange()"></select>
         <span style="align-self:center">〜</span>
-        <select id="cr_end" style="width:110px" onchange="loadRescheduleQuote()"></select>
+        <select id="cr_end" style="width:110px" onchange="onCrEndChange()"></select>
       </div>
     </div>
     <!-- #100 日時変更の差額表示＋同意（差額が生じるときのみ同意を必須にする） -->
@@ -795,6 +795,8 @@ async function initLoginExtras() {
 // ---- 予約変更リクエスト（#54）----
 let _crNum = null;
 let _crDaysUntil = null; // 当初利用日までの残日数（#76・キャンセル可否/文言表示）
+let _crSpaceId = null;   // 変更リクエスト対象スペースID（営業時間クランプ用）
+let _crDurMin = 60;      // 直近の利用時間（分）。開始変更時に終了を「開始＋この時間」へ自動調整
 let _rsNeedAgree = false; // 日時変更で差額が生じ、同意チェックが必要か（#100）
 const CR_CANCEL_CUTOFF = 4; // これ未満（3日前以降）はオンラインキャンセル不可
 // 変更・キャンセルの無償境界が異なる特別スペース（防音室A・B／東別院24h）。
@@ -815,6 +817,35 @@ function daysUntilDate(iso) {
   const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
   const d = new Date(iso + 'T00:00:00Z');
   return Math.round((d - today) / 86400000);
+}
+// 'HH:MM' → 分。空なら null。
+function crMin(v) { return v ? Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5)) : null; }
+// 分 → 'HH:MM'
+function crFmt(m) { return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
+// 対象スペースの営業終了（分）。取れなければ 24:00。
+function crCloseMin() {
+  const sp = (M.spaceMap || {})[_crSpaceId];
+  const close = sp && sp.closeTime ? sp.closeTime.slice(0, 5) : '24:00';
+  return Number(close.slice(0, 2)) * 60 + Number(close.slice(3, 5));
+}
+// 開始を変更したら、終了を「開始＋直近の利用時間」に自動調整（必ず開始より後・営業終了を超えない）。
+function onCrStartChange() {
+  const s = crMin(document.getElementById('cr_start').value);
+  if (s != null) {
+    const closeM = crCloseMin();
+    let e = s + (_crDurMin > 0 ? _crDurMin : 30);
+    if (e > closeM) e = closeM;
+    if (e <= s) e = Math.min(s + 30, closeM);
+    ensureCrOption('cr_end', crFmt(e)); // 値をセット（無ければ候補追加）
+  }
+  loadRescheduleQuote();
+}
+// 終了を手動変更したら、利用時間（分）を記録し直す（次に開始を動かしたとき維持するため）。
+function onCrEndChange() {
+  const s = crMin(document.getElementById('cr_start').value);
+  const e = crMin(document.getElementById('cr_end').value);
+  if (s != null && e != null && e > s) _crDurMin = e - s;
+  loadRescheduleQuote();
 }
 // 対象スペースの営業時間（open〜close）内で30分刻みの時刻候補を生成。
 // スペース情報が取れない場合は 00:00〜24:00 にフォールバック。
@@ -847,6 +878,7 @@ function ensureCrOption(id, val) {
 }
 async function openChangeReq(number, spaceName, spaceId, originalDate) {
   _crNum = number;
+  _crSpaceId = spaceId;
   _crDaysUntil = daysUntilDate(originalDate);
   await ensureSpaces();
   buildCrTimeOptions(spaceId);
@@ -868,6 +900,9 @@ async function openChangeReq(number, spaceName, spaceId, originalDate) {
       document.getElementById('cr_date').value = d.date || '';
       ensureCrOption('cr_start', (d.start_time || '').slice(0, 5));
       ensureCrOption('cr_end', (d.end_time || '').slice(0, 5));
+      // 直近の利用時間（分）を記録：開始変更時に「開始＋この時間」で終了を自動調整する
+      const _sM = crMin((d.start_time || '').slice(0, 5)), _eM = crMin((d.end_time || '').slice(0, 5));
+      if (_sM != null && _eM != null && _eM > _sM) _crDurMin = _eM - _sM;
     }
   } catch (e) {}
   const res = document.getElementById('cr_result'); res.textContent = ''; res.className = 'msg';

@@ -1,13 +1,16 @@
 /**
  * SwitchBotロック解錠のオーケストレーション（#123・A案＝解錠のみ／施錠しない）。
  * - auto  … 利用開始時刻（lead分前〜開始+30分）に自動解錠（5分毎Cron）。
+ *           自社予約（D1）に加え、スペースマーケット/インスタベース等の外部予約
+ *           （Googleカレンダー連携のみ）も対象にする。
  * - button… お客様/管理者が任意に解錠（performUnlock を直接呼ぶ）。
  * どの方式でも施錠コマンドは送らない。
  */
 import type { Env } from '../types';
-import { getAllSpaces, getAutoUnlockCandidates, hasAutoUnlocked, insertUnlockLog, type SpaceRow } from '../db/repository';
+import { getAllSpaces, getAutoUnlockCandidates, getSignageGoogleEventIds, hasAutoUnlocked, insertUnlockLog, type SpaceRow } from '../db/repository';
 import { switchbotConfigured, unlockLock } from './switchbot';
-import { nowJST } from './clock';
+import { gcalConfigured, listEvents, toJstRfc3339, rfc3339ToJst } from './gcal';
+import { nowJST, addDaysJST } from './clock';
 
 function toMin(hhmm: string): number {
   const [h, m] = String(hhmm).split(':');
@@ -78,6 +81,48 @@ export async function runSwitchbotAutoUnlock(env: Env, now: string = nowJST()): 
     if (r.ok) out.unlocked++;
     else out.failed++;
   }
+
+  // 外部予約（スペースマーケット/インスタベース等）も自動解錠の対象にする。
+  // これらは Google カレンダー連携でのみ入り、D1 の bookings には行が無いため、上の候補には出てこない。
+  // 各 auto スペースのカレンダーから当日イベントを取得し、自社予約由来（native の google_event_id）を
+  // 除いたものを「外部予約」として、同じ解錠ウィンドウ・重複防止で解錠する。
+  if (gcalConfigured(env)) {
+    const startISO = toJstRfc3339(today, '00:00');
+    const endISO = toJstRfc3339(addDaysJST(today, 1), '00:00');
+    for (const space of autoSpaces.values()) {
+      const calendarId = space.google_calendar_id;
+      if (!calendarId) continue;
+      let events;
+      try {
+        events = await listEvents(env, calendarId, startISO, endISO, 100);
+      } catch {
+        continue; // カレンダー取得失敗時はスキップ（次のCronで再試行）
+      }
+      const nativeIds = new Set(await getSignageGoogleEventIds(env.DB, space.id, today));
+      const lead = space.switchbot_unlock_lead_min ?? 5;
+      for (const e of events) {
+        if (e.id && nativeIds.has(e.id)) continue; // 自社予約は上のnativeループで処理済み
+        const st = rfc3339ToJst(e.start);
+        if (st.date !== today) continue; // 当日開始のみ（日跨ぎの端は除外）
+        const startMin = toMin(st.time);
+        if (nowMin < startMin - lead || nowMin > startMin + 30) {
+          out.skipped++;
+          continue;
+        }
+        // 外部予約の重複防止キー：GCイベントIDを groupId 代わりに使う（native の UUID とは衝突しない）。
+        const groupId = `gcal:${e.id}`;
+        const slotKey = `${today} ${st.time}`;
+        if (await hasAutoUnlocked(env.DB, groupId, slotKey)) {
+          out.skipped++;
+          continue;
+        }
+        const r = await performUnlock(env, space, { trigger: 'auto', groupId, bookingNumber: null, slotKey }, now);
+        if (r.ok) out.unlocked++;
+        else out.failed++;
+      }
+    }
+  }
+
   console.log(`[switchbot] auto-unlock unlocked=${out.unlocked} skipped=${out.skipped} failed=${out.failed}`);
   return out;
 }

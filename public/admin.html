@@ -1963,12 +1963,12 @@ function fillSpaceForm(s) {
   if (s) loadSpaceCancelPolicy(s.id);
   document.getElementById('spMsg').textContent = '';
   // クリックしたスペース行の直下にフォームを展開する（編集時）。新規はテーブル下の元位置に表示。
-  // スペース編集フォームは項目が多いため、幅広（横スクロール）のテーブル行内に押し込むと
-  // 枠からはみ出す。テーブル下の元位置（家）に全幅カードとして表示し、スクロールで見せる。
+  // 幅広（横スクロール）テーブルでも見切れないよう、expandPanelUnderRow が展開時に
+  // パネルを可視領域の左へ sticky 固定し幅を収める（顧客・オプション管理と共通の挙動）。
   const spForm = document.getElementById('spForm');
-  restorePanel(spForm);
-  spForm.classList.remove('hidden');
-  spForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const spBody = document.getElementById('spBody');
+  const rowEl = s ? spBody.querySelector('tr[data-space="' + s.id + '"]') : null;
+  expandPanelUnderRow(spBody, rowEl, spForm, 8);
 }
 async function loadSpaceCancelPolicy(id) {
   const { ok, body } = await api('/api/admin/spaces/' + id + '/cancel-policy');

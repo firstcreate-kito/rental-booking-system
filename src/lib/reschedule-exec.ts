@@ -69,6 +69,7 @@ function toValidationSpace(s: SpaceRow): BookingValidationSpace {
     weekdayAvailable: !!s.weekday_available,
     weekendAvailable: !!s.weekend_available,
     closingDate: s.closing_date,
+    openingDate: s.opening_date,
   };
 }
 

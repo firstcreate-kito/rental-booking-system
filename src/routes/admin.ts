@@ -2440,6 +2440,12 @@ function parseSpaceInput(body: Record<string, unknown>): { input?: SpaceInput; e
       if (!v) return null;
       return DATE_RE.test(v) ? v : null;
     })(),
+    // 予約受付開始日（オープン前）。空欄=なし。'YYYY-MM-DD' のみ許可。
+    openingDate: (() => {
+      const v = String(body.openingDate ?? '').trim();
+      if (!v) return null;
+      return DATE_RE.test(v) ? v : null;
+    })(),
     inquiryOnly: !!body.inquiryOnly,
     // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）。http(s)/相対パスのみ許可。
     imageUrl: (() => {

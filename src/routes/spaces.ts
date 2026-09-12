@@ -49,6 +49,7 @@ function toPublicSpace(s: SpaceRow) {
     bookingHorizonDays: s.booking_horizon_days,
     viewHorizonDays: s.view_horizon_days,
     closingDate: s.closing_date,
+    openingDate: s.opening_date, // 予約受付開始日（この日から予約可・NULL=なし）
     weekdayAvailable: !!s.weekday_available,
     weekendAvailable: !!s.weekend_available,
     allowCard: !!s.allow_card,
@@ -305,12 +306,14 @@ app.get('/:id/slots', async (c) => {
     const deadline = space.booking_deadline_days ?? defaultDeadline;
     // 予約受付最終日（閉鎖日）を過ぎた日付は予約も閲覧も不可（閉鎖予定施設）
     const beyondClosing = !!space.closing_date && date > space.closing_date;
-    const withinWindow = diff >= deadline && diff <= space.booking_horizon_days && !beyondClosing;
+    // 予約受付開始日より前は予約不可（オープン前スペース）。カレンダーは表示するがクリック不可。
+    const beforeOpening = !!space.opening_date && date < space.opening_date;
+    const withinWindow = diff >= deadline && diff <= space.booking_horizon_days && !beyondClosing && !beforeOpening;
     const bookable =
       withinWindow && !closed && dayAvailable && view.status !== 'full';
     // 予約可能期間より先だが閲覧可能期間内 → 空きは見せるがクリック不可（#77）
     const viewOnly =
-      !bookable && !beyondClosing && diff > space.booking_horizon_days && diff <= space.view_horizon_days && !closed && diff >= 0;
+      !bookable && !beyondClosing && !beforeOpening && diff > space.booking_horizon_days && diff <= space.view_horizon_days && !closed && diff >= 0;
 
     return {
       date,
@@ -325,6 +328,7 @@ app.get('/:id/slots', async (c) => {
       bookable,
       viewOnly, // 空き閲覧のみ（予約可能期間超・閲覧可能期間内）（#77）
       closed, // 休業日（祝日休業・全体休業日・個別休業）
+      beforeOpening, // 受付開始日より前（オープン前・予約不可・カレンダーは表示）
       past: diff < 0, // 今日より前
     };
   });
@@ -339,6 +343,7 @@ app.get('/:id/slots', async (c) => {
     bookingHorizonDays: space.booking_horizon_days, // 予約可能期間（#77）
     viewHorizonDays: space.view_horizon_days, // 閲覧可能期間（#77）
     closingDate: space.closing_date, // 予約受付最終日（閉鎖日・NULLなら無し）
+    openingDate: space.opening_date, // 予約受付開始日（この日から予約可・NULLなら無し）
   });
 });
 

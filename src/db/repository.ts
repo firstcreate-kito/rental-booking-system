@@ -45,6 +45,7 @@ export interface SpaceRow {
   same_day_priority: number; // 「今日」タブの並び（#74）
   weekend_day_rate_only: number; // 土日祝は1日料金のみ（#18）
   closing_date: string | null; // 予約受付最終日（この日まで予約可・NULL=なし）
+  opening_date: string | null; // 予約受付開始日（この日から予約可・NULL=なし）。オープン前スペース用（closing_dateの対）
   inquiry_only: number; // 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）#移行
   image_url: string | null; // サムネイル画像URL（空き状況ページ・予約トップのカードに表示）#74拡張
   email_note: string | null; // お客様宛メールに差し込む案内文（入室方法・解錠番号など・任意）
@@ -100,6 +101,8 @@ export interface SpaceInput {
   weekendDayRateOnly?: boolean;
   /** 予約受付最終日（'YYYY-MM-DD'・この日まで予約可）。閉鎖予定施設用。NULL=なし */
   closingDate?: string | null;
+  /** 予約受付開始日（'YYYY-MM-DD'・この日から予約可）。オープン前スペース用。NULL=なし */
+  openingDate?: string | null;
   /** 申込はお問い合わせのみ（カレンダーは表示・クリックでフォーム誘導）。既定OFF */
   inquiryOnly?: boolean;
   /** サムネイル画像URL（空き状況ページ・予約トップのカードに表示）。空欄=画像なし */
@@ -181,6 +184,7 @@ function bindSpace(s: SpaceInput): unknown[] {
     s.switchbotLockDeviceId ?? null,
     s.switchbotKeypadDeviceId ?? null,
     s.switchbotUnlockLeadMin ?? 5,
+    s.openingDate ?? null,
   ];
 }
 
@@ -193,8 +197,8 @@ export async function insertSpace(db: D1Database, id: string, s: SpaceInput): Pr
         open_time, close_time, booking_horizon_days, view_horizon_days, booking_deadline_days, block_name, sort_order, is_active,
         allow_card, allow_paypal, allow_invoice, payment_mode, notify_email,
         area, use_category, room_group, same_day_cutoff_hours, same_day_priority, allow_manual_invoice, weekend_day_rate_only, closing_date, inquiry_only, weekly_report_recipients, image_url, email_note, google_review_url, spacemarket_url,
-        switchbot_unlock_mode, switchbot_lock_device_id, switchbot_keypad_device_id, switchbot_unlock_lead_min)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        switchbot_unlock_mode, switchbot_lock_device_id, switchbot_keypad_device_id, switchbot_unlock_lead_min, opening_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(id, ...bindSpace(s))
     .run();
@@ -209,7 +213,7 @@ export async function updateSpace(db: D1Database, id: string, s: SpaceInput): Pr
         open_time = ?, close_time = ?, booking_horizon_days = ?, view_horizon_days = ?, booking_deadline_days = ?, block_name = ?, sort_order = ?, is_active = ?,
         allow_card = ?, allow_paypal = ?, allow_invoice = ?, payment_mode = ?, notify_email = ?,
         area = ?, use_category = ?, room_group = ?, same_day_cutoff_hours = ?, same_day_priority = ?, allow_manual_invoice = ?, weekend_day_rate_only = ?, closing_date = ?, inquiry_only = ?, weekly_report_recipients = ?, image_url = ?, email_note = ?, google_review_url = ?, spacemarket_url = ?,
-        switchbot_unlock_mode = ?, switchbot_lock_device_id = ?, switchbot_keypad_device_id = ?, switchbot_unlock_lead_min = ?
+        switchbot_unlock_mode = ?, switchbot_lock_device_id = ?, switchbot_keypad_device_id = ?, switchbot_unlock_lead_min = ?, opening_date = ?
        WHERE id = ?`,
     )
     .bind(...bindSpace(s), id)

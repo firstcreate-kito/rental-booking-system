@@ -2156,7 +2156,8 @@ async function sendWeekly() {
 
 // --- 季節料金・キャンペーン ---
 async function loadPricingMgmt() {
-  if (A.spaces.length === 0) await loadSpaces();
+  // 常に最新のスペース一覧を取得（新規登録スペースがこのタブのドロップダウンにも反映されるように）。
+  await loadSpaces();
   document.getElementById('cm_space').innerHTML = '<option value="">全スペース共通</option>' +
     A.spaces.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
   document.getElementById('se_spaces').innerHTML = A.spaces.map(s =>

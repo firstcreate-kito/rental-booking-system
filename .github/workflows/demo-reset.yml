@@ -1,0 +1,73 @@
+name: Demo reset
+
+# 販売促進用デモ環境のデータを毎日「初期デモ状態」に戻す。
+#  - 見込み客が作成した予約・会員などの操作跡を消し、いつでもきれいなデモに保つ。
+#  - スキーマ（テーブル定義）は保持し、中身だけ全消去 → 標準シード＋デモ用シードを再投入。
+#  - スケジュール：毎日 18:00 UTC（＝日本時間 03:00）。手動実行も可。
+#  - コードやシークレットには触れない（データのみ）。
+on:
+  schedule:
+    - cron: '0 18 * * *' # 毎日 03:00 JST
+  workflow_dispatch: {}
+
+concurrency:
+  group: demo-reset
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve demo D1 id
+        id: d1
+        run: |
+          set -e
+          ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="albe_booking_demo") | (.uuid // .database_id)' | head -1)
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::error::デモ用D1が見つかりません。先に「Demo bootstrap」を実行してください。"; exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Inject D1 id into wrangler.jsonc
+        run: sed -i "s/PLACEHOLDER_DEMO_D1_ID/${{ steps.d1.outputs.id }}/g" wrangler.jsonc
+
+      - name: Wipe all data (keep schema)
+        run: |
+          set -e
+          # マイグレーション管理表とSQLite内部表を除く全テーブルを対象に DELETE を生成して実行。
+          TABLES=$(npx wrangler d1 execute albe_booking_demo --remote --env demo --json \
+            --command "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\_cf\_%' AND name <> 'd1_migrations'" \
+            | jq -r '.[0].results[].name')
+          if [ -z "$TABLES" ]; then echo "::error::テーブル一覧の取得に失敗しました"; exit 1; fi
+          echo "対象テーブル:"; echo "$TABLES"
+          # FK順序に依存しないよう foreign_keys を無効化してから全消去（D1既定はOFFだが念のため）
+          SQL_FILE=$(mktemp)
+          echo "PRAGMA foreign_keys=OFF;" > "$SQL_FILE"
+          for t in $TABLES; do echo "DELETE FROM \"$t\";" >> "$SQL_FILE"; done
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file="$SQL_FILE"
+
+      - name: Re-seed demo baseline
+        run: |
+          set -e
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file=./seeds/seed.sql
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file=./seeds/options.sql
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file=./seeds/tickets.sql
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file=./seeds/issuer.sql
+          npx wrangler d1 execute albe_booking_demo --remote --env demo --file=./seeds/demo.sql
+          echo "✓ デモを初期状態に再シードしました"

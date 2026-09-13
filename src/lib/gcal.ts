@@ -32,7 +32,10 @@ export function gcalConfigured(env: GcalEnv): boolean {
  * 読み取り（freeBusy/listEvents）は抑止しない（空き照会は本番と同じ挙動が必要）。
  */
 export function calendarWritesSuppressed(env: GcalEnv): boolean {
-  return (env.APP_ENV ?? '').trim() === 'staging' && env.STAGING_ALLOW_CALENDAR !== 'true';
+  const appEnv = (env.APP_ENV ?? '').trim();
+  // demo（販促用）は常に書き込み停止。staging は STAGING_ALLOW_CALENDAR='true' で解除可。
+  if (appEnv === 'demo') return true;
+  return appEnv === 'staging' && env.STAGING_ALLOW_CALENDAR !== 'true';
 }
 
 /** ステージング抑止時に insertEvent が返すダミーID（本物のGoogle IDと区別できる接頭辞） */

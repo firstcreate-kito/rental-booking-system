@@ -96,6 +96,44 @@
       "triggers": {
         "crons": []
       }
+    },
+    // ───────────────────────────────────────────────────────────────
+    // デモ（販売促進用）環境。レンタルスペース事業者への紹介用。
+    // 本番・ステージングとは「別Worker・別D1・別シークレット」の独立環境。
+    //   - APP_ENV=demo … 実メール送信オフ／Googleカレンダー書き込みオフ（副作用なし）。
+    //   - 決済のみ Stripe テストモード（テストカードで擬似決済まで体験可）。
+    //   - 本番デプロイ時に一緒に更新（deploy.yml）＝常に最新コードに同期。
+    //   - 毎日リセット（Demo reset ワークフロー）で初期デモ状態に再シード。
+    //   - D1 IDはリポジトリ上プレースホルダ。CIが `wrangler d1 list` から実IDを注入する。
+    "demo": {
+      "name": "albe-booking-api-demo",
+      // routes は named environment に継承されるため必ず空で上書き（本番ドメイン奪取の防止）。
+      "routes": [],
+      "workers_dev": true,
+      "observability": {
+        "enabled": true
+      },
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "run_worker_first": true
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "albe_booking_demo",
+          "database_id": "PLACEHOLDER_DEMO_D1_ID",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "demo",
+        "PUBLIC_BASE_URL": "https://albe-booking-api-demo.rental-space-albe.workers.dev"
+      },
+      // デモは自動Cron不要（実メール/カレンダー連携を使わないため）。リセットは別ワークフロー。
+      "triggers": {
+        "crons": []
+      }
     }
   }
 }

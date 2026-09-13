@@ -87,12 +87,14 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<SendR
   // 宛先を配列へ正規化（重複・空を除去）。複数宛先に対応（#72）。ログにも使うので先に確定させる。
   const recipients = [...new Set((Array.isArray(msg.to) ? msg.to : [msg.to]).map((t) => (t ?? '').trim()).filter(Boolean))];
   const logBase = { recipients, subject: msg.subject, kind: msg.kind };
-  // 【安全装置】ステージング（テスト環境）からは実メールを送らない。
+  // 【安全装置】ステージング（テスト環境）・デモ（販促用）からは実メールを送らない。
   // 誤って本物のお客様宛に通知が飛ぶ事故を防ぐ。テスト目的で送りたいときのみ
   // STAGING_ALLOW_EMAIL='true' を明示的にセットする（既定は送らない）。
-  if ((env.APP_ENV ?? '').trim() === 'staging' && env.STAGING_ALLOW_EMAIL !== 'true') {
-    console.log('[email] skipped on staging (safety guard)', { subject: msg.subject });
-    await recordEmailLog(env, { ...logBase, status: 'skipped', error: 'staging安全装置により送信停止' });
+  // demo は常に送信停止（販促デモで実メールを飛ばさない）。
+  const appEnv = (env.APP_ENV ?? '').trim();
+  if ((appEnv === 'staging' && env.STAGING_ALLOW_EMAIL !== 'true') || appEnv === 'demo') {
+    console.log(`[email] skipped on ${appEnv} (safety guard)`, { subject: msg.subject });
+    await recordEmailLog(env, { ...logBase, status: 'skipped', error: `${appEnv}安全装置により送信停止` });
     return { ok: false, skipped: true };
   }
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) {

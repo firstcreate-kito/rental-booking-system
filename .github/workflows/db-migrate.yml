@@ -82,3 +82,18 @@ jobs:
             # 実IDは前ステップで注入済み（同一ジョブ・同一チェックアウト）
             npx wrangler d1 migrations apply albe_booking_staging --remote --env staging
           fi
+
+      # 【デモ同期】本番マイグレーション時は、販促用デモD1にも同じ未適用分を適用してスキーマを揃える。
+      # デモD1が未作成（=「Demo bootstrap」未実行）ならスキップし、本番側は成功のまま。冪等。
+      - name: Sync demo migrations on production
+        if: ${{ github.event.inputs.environment == 'production' }}
+        run: |
+          set -e
+          ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[]? | select(.name=="albe_booking_demo") | (.uuid // .database_id)' | head -1)
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::warning::デモ用D1が未作成のためデモのマイグレーション同期をスキップしました（先に「Demo bootstrap」を実行してください）。"
+            exit 0
+          fi
+          sed -i "s/PLACEHOLDER_DEMO_D1_ID/$ID/g" wrangler.jsonc
+          echo "▶ 販促デモD1へも未適用マイグレーションを適用します"
+          npx wrangler d1 migrations apply albe_booking_demo --remote --env demo

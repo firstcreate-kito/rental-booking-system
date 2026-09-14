@@ -176,6 +176,10 @@
   /* WEBサイト埋め込み（?embed=1）: ヘッダーを隠し、時刻選択モーダルはiframe内で見切れないよう
      オーバーレイではなくインライン表示（カレンダーの下に出す）にする（#19） */
   .embed .albe-topbar { display: none !important; }
+  .embed .operator-cta { display: none !important; } /* 公式サイト埋め込み時は運営者向けデモ導線を隠す（お客様には出さない） */
+  .operator-cta { text-align: center; padding: 18px 16px 28px; border-top: 1px solid var(--line); margin-top: 24px; }
+  .operator-cta a { font-size: 12px; color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line-2); padding-bottom: 2px; }
+  .operator-cta a:hover { color: var(--ink); }
   .embed .modal-bg { position: static; background: transparent; z-index: auto; padding: 8px 0; }
   .embed .modal { width: min(560px, 96vw); box-shadow: 0 0 0 1px var(--line); }
   .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
@@ -511,6 +515,11 @@
     </div>
   </section>
 </main>
+
+<!-- スペース運営者向け：この予約システムのデモ案内（控えめ・公式サイト埋め込み時は非表示） -->
+<footer class="operator-cta">
+  <a href="https://albe-booking-api-demo.rental-space-albe.workers.dev" target="_blank" rel="noopener">🏢 スペース運営者の方へ｜この予約システムのデモを見る</a>
+</footer>
 
 <!-- 時間選択モーダル -->
 <div class="modal-bg" id="modal">

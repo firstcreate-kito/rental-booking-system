@@ -517,6 +517,92 @@ export async function getOccupyingBookingsAllSpaces(
   return results ?? [];
 }
 
+// ─────────────────────────────────────────────────────────────
+// 外部カレンダーブロック（external_calendar_blocks・#外部予約をD1へ取り込み）
+// スペースマーケット/インスタベース等の外部予約を占有として空き状況に反映する。
+// 5分同期ジョブが upsert＋不要行削除でGカレンダーと突き合わせる。
+
+export interface ExternalBlockRow {
+  id: string;
+  google_event_id: string;
+  space_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  summary: string | null;
+}
+
+/** 全スペースの外部ブロックを期間で一括取得（空き状況ページ用・占有として扱う） */
+export async function getExternalBlocksAllSpaces(
+  db: D1Database,
+  from: string,
+  to: string,
+): Promise<Array<{ space_id: string; date: string; start_time: string; end_time: string }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT space_id, date, start_time, end_time FROM external_calendar_blocks
+       WHERE date >= ? AND date <= ? ORDER BY date, start_time`,
+    )
+    .bind(from, to)
+    .all<{ space_id: string; date: string; start_time: string; end_time: string }>();
+  return results ?? [];
+}
+
+/** 同期用：あるスペースの期間内に既にある外部ブロック（差分判定・不要行の突き合わせ用） */
+export async function getExternalBlocksForSpace(
+  db: D1Database,
+  spaceId: string,
+  from: string,
+  to: string,
+): Promise<Array<{ id: string; start_time: string; end_time: string }>> {
+  const { results } = await db
+    .prepare(`SELECT id, start_time, end_time FROM external_calendar_blocks WHERE space_id = ? AND date >= ? AND date <= ?`)
+    .bind(spaceId, from, to)
+    .all<{ id: string; start_time: string; end_time: string }>();
+  return results ?? [];
+}
+
+/** 同期用：自社予約のGカレンダーイベントID（外部ブロックから除外するため） */
+export async function getBookingGoogleEventIdsInRange(
+  db: D1Database,
+  spaceId: string,
+  from: string,
+  to: string,
+): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT google_event_id FROM bookings
+       WHERE space_id = ? AND date >= ? AND date <= ? AND google_event_id IS NOT NULL AND google_event_id != ''`,
+    )
+    .bind(spaceId, from, to)
+    .all<{ google_event_id: string }>();
+  return (results ?? []).map((r) => r.google_event_id);
+}
+
+/** 同期用：外部ブロックを一括 upsert（INSERT OR REPLACE） */
+export async function upsertExternalBlocks(db: D1Database, blocks: ExternalBlockRow[]): Promise<void> {
+  if (!blocks.length) return;
+  const now = nowJST();
+  const stmts = blocks.map((b) =>
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO external_calendar_blocks
+         (id, google_event_id, space_id, date, start_time, end_time, summary, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(b.id, b.google_event_id, b.space_id, b.date, b.start_time, b.end_time, b.summary ?? null, now),
+  );
+  // D1のバッチ上限に配慮して分割
+  for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+}
+
+/** 同期用：不要になった外部ブロックを id 指定で一括削除 */
+export async function deleteExternalBlocks(db: D1Database, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const stmts = ids.map((id) => db.prepare(`DELETE FROM external_calendar_blocks WHERE id = ?`).bind(id));
+  for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+}
+
 /** 指定日の占有予約（自グループを除く。日時変更の競合チェック用） */
 export async function getOccupyingIntervalsExcludingGroup(
   db: D1Database,

@@ -7,6 +7,7 @@ import type { AppBindings } from '../types';
 import {
   getActiveSpaces,
   getOccupyingBookingsAllSpaces,
+  getExternalBlocksAllSpaces,
   getHolidays,
   getSystemSetting,
   type SpaceRow,
@@ -132,18 +133,22 @@ export async function assembleAvailability(
   // 対象日＋走査期間ぶんの占有を一括取得 → space→date→intervals
   const to = addDaysJST(dateYmd, NEXT_OPEN_SCAN_DAYS);
   const holidayFrom = dateYmd < today ? dateYmd : today;
-  const [rows, holidays] = await Promise.all([
+  const [rows, extBlocks, holidays] = await Promise.all([
     getOccupyingBookingsAllSpaces(db, dateYmd, to),
+    getExternalBlocksAllSpaces(db, dateYmd, to), // 外部予約(スペースマーケット/インスタベース等)も占有として反映
     getHolidays(db, holidayFrom, to),
   ]);
   const map = new Map<string, Map<string, Array<{ startTime: string; endTime: string; status: string }>>>();
-  for (const r of rows) {
-    let byDate = map.get(r.space_id);
-    if (!byDate) map.set(r.space_id, (byDate = new Map()));
-    let arr = byDate.get(r.date);
-    if (!arr) byDate.set(r.date, (arr = []));
-    arr.push({ startTime: r.start_time, endTime: r.end_time, status: r.status });
-  }
+  const pushInterval = (spaceId: string, date: string, startTime: string, endTime: string, status: string) => {
+    let byDate = map.get(spaceId);
+    if (!byDate) map.set(spaceId, (byDate = new Map()));
+    let arr = byDate.get(date);
+    if (!arr) byDate.set(date, (arr = []));
+    arr.push({ startTime, endTime, status });
+  };
+  for (const r of rows) pushInterval(r.space_id, r.date, r.start_time, r.end_time, r.status);
+  // 外部カレンダーブロックは「確定占有」として空き計算に反映（商談中扱いにはしない）。
+  for (const b of extBlocks) pushInterval(b.space_id, b.date, b.start_time, b.end_time, 'confirmed');
   const intervalsOf = (spaceId: string, ymd: string) => map.get(spaceId)?.get(ymd) ?? [];
 
   // 各施設の対象日判定＋「次の空き」

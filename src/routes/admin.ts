@@ -129,6 +129,7 @@ import {
 } from '../db/repository';
 import { switchbotConfigured, listDevices, getDeviceStatus } from '../lib/switchbot';
 import { performUnlock, runSwitchbotAutoUnlock } from '../lib/switchbot-service';
+import { syncExternalCalendarBlocks } from '../lib/external-blocks';
 import { diagnoseTicket } from '../lib/ticket-diagnostics';
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateRecoveryCodes, hashRecoveryCode } from '../lib/totp';
 import { qrSvg } from '../lib/qrcode';
@@ -2649,6 +2650,16 @@ app.post('/spaces/:id/switchbot/unlock', requireRole('owner', 'manager'), async 
 app.post('/switchbot/run-auto-unlock', requireRole('owner', 'manager'), async (c) => {
   if (!switchbotConfigured(c.env)) return c.json({ error: 'SwitchBotが未設定です' }, 400);
   const r = await runSwitchbotAutoUnlock(c.env);
+  return c.json({ ok: true, ...r });
+});
+
+/**
+ * POST /api/admin/calendar/sync-external-blocks 外部予約(スペースマーケット/インスタベース等)を
+ * いまD1へ取り込む（テスト／即時反映用）。Cronを待たずに syncExternalCalendarBlocks を1回実行する。
+ * ステージング（Cron停止）での検証や、外部予約を即座に空き状況へ反映したいときに使う。
+ */
+app.post('/calendar/sync-external-blocks', requireRole('owner', 'manager'), async (c) => {
+  const r = await syncExternalCalendarBlocks(c.env);
   return c.json({ ok: true, ...r });
 });
 

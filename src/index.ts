@@ -54,6 +54,7 @@ import {
   type OverdueBooking,
 } from './lib/email';
 import { reconcileMissingCalendarEvents } from './lib/gcal-sync';
+import { syncExternalCalendarBlocks } from './lib/external-blocks';
 import { runDataRetention } from './lib/retention';
 import { runReleaseExpiredKonbiniHolds } from './lib/konbini-cleanup';
 import { runWeeklyReport } from './lib/weekly-report';
@@ -260,6 +261,11 @@ async function runUnpaidAlert(env: AppBindings['Bindings']): Promise<{ count: nu
 async function runCalendarReconcile(env: AppBindings['Bindings']): Promise<{ created: number; failed: number }> {
   const rows = await getBookingsMissingCalendarEvent(env.DB, todayJST());
   const result = await reconcileMissingCalendarEvents(env, rows);
+  // 外部予約（スペースマーケット/インスタベース等・Googleカレンダー連携のみ）をD1へ取り込み、
+  // 公式サイトの空き状況（D1参照）にも反映する（差分upsert＝低負荷）。失敗しても他処理を止めない。
+  await syncExternalCalendarBlocks(env).catch((e) => {
+    console.log('[extblocks] sync failed', { error: (e as Error).message });
+  });
   // 空き状況ページの「最終更新」表示用に、同期実行時刻を記録（#74）
   await setSystemSetting(env.DB, 'gcal_last_sync_at', nowJST()).catch(() => {});
   return result;

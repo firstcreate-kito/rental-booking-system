@@ -8,6 +8,7 @@ import {
   getActiveSeasonalRulesForSpace,
   getSpaceBookingsInRange,
   getSpaceBookingsOnDate,
+  getSignageGoogleEventIds,
   getSystemSettings,
   getSystemSetting,
   getSpaceQuestions,
@@ -27,7 +28,7 @@ import {
 import { findSeasonalPct, isExclusiveDay, type SeasonalRule } from '../lib/pricing';
 import { computeDayAvailability, statusSymbol } from '../lib/availability';
 import { todayJST, nowJST } from '../lib/clock';
-import { gcalConfigured, freeBusy, busyToDayInterval, toJstRfc3339, type BusyInterval } from '../lib/gcal';
+import { gcalConfigured, freeBusy, listEvents, busyToDayInterval, toJstRfc3339, type BusyInterval } from '../lib/gcal';
 
 const app = new Hono<AppBindings>();
 
@@ -156,25 +157,26 @@ app.get('/:id/day', async (c) => {
     kind: b.status === 'tentative' ? 'tentative' : 'booked',
   }));
 
-  // Googleカレンダー（台帳の正）の予定も「予約済み」として反映（外部ポータル予約等）。
-  // ただし当システムの予約（確定・商談中）は既にGoogleカレンダーへ書き込んでいるため、
-  // ローカル予約と重なるカレンダー予定は「二重取得」となり、商談中がbookedで
-  // 上書きされてしまう。重なる予定は除外し、外部ポータル等ローカルに無い予定のみ足す。
+  // Googleカレンダーの予定も「予約済み」として反映（外部ポータル予約等）。
+  // freeBusy は隣接・重複する予定を1区間にまとめてしまい、外部予約が自社予約に隣接すると
+  // 合体区間が自社予約と重なって丸ごと除外され、外部予約分が消える不具合があった（#外部予約重複）。
+  // そのため個別予定を取得する listEvents を使い、自社予約由来の予定（google_event_id 一致）は
+  // 除外（D1側で kind=確定/商談中 を保持）、それ以外の外部予定のみ「予約済み」として足す。
   if (gcalConfigured(c.env) && space.google_calendar_id) {
     try {
-      const busy = await freeBusy(
+      const events = await listEvents(
         c.env,
         space.google_calendar_id,
         toJstRfc3339(date, '00:00'),
-        toJstRfc3339(date, '23:59'),
+        toJstRfc3339(addDays(date, 1), '00:00'),
+        100,
       );
-      const localIvs = booked.map((x) => ({ s: x.startTime, e: x.endTime }));
-      const ovl = (aS: string, aE: string, bS: string, bE: string) => aS < bE && bS < aE;
-      for (const b of busy as BusyInterval[]) {
-        const iv = busyToDayInterval(b, date, space.close_time);
+      const nativeIds = new Set(await getSignageGoogleEventIds(c.env.DB, id, date));
+      for (const e of events) {
+        if (e.id && nativeIds.has(e.id)) continue; // 自社予約は上の booked に反映済み（kind保持）
+        const iv = busyToDayInterval({ start: e.start, end: e.end } as BusyInterval, date, space.close_time);
         if (!iv) continue;
-        const dup = localIvs.some((l) => ovl(iv.startTime, iv.endTime, l.s, l.e));
-        if (!dup) booked.push({ startTime: iv.startTime, endTime: iv.endTime, kind: 'booked' });
+        booked.push({ startTime: iv.startTime, endTime: iv.endTime, kind: 'booked' });
       }
     } catch {
       // カレンダー照会失敗時はローカルのみで表示（表示を止めない）

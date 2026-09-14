@@ -92,8 +92,11 @@
   .few .mk { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
   .full .mk { background: var(--full-w); color: var(--full); box-shadow: inset 0 0 0 1.5px var(--full); }
   .closed .mk { background: var(--closed-w); color: var(--closed); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+  /* 商談中（仮予約中）：満枠×ではなくオレンジのメールアイコンで「ご相談は承ります」を示す（#28） */
+  .talk .mk { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
+  .talk .mk svg { display: block; }
   .d .st { font-size: 10px; line-height: 1.25; display: none; }
-  .ok .st { color: var(--ok); } .few .st { color: var(--few); } .full .st { color: var(--full); } .closed .st { color: var(--closed); }
+  .ok .st { color: var(--ok); } .few .st { color: var(--few); } .full .st { color: var(--full); } .closed .st { color: var(--closed); } .talk .st { color: var(--few); }
   .d.clickable { cursor: pointer; }
   .d.clickable:hover { background: var(--key-w); }
   .d.viewonly { cursor: help; }
@@ -116,6 +119,8 @@
   .l-few { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
   .l-full { background: var(--full-w); color: var(--full); box-shadow: inset 0 0 0 1.5px var(--full); }
   .l-closed { background: var(--closed-w); color: var(--closed); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+  .l-talk { background: var(--few-w); color: var(--few); box-shadow: inset 0 0 0 1.5px var(--few); }
+  .l-talk svg { display: block; }
   .l-we { background: var(--holiday-w); box-shadow: inset 0 0 0 1px var(--line-2); }
   @media (min-width: 641px) { .d .st { display: block; } .d { min-height: 74px; } .mk { width: 26px; height: 26px; font-size: 14px; } }
   .slotbar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 6px 0 10px; }
@@ -266,7 +271,7 @@
       <span><i class="l-closed">—</i>お休み</span>
       <span><i class="l-we"></i>土日祝</span>
       <span><i class="f2 f-season" style="width:auto;height:auto;padding:0 5px">季節料金</i></span>
-      <span><i class="f2 f-talk" style="width:auto;height:auto;padding:0 5px">商談中</i>お問い合わせください</span>
+      <span><i class="l-talk"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7.5l8.5 6 8.5-6"/></svg></i>商談中（お問い合わせください）</span>
     </div>
   </section>
 
@@ -1164,6 +1169,8 @@ function addMonthStr(ym, delta) {
 // 見本デザイン準拠のマス: 日付＋状態（記号＋色＋文字）＋追加バッジ（季節料金/商談中）
 const CAL_ST_TEXT = { available: '空きあり', limited: '残りわずか', full: '満枠', closed: 'お休み' };
 const CAL_ST_CLASS = { available: 'ok', limited: 'few', full: 'full', closed: 'closed' };
+// 商談中マーク用のメールアイコン（オレンジは .talk .mk の currentColor から）
+const MAIL_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="商談中"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7.5l8.5 6 8.5-6"/></svg>';
 function dayCellHtml(d) {
   const dayNum = Number(d.date.slice(8, 10));
   const dow = new Date(d.date + 'T12:00:00Z').getUTCDay(); // 0=日,6=土
@@ -1184,10 +1191,14 @@ function dayCellHtml(d) {
     cls.push(CAL_ST_CLASS[d.status] || 'ok', 'clickable');
     inner += '<span class="mk">' + d.symbol + '</span><span class="st">' + (CAL_ST_TEXT[d.status] || '') + '</span>';
     onclick = ' onclick="openModal(\'' + d.date + '\')"';
+  } else if (d.status === 'full' && d.hasTentative) {
+    // 商談中（仮予約中）の日：×満枠ではなく「オレンジのメールアイコン＋商談中」で表示（#28）。
+    cls.push('talk');
+    inner += '<span class="mk">' + MAIL_SVG + '</span><span class="st">商談中</span>';
+    hover = ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"';
   } else if (d.status === 'full') {
     cls.push('full');
     inner += '<span class="mk">✕</span><span class="st">満枠</span>';
-    if (d.hasTentative) hover = ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"';
   } else {
     cls.push('na'); // 過去・受付期間外は日付のみ
   }
@@ -1200,7 +1211,8 @@ function dayCellHtml(d) {
   const flags = [];
   if (d.isSeasonal) flags.push('<span class="f2 f-season">季節料金</span>');
   if (d.exclusive) flags.push('<span class="f2 f-day">1日貸切</span>'); // #101: 終日1組専有日
-  if (d.hasTentative) flags.push('<span class="f2 f-talk">商談中</span>');
+  // 満枠×の商談中日はマーク自体が「商談中（メール）」表示になるので、重複するバッジは付けない。
+  if (d.hasTentative && d.status !== 'full') flags.push('<span class="f2 f-talk">商談中</span>');
   if (flags.length) inner += '<span class="flagline">' + flags.join('') + '</span>';
   return '<div class="' + cls.join(' ') + '"' + onclick + hover + '>' + inner + '</div>';
 }

@@ -1183,6 +1183,12 @@ function dayCellHtml(d) {
   if (d.closed || d.status === 'closed') {
     cls.push('closed');
     inner += '<span class="mk">—</span><span class="st">お休み</span>';
+  } else if (d.status === 'full' && d.hasTentative) {
+    // 商談中（仮予約中）の日：viewOnly/満枠より優先し、×ではなくオレンジのメールアイコン＋商談中で表示（#28）。
+    // これにより「受付開始日前」でも「予約可能期間より先(viewOnly)」でも、商談中は常にメールアイコンになる。
+    cls.push('talk');
+    inner += '<span class="mk">' + MAIL_SVG + '</span><span class="st">商談中</span>';
+    hover = ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"';
   } else if (d.viewOnly) { // 予約可能期間超・閲覧可能期間内（#77）: 空きは見せるがクリックで案内
     cls.push(CAL_ST_CLASS[d.status] || 'ok', 'viewonly');
     inner += '<span class="mk">' + (d.status === 'full' ? '✕' : d.symbol) + '</span><span class="st">' + (CAL_ST_TEXT[d.status] || '') + '</span>';
@@ -1191,11 +1197,6 @@ function dayCellHtml(d) {
     cls.push(CAL_ST_CLASS[d.status] || 'ok', 'clickable');
     inner += '<span class="mk">' + d.symbol + '</span><span class="st">' + (CAL_ST_TEXT[d.status] || '') + '</span>';
     onclick = ' onclick="openModal(\'' + d.date + '\')"';
-  } else if (d.status === 'full' && d.hasTentative) {
-    // 商談中（仮予約中）の日：×満枠ではなく「オレンジのメールアイコン＋商談中」で表示（#28）。
-    cls.push('talk');
-    inner += '<span class="mk">' + MAIL_SVG + '</span><span class="st">商談中</span>';
-    hover = ' onmouseenter="showTentHover(this)" onmouseleave="hideTentHover()" style="cursor:help"';
   } else if (d.status === 'full') {
     cls.push('full');
     inner += '<span class="mk">✕</span><span class="st">満枠</span>';

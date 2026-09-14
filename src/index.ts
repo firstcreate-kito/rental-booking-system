@@ -116,6 +116,8 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api/spaces')) return next();
   // 英語ご予約ガイド（公開・#80 多言語化）。海外のお客様・公式サイトからのリンク先。
   if (c.req.path === '/en' || c.req.path === '/en.html') return next();
+  // デモ環境の「合言葉入口ページ」は認証ゲートを通さない（ここで合言葉→通過印Cookieを得る）
+  if (c.req.path === '/demo-entry') return next();
 
   const expected = await gateToken(user, pass);
 
@@ -146,11 +148,88 @@ app.use('*', async (c, next) => {
       return;
     }
   }
+  // デモ環境は、ブラウザ遷移なら Basic 認証ポップアップを出さず「合言葉入口ページ」へ誘導する。
+  // （API/非ブラウザは従来どおり 401。ステージング等は従来の Basic 認証ポップアップのまま。）
+  const appEnv = (c.env.APP_ENV ?? '').trim();
+  const wantsHtml = (c.req.header('Accept') ?? '').includes('text/html');
+  if (appEnv === 'demo' && wantsHtml) {
+    return c.redirect('/demo-entry', 302);
+  }
   return new Response('認証が必要です。', {
     status: 401,
     headers: {
       'WWW-Authenticate': 'Basic realm="ALBE (development)", charset="UTF-8"',
       'Content-Type': 'text/plain; charset=utf-8',
+    },
+  });
+});
+
+// ───────────────────────────────────────────────────────────────
+// デモ環境の「合言葉入口ページ」（③A・配布最優先＝合言葉を画面に表示）。
+// 認証ゲート（Basic認証）の通過印Cookieを、ブラウザ操作で付与するためのやさしい入口。
+// 合言葉＝BASIC_AUTH_PASS（＝デモのパスワード）。ゲート未設定の環境では '/' へ流す。
+function demoEntryPageHtml(pass: string, error = false): string {
+  const p = String(pass).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>レンタルスペース予約システム デモ</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP',Meiryo,sans-serif;background:#0b1020;color:#f5f7fb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:420px;background:#141c33;border:1px solid #26304d;border-radius:16px;padding:28px 24px}
+  h1{font-size:20px;margin:0 0 6px;font-weight:800;letter-spacing:.02em}
+  .lead{color:#9fb0c9;font-size:13px;line-height:1.7;margin:0 0 18px}
+  label{display:block;font-size:12px;color:#8fb0ff;font-weight:700;margin:0 0 6px}
+  input[type=text]{width:100%;font-size:18px;letter-spacing:.04em;padding:12px 14px;border-radius:10px;border:1px solid #3a4a72;background:#0b1020;color:#fff}
+  .hint{font-size:12px;color:#9fb0c9;margin:8px 0 0}
+  .hint b{color:#cfe0ff}
+  button{width:100%;margin-top:16px;padding:13px 16px;border:none;border-radius:10px;background:#4a76ff;color:#fff;font-size:16px;font-weight:800;cursor:pointer}
+  button:hover{background:#3a63e6}
+  .err{color:#fca5a5;font-size:13px;margin:10px 0 0}
+  .foot{color:#6f7fa0;font-size:11px;margin-top:18px;line-height:1.7}
+</style></head><body>
+  <form class="card" method="post" action="/demo-entry">
+    <h1>レンタルスペース予約システム デモ</h1>
+    <p class="lead">こちらは紹介用のデモ環境です（テスト環境・実際の課金やメール送信は行われません）。下の「合言葉」を入れて「デモを開く」を押してください。</p>
+    <label for="pass">合言葉</label>
+    <input id="pass" name="pass" type="text" value="${p}" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <div class="hint">合言葉：<b>${p}</b>（このまま「デモを開く」を押せます）</div>
+    ${error ? '<div class="err">合言葉が違います。もう一度お試しください。</div>' : ''}
+    <button type="submit">デモを開く →</button>
+    <div class="foot">決済はテストカード「4242 4242 4242 4242」で擬似的にお試しいただけます。</div>
+  </form>
+</body></html>`;
+}
+
+app.get('/demo-entry', (c) => {
+  const user = c.env.BASIC_AUTH_USER;
+  const pass = c.env.BASIC_AUTH_PASS;
+  // デモ環境専用（合言葉を画面表示するため。他環境ではパスワードを晒さないよう '/' へ）
+  if ((c.env.APP_ENV ?? '').trim() !== 'demo' || !user || !pass) return c.redirect('/', 302);
+  return c.html(demoEntryPageHtml(pass));
+});
+
+app.post('/demo-entry', async (c) => {
+  const user = c.env.BASIC_AUTH_USER;
+  const pass = c.env.BASIC_AUTH_PASS;
+  if ((c.env.APP_ENV ?? '').trim() !== 'demo' || !user || !pass) return c.redirect('/', 302);
+  let submitted = '';
+  try {
+    const body = await c.req.parseBody();
+    submitted = String(body['pass'] ?? '');
+  } catch {
+    submitted = '';
+  }
+  if (submitted !== pass) {
+    return c.html(demoEntryPageHtml(pass, true), 401);
+  }
+  // 合言葉一致 → 通過印Cookieを付与してトップへ
+  const expected = await gateToken(user, pass);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: '/',
+      'Set-Cookie': `albe_gate=${expected}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
     },
   });
 });

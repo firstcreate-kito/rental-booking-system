@@ -723,7 +723,7 @@ export function loginCodeEmail(d: { code: string; expiresLabel: string }): { sub
 
 /** 新規予約の管理者通知メール */
 export function adminNewBookingEmail(
-  d: BookingEmailData & { customerEmail: string; customerPhone?: string; paymentPendingLabel?: string },
+  d: BookingEmailData & { customerEmail: string; customerPhone?: string; paymentPendingLabel?: string; invoiceName?: string },
 ): {
   subject: string;
   html: string;
@@ -742,7 +742,7 @@ export function adminNewBookingEmail(
 日時:
 ${daysBlockText(d.days)}
 合計: ${yen(d.total)}${d.paymentMethodLabel ? `\n支払い方法: ${d.paymentMethodLabel}` : ''}${pendingText}
-お客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）`;
+お客様: ${d.customerName}（${d.customerEmail}${d.customerPhone ? ' / ' + d.customerPhone : ''}）${d.invoiceName ? `\n請求書名（宛名）: ${d.invoiceName}` : ''}`;
   const pendingHtml = pending
     ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い状況</td><td><strong style="color:#b45309">入金待ち（${escapeHtml(pending)}）</strong></td></tr>`
     : '';
@@ -754,6 +754,7 @@ ${daysBlockText(d.days)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">イベント名</td><td>${escapeHtml(d.eventName)}</td></tr>
 ${extrasRowsHtml(d.extras)}
 <tr><td style="padding:4px 12px 4px 0;color:#6b7280">お客様</td><td>${escapeHtml(d.customerName)}（${escapeHtml(d.customerEmail)}${d.customerPhone ? ' / ' + escapeHtml(d.customerPhone) : ''}）</td></tr>
+${d.invoiceName ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">請求書名（宛名）</td><td><strong>${escapeHtml(d.invoiceName)}</strong></td></tr>` : ''}
 ${d.paymentMethodLabel ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280">支払い方法</td><td>${escapeHtml(d.paymentMethodLabel)}</td></tr>` : ''}
 ${pendingHtml}
 </table>

@@ -796,7 +796,7 @@ app.post('/', async (c) => {
     // 管理者宛の新規予約通知（請求書払いは入金確認を手動で行うため必ず通知する）
     const admins = await adminRecipients(c.env, space.id);
     if (admins.length) {
-      const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone });
+      const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone, invoiceName: invoiceName ?? undefined });
       c.executionCtx.waitUntil(sendEmail(c.env, { to: admins, ...adminMail }));
     }
   }
@@ -911,7 +911,7 @@ app.post('/', async (c) => {
         // 請求書払いと同様に受注時点で必ず通知して「振込待ちの予約」を把握できるようにする。
         const bankAdmins = await adminRecipients(c.env, space.id);
         if (bankAdmins.length) {
-          const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone, paymentPendingLabel: '銀行振込' });
+          const adminMail = adminNewBookingEmail({ ...emailData, customerEmail: email, customerPhone: phone, paymentPendingLabel: '銀行振込', invoiceName: invoiceName ?? undefined });
           c.executionCtx.waitUntil(sendEmail(c.env, { to: bankAdmins, ...adminMail }));
         }
       } catch (err) {

@@ -190,6 +190,7 @@ const SIGNATURE_TEXT = `
 （運営会社：株式会社ファーストクリエイト）
 名古屋市中村区名駅南1-3-14 石原ビル4F
 rental@space-albe.com
+よくあるご質問（予約トラブル解決ガイド）：https://booking.space-albe.com/troubleshooting
 お問い合わせ：https://space-albe.com/contact/
 https://space-albe.com/`;
 
@@ -198,6 +199,7 @@ const SIGNATURE_HTML = `<hr style="border:none;border-top:1px solid #e5e7eb;marg
 <strong>レンタルスペースALBE</strong>（運営会社：株式会社ファーストクリエイト）<br>
 名古屋市中村区名駅南1-3-14 石原ビル4F<br>
 <a href="mailto:rental@space-albe.com" style="color:#6b7280">rental@space-albe.com</a><br>
+よくあるご質問：<a href="https://booking.space-albe.com/troubleshooting" style="color:#1d4ed8">予約トラブル解決ガイド</a><br>
 お問い合わせ：<a href="https://space-albe.com/contact/" style="color:#1d4ed8">https://space-albe.com/contact/</a><br>
 <a href="https://space-albe.com/" style="color:#1d4ed8">https://space-albe.com/</a>
 </div>`;

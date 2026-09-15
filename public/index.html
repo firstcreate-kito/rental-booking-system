@@ -1880,7 +1880,7 @@ function renderPayment() {
     const dis = invoiceTooClose ? ' disabled' : '';
     const grey = invoiceTooClose ? 'color:#9ca3af' : '';
     const checked = methods.length === 0 && !invoiceTooClose ? ' checked' : '';
-    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer"' + dis + checked + ' onchange="onPayMethodChange()"> 銀行振込（Stripe収納代行：各種銀行・ゆうちょ）</label>';
+    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer"' + dis + checked + ' onchange="onPayMethodChange()"> <span>銀行振込（オンライン・<b>領収書発行あり</b>）' + (invoiceTooClose ? '' : '<span style="color:#0a7d33;font-weight:700;font-size:12px;margin-left:6px;white-space:nowrap">手数料無料・おすすめ</span>') + '</span></label>';
   }
   // 請求書払い（手動・自社口座／Stripe非経由）：後日、請求書を発行→お振込。入金確認は当社で手動（#88関連）
   if (sp.allowManualInvoice) {
@@ -1900,8 +1900,9 @@ function renderPayment() {
   let note = '';
   if (sp.allowInvoice) {
     note += noteBlock('※銀行振込について', [
+      'カード決済と同じ決済会社を通じたオンライン振込です。<b>別途手数料はかかりません。</b>',
       'お申込み後に表示される振込専用口座（お客様ごとに発行）へお振込みください。',
-      'ご入金確認後に予約が確定し、領収書を発行します。',
+      'ご入金確認後に予約が確定し、<b>領収書を発行します</b>（カード決済と同じく発行されます）。',
       'ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。',
       '期日までにご入金がない場合は自動的にキャンセルとなります。',
     ]);
@@ -2284,7 +2285,7 @@ async function submitBooking() {
   if (body.checkoutUrl) { clearDraft(); (S.embed && window.top ? window.top : window).location.href = body.checkoutUrl; return; }
   document.getElementById('doneNum').textContent = body.bookingNumber;
   // 明細表（スクショで残せるように pay-complete.html と同じ体裁）
-  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（Stripe収納代行）', invoice: '請求書払い' }[body.paymentMethod] || '';
+  const payLabel = { stripe: 'Stripe（各種クレジットカード・Apple Pay・コンビニ払い）', paypal: 'PayPal', bank_transfer: '銀行振込（オンライン・領収書発行あり）', invoice: '請求書払い' }[body.paymentMethod] || '';
   const dt = (S.cart || []).map(i => i.date + ' ' + i.startTime + '〜' + i.endTime).join('<br>') || '—';
   // 合計¥0（チケット/ポイント/クーポンで全額まかなった）場合は、決済手段ではなく利用した割引で表示する。
   let payCell;

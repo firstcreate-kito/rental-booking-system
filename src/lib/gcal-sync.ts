@@ -9,6 +9,7 @@ import { gcalConfigured, freeBusy, insertEvent, deleteEvent, patchEventSummary, 
 import { getDayType, type HolidayType } from './calendar';
 import { isExclusiveDay, type SeasonalRule } from './pricing';
 import { toMinutes } from './time';
+import { addDaysJST } from './clock';
 
 const TENTATIVE_PREFIX = '【商談中】';
 
@@ -347,6 +348,30 @@ function exclusiveNote(row: { start_time: string; end_time: string }): string {
 }
 
 /**
+ * 二重作成ガード：同一予約(予約番号)・同一日の既存カレンダー予定のIDを返す。無ければ null。
+ * 予定の説明欄に埋め込んだ「予約確認番号：<番号>」で照合する（同期の同時実行で二重作成された
+ * 場合でも、カレンダー側の実体を正として拾い直せるようにする）。照合失敗時は null（作成にフォールバック）。
+ */
+async function findExistingEventId(
+  env: Env,
+  calendarId: string,
+  bookingNumber: string,
+  dateYmd: string,
+): Promise<string | null> {
+  try {
+    const startISO = toJstRfc3339(dateYmd, '00:00');
+    const endISO = toJstRfc3339(addDaysJST(dateYmd, 1), '00:00');
+    const events = await listEvents(env, calendarId, startISO, endISO, 2500);
+    const needle = `予約確認番号：${bookingNumber}`;
+    // 同一番号でも複数日ぶんの予定があるため、その日の時間帯に載っている予定に限定して拾う。
+    const hit = events.find((e) => (e.description ?? '').includes(needle) && (e.start ?? '').slice(0, 10) === dateYmd);
+    return hit?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 予約グループのカレンダー予定を最新内容で作成/更新する（リッチ出力・#54関連）。
  * - 未作成の行は insert、作成済みの行は内容を patch（支払い状況の反映など）。
  * - 予約作成時・入金確定時・本予約化時に呼ぶ。キャンセルは対象外。
@@ -370,7 +395,6 @@ export async function syncBookingCalendarEvents(env: Env, groupId: string, origi
       const suffix = getDayType(date, holidays) === 'weekend' ? '土日祝' : '平日';
       return `${data.spaceName}（${suffix}）`;
     };
-    const updates: D1PreparedStatement[] = [];
     for (const r of data.rows) {
       const label = spaceLabelFor(r.date);
       const perRow = { ...data, rows: [r] }; // 当日分の時間だけを表示に使う
@@ -382,14 +406,33 @@ export async function syncBookingCalendarEvents(env: Env, groupId: string, origi
         : buildCalendarDescription(perRow, origin, label);
       const startISO = toJstRfc3339(r.date, span ? span.startTime : r.start_time);
       const endISO = toJstRfc3339(r.date, span ? span.endTime : r.end_time);
-      if (r.google_event_id) {
-        await patchEventContent(env, data.calendarId, r.google_event_id, { summary, description, startISO, endISO });
+
+      // 【二重作成ガード】同期が短時間に2回走ると、両方が「イベント未作成」と判断して
+      // 二重に作成してしまう（作成→ID保存の間に別同期が割り込む）。これを防ぐため、
+      // 作成前に (1)最新のIDを再読込 → (2)無ければカレンダーを予約番号で照合 して、
+      // 既存があれば新規作成せず更新に切り替える。作成したIDは即時保存する。
+      let eventId: string | null = r.google_event_id;
+      if (!eventId) {
+        const fresh = await env.DB.prepare('SELECT google_event_id FROM bookings WHERE id = ?')
+          .bind(r.id)
+          .first<{ google_event_id: string | null }>();
+        eventId = fresh?.google_event_id ?? null;
+      }
+      if (!eventId) {
+        eventId = await findExistingEventId(env, data.calendarId, data.bookingNumber, r.date);
+        if (eventId) {
+          await env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(eventId, r.id).run();
+        }
+      }
+
+      if (eventId) {
+        await patchEventContent(env, data.calendarId, eventId, { summary, description, startISO, endISO });
       } else {
         const ev = await insertEvent(env, data.calendarId, { summary, description, startISO, endISO });
-        updates.push(env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id));
+        // 作成IDは一括ではなく即時保存（同期が重なっても、次の同期がこのIDを見つけて更新経路に入る）。
+        await env.DB.prepare('UPDATE bookings SET google_event_id = ? WHERE id = ?').bind(ev.id, r.id).run();
       }
     }
-    if (updates.length) await env.DB.batch(updates);
     return {};
   } catch (err) {
     return { warning: `Googleカレンダー同期に失敗しました（予約は成立しています）: ${(err as Error).message}` };

@@ -87,8 +87,11 @@
     <div class="card" id="memberBox">
       <!-- 未ログイン -->
       <div id="memberLogin">
-        <h2 style="margin-bottom:4px">会員の方（任意）</h2>
-        <p class="note" style="margin:0 0 10px">会員登録がお済みの方は、ログインするとお名前・連絡先が自動で入力されます。会員でない方・ログインせずに申し込む方は、そのまま下記からご入力ください。</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <p class="note" style="margin:0;flex:1;min-width:220px">会員登録がお済みの方は、<b>ログインするとお名前・連絡先を自動入力</b>できます（任意・省略可）。会員でない方は、そのまま下記からお申し込みいただけます。</p>
+          <button type="button" class="btn ghost" id="memberLoginToggle" style="white-space:nowrap" onclick="toggleMemberLogin()">会員ログイン</button>
+        </div>
+        <div id="memberLoginDetails" class="hidden" style="margin-top:12px">
         <!-- 1タップ登録（Google/LINE）：認証後この見学フォームへ戻り、入力途中を自動復元（案A・#91）。設定済みの事業者のみ表示 -->
         <div id="vwOauth" class="hidden" style="margin:0 0 12px">
           <button class="btn ghost hidden" id="vwGoogleBtn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px" onclick="oauthContinue('google')">
@@ -120,6 +123,7 @@
             <button class="btn" style="margin-top:8px;width:100%" onclick="verifyLoginCode()">コードでログイン</button>
           </div>
         </div>
+        </div><!-- /memberLoginDetails -->
       </div>
       <!-- ログイン済み -->
       <div id="memberInfo" class="hidden">
@@ -370,7 +374,24 @@ const _vwLoginErr = {
   line_no_email: 'LINEアカウントにメールアドレスが登録されていないため、ログインできませんでした。別の方法でお試しください。',
   line_unconfigured: 'LINEログインは現在ご利用いただけません。', blocked: '申し訳ございませんが、ログインをお受けできませんでした。',
 };
-function showVwOauthMsg(t) { const el = document.getElementById('vwOauthMsg'); if (el) { el.textContent = t; el.classList.remove('hidden'); } }
+// 会員ログイン欄は既定で折りたたみ（見学申込の心理的ハードルを下げるため）。必要な方だけ開く。
+function openMemberLogin() {
+  const d = document.getElementById('memberLoginDetails');
+  if (d) d.classList.remove('hidden');
+  const btn = document.getElementById('memberLoginToggle');
+  if (btn) btn.textContent = '閉じる';
+}
+function toggleMemberLogin() {
+  const d = document.getElementById('memberLoginDetails');
+  if (!d) return;
+  if (d.classList.contains('hidden')) { openMemberLogin(); }
+  else {
+    d.classList.add('hidden');
+    const btn = document.getElementById('memberLoginToggle');
+    if (btn) btn.textContent = '会員ログイン';
+  }
+}
+function showVwOauthMsg(t) { openMemberLogin(); const el = document.getElementById('vwOauthMsg'); if (el) { el.textContent = t; el.classList.remove('hidden'); } }
 async function initViewingOauth() {
   try {
     const { ok, body } = await api('/api/auth/providers');

@@ -482,6 +482,7 @@
       <div class="row hidden" id="sum_seasonal_row"><span class="muted">季節料金（割増）<span id="sum_seasonal_note" style="font-size:11px"></span></span><span id="sum_seasonal" style="color:var(--few)">-</span></div>
       <div class="row"><span class="muted">オプション</span><span id="sum_opt">-</span></div>
       <div class="row hidden" id="sum_disc_row"><span class="muted" id="sum_disc_label">割引</span><span id="sum_disc" style="color:#166534">-</span></div>
+      <div class="row hidden" id="sum_invoicefee_row"><span class="muted">請求書発行手数料</span><span id="sum_invoicefee" style="color:#b45309">-</span></div>
       <div class="row" style="margin-top:6px"><span>合計（税込）</span><span class="total" id="sum_total">-</span></div>
       <div class="muted" id="sum_points"></div>
     </div>
@@ -1922,11 +1923,24 @@ function renderPayment() {
   document.getElementById('payNote').innerHTML = note;
   onPayMethodChange();
 }
+const INVOICE_FEE_YEN = 500; // 請求書払い（手動）の発行手数料（税込）。サーバー側と一致させること。
+// 請求書払いを選んだときは、合計に発行手数料¥500を加えて表示する（送信前から総額が分かるように）。
+function applyInvoiceFeeToSummary() {
+  const base = (S.summaryBaseTotal != null) ? S.summaryBaseTotal : 0;
+  const sel = document.querySelector('input[name="paymethod"]:checked');
+  const isInvoice = !!sel && sel.value === 'invoice' && base > 0;
+  const feeRow = document.getElementById('sum_invoicefee_row');
+  if (feeRow) feeRow.classList.toggle('hidden', !isInvoice);
+  if (isInvoice) { const f = document.getElementById('sum_invoicefee'); if (f) f.textContent = yen(INVOICE_FEE_YEN); }
+  const el = document.getElementById('sum_total');
+  if (el) el.textContent = yen(base + (isInvoice ? INVOICE_FEE_YEN : 0));
+}
 function onPayMethodChange() {
   const sel = document.querySelector('input[name="paymethod"]:checked');
   // 銀行振込・請求書払いのときに「請求書名（宛名）」欄を表示（請求書・領収書の宛名に使用）
   const needName = sel && (sel.value === 'bank_transfer' || sel.value === 'invoice');
   document.getElementById('invoiceNameWrap').classList.toggle('hidden', !needName);
+  applyInvoiceFeeToSummary(); // 支払い方法の切替で合計（手数料込み）を更新
 }
 function selectedPayMethod() {
   const sel = document.querySelector('input[name="paymethod"]:checked');
@@ -2182,7 +2196,8 @@ async function recomputeSummary() {
     seRow.classList.add('hidden');
   }
   document.getElementById('sum_opt').textContent = yen(body.optionsTotal || 0);
-  document.getElementById('sum_total').textContent = yen(body.total || 0);
+  S.summaryBaseTotal = body.total || 0; // スペース料金＋オプション（請求書発行手数料の加算前）
+  applyInvoiceFeeToSummary(); // 請求書払い選択時は手数料¥500を加えた合計を表示（送信前から総額が分かる）
   // お支払い方法の出し分け：合計¥0（チケット等で全額まかなえる）なら支払い方法欄は隠し、
   // 「追加のお支払いはありません」の案内に切り替える。差額が残るときだけ支払い方法を表示。
   {

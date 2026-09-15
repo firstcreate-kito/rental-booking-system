@@ -1842,7 +1842,7 @@ async function runAdminBookingQuery(
               bg.payment_method, bg.payment_status,
               (SELECT COUNT(*) FROM booking_payments ap WHERE ap.group_id = bg.id AND ap.kind = 'additional' AND ap.status = 'pending') AS addl_pending,
               (SELECT COUNT(*) FROM booking_payments ap WHERE ap.group_id = bg.id AND ap.kind = 'additional' AND ap.status = 'paid') AS addl_paid,
-              c.contact_name, c.company_name
+              c.contact_name, c.company_name, c.staff_memo
        FROM bookings b
        JOIN booking_groups bg ON bg.id = b.group_id
        LEFT JOIN spaces s ON s.id = b.space_id

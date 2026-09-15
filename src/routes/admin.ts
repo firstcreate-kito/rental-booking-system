@@ -3023,6 +3023,19 @@ app.post('/customers/:id/block', requireRole('owner', 'manager'), async (c) => {
   return c.json({ blocked });
 });
 
+/** POST /api/admin/customers/:id/staff-memo 顧客の社内メモ（管理者のみ・表側非表示）を保存
+ *  body:{ staffMemo:string }。予約一覧・顧客詳細にのみ表示し、Googleカレンダー/サイネージ/
+ *  お客様側には一切出さない（オーナー確認済み方針）。 */
+app.post('/customers/:id/staff-memo', requireRole('owner', 'manager'), async (c) => {
+  const id = c.req.param('id');
+  const profile = await getCustomerProfile(c.env.DB, id);
+  if (!profile) return c.json({ error: 'customer not found' }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const memo = typeof body.staffMemo === 'string' ? body.staffMemo.trim() : '';
+  await c.env.DB.prepare('UPDATE customers SET staff_memo = ? WHERE id = ?').bind(memo || null, id).run();
+  return c.json({ ok: true, staffMemo: memo });
+});
+
 // ---------------------------------------------------------------------------
 // オプション管理（マスタ）※owner / manager
 // ---------------------------------------------------------------------------

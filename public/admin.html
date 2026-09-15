@@ -1113,6 +1113,17 @@
           <div class="msg" id="csBlockMsg"></div>
         </div>
 
+        <!-- 顧客の社内メモ（管理者のみ・表側には一切出さない） -->
+        <div class="card" id="csMemoBox" style="margin:12px 0 0;background:#fffdf5;border-color:#f0d98a">
+          <div style="font-weight:600;font-size:13px">📌 顧客メモ（管理者のみ）</div>
+          <div class="muted" style="font-size:12px;margin:2px 0 6px">スタッフ間の申し送り用。<strong>予約一覧にも表示</strong>されます。お客様・サイネージ・Googleカレンダーには<strong>一切表示されません</strong>。例）原状復帰が不完全なので要注意 など</div>
+          <textarea id="cs_staff_memo" rows="2" style="width:100%;box-sizing:border-box" placeholder="例）前回、退室時の原状復帰が不完全でした。次回は要注意。"></textarea>
+          <div class="row" style="gap:8px;align-items:center;margin-top:6px">
+            <button class="btn sm" onclick="submitStaffMemo()">メモを保存</button>
+            <span class="msg" id="csMemoMsg" style="font-size:12px"></span>
+          </div>
+        </div>
+
         <div class="grid2" style="margin-top:14px">
           <!-- ポイント付与 -->
           <div class="card" style="margin:0">
@@ -1698,9 +1709,14 @@ function renderBookings(rows) {
       : (Number(b.addl_paid) > 0)
       ? ' <span class="pill" style="background:#dcfce7;color:#166534" title="追加請求は入金済みです">追加請求 入金済</span>'
       : '';
+    // 顧客の社内メモ（管理者のみ）：予約行の直下に注意表示（お客様・サイネージ・GCalには非表示）
+    const escM = x => String(x == null ? '' : x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const memoRow = (b.staff_memo && String(b.staff_memo).trim())
+      ? '<tr class="memo-row"><td colspan="8" style="background:#fff8e1;color:#92400e;font-size:12px;padding:4px 10px 8px;border-top:0">📌 顧客メモ：' + escM(b.staff_memo) + '</td></tr>'
+      : '';
     return '<tr><td>' + b.date + '</td><td>' + b.start_time + '–' + b.end_time + '</td><td>' + (b.space_name || '') +
       '</td><td><span class="pill ' + b.status + '">' + statusLabel(b.status) + '</span>' + payBadge + addlBadge + '</td><td>' + b.booking_number +
-      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td class="act">' + actions + '</td></tr>';
+      '</td><td>' + b.event_name + '</td><td>' + cust + '</td><td class="act">' + actions + '</td></tr>' + memoRow;
   }).join('');
   // カレンダーの「管理画面リンク」から ?booking=番号 で開いた場合、その予約の詳細を自動で開く（#54関連・初回のみ）
   if (deepLinkBooking) { const n = deepLinkBooking; deepLinkBooking = null; openReschedule(n); }
@@ -2356,6 +2372,9 @@ async function selectCustomer(id) {
   document.getElementById('cs_blocked').checked = !!p.is_blocked;
   document.getElementById('cs_block_reason').value = p.blocked_reason || '';
   document.getElementById('csBlockMsg').textContent = '';
+  // 顧客メモ（管理者のみ）
+  document.getElementById('cs_staff_memo').value = p.staff_memo || '';
+  document.getElementById('csMemoMsg').textContent = '';
   document.getElementById('csPts').textContent = body.points.balance;
   document.getElementById('csCoupons').innerHTML = (body.coupons||[]).map(c => {
     const off = c.discount_type === 'percent' ? (c.discount_value+'%') : yen(c.discount_value);
@@ -2455,6 +2474,16 @@ async function toggleBlocked() {
   if (!ok) { cb.checked = !blocked; msg.className='msg bad'; msg.textContent = body.error || '更新に失敗しました'; return; }
   msg.className='msg ok'; msg.textContent = blocked ? 'ブラックリストに登録しました' : 'ブラックリストを解除しました';
   await searchCustomers(); // 一覧の表示を更新
+}
+async function submitStaffMemo() {
+  if (!selectedCustomer) return;
+  const memo = document.getElementById('cs_staff_memo').value.trim();
+  const msg = document.getElementById('csMemoMsg');
+  msg.className = 'msg'; msg.textContent = '保存中…';
+  const { ok, body } = await api('/api/admin/customers/' + selectedCustomer + '/staff-memo', jsonBody({ staffMemo: memo }));
+  if (!ok) { msg.className = 'msg bad'; msg.textContent = body.error || '保存に失敗しました'; return; }
+  msg.className = 'msg ok'; msg.textContent = '保存しました（予約一覧にも反映されます）';
+  if (typeof loadBookings === 'function') { try { loadBookings(); } catch (e) {} } // 予約一覧の表示を更新
 }
 async function submitPoints() {
   const msg = document.getElementById('ptMsg2');

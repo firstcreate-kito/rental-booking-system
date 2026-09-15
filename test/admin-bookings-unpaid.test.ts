@@ -27,7 +27,7 @@ class D1 {
 function makeDb() {
   const db = new D1();
   db.db.exec(`CREATE TABLE spaces (id TEXT PRIMARY KEY, name TEXT);`);
-  db.db.exec(`CREATE TABLE customers (id TEXT PRIMARY KEY, contact_name TEXT, company_name TEXT);`);
+  db.db.exec(`CREATE TABLE customers (id TEXT PRIMARY KEY, contact_name TEXT, company_name TEXT, staff_memo TEXT);`);
   db.db.exec(`CREATE TABLE booking_groups (id TEXT PRIMARY KEY, booking_number TEXT, event_name TEXT,
     source TEXT, customer_id TEXT, payment_method TEXT, payment_status TEXT);`);
   db.db.exec(`CREATE TABLE bookings (id TEXT PRIMARY KEY, group_id TEXT, space_id TEXT,
@@ -35,7 +35,7 @@ function makeDb() {
   // 追加請求バッジ用の集計（kind='additional'）に必要。空でも存在すればサブクエリが通る。
   db.db.exec(`CREATE TABLE booking_payments (id TEXT PRIMARY KEY, group_id TEXT, kind TEXT DEFAULT 'booking', status TEXT DEFAULT 'pending');`);
   db.db.prepare("INSERT INTO spaces VALUES ('s1','名駅フリースペース')").run();
-  db.db.prepare("INSERT INTO customers VALUES ('c1','山田太郎','')").run();
+  db.db.prepare("INSERT INTO customers VALUES ('c1','山田太郎','',NULL)").run();
   // g1: 本予約・未入金・未来日 → 対象
   db.db.prepare("INSERT INTO booking_groups VALUES ('g1','B001','A','web','c1','bank_transfer','unpaid')").run();
   db.db.prepare("INSERT INTO bookings VALUES ('b1','g1','s1','2099-01-10','10:00','12:00','confirmed',5000,'hourly')").run();

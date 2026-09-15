@@ -151,4 +151,14 @@ describe('renderDocumentHtml', () => {
     const html = renderDocumentHtml(base);
     expect(html).not.toContain('備考');
   });
+  it('請求書発行手数料（invoiceFee>0）は明細に内訳を表示する', () => {
+    const html = renderDocumentHtml({ ...base, type: 'invoice', documentNumber: '20260825-007-INV', total: 10180, invoiceFee: 500 });
+    expect(html).toContain('請求書発行手数料');
+    expect(html).toContain('¥500');
+    expect(html).toContain('¥10,180'); // 合計はスペース料金等＋手数料の総額
+  });
+  it('invoiceFee が無い/0 のときは手数料行を出さない', () => {
+    expect(renderDocumentHtml(base)).not.toContain('請求書発行手数料');
+    expect(renderDocumentHtml({ ...base, invoiceFee: 0 })).not.toContain('請求書発行手数料');
+  });
 });

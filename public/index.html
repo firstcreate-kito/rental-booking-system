@@ -1887,7 +1887,7 @@ function renderPayment() {
     const dis = invoiceTooClose ? ' disabled' : '';
     const grey = invoiceTooClose ? 'color:#9ca3af' : '';
     const checked = html === '' && !invoiceTooClose ? ' checked' : '';
-    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="invoice"' + dis + checked + ' onchange="onPayMethodChange()"> 請求書払い（後日、請求書を発行→お振込）</label>';
+    html += '<label style="display:flex;gap:8px;align-items:flex-start;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="invoice"' + dis + checked + ' onchange="onPayMethodChange()" style="margin-top:3px"> <span>請求書払い（後日、請求書を発行→お振込）<span style="color:#b45309;font-weight:700">請求書発行手数料500円</span></span></label>';
   }
   document.getElementById('payMethods').innerHTML = html ||
     '<div class="muted">この施設のお支払い方法が設定されていません。店舗までお問い合わせください。</div>';
@@ -1909,6 +1909,7 @@ function renderPayment() {
   }
   if (sp.allowManualInvoice) {
     note += noteBlock('※請求書払いについて', [
+      '<b>請求書発行手数料 ¥500（税込）</b>がお支払い総額に加算されます（銀行振込＝オンライン／ATMなら手数料はかかりません）。',
       '後日こちらから請求書を発行し、記載のお振込先へお振込みください。',
       'ご入金確認後に領収書を発行します。',
       'ご利用日の' + PAY_TRANSFER_LEAD_DAYS + '日前までの受付です。',
@@ -2303,7 +2304,13 @@ async function submitBooking() {
     ['お支払い方法', payCell],
   ];
   let html = rows.map(r => '<div class="row"><span class="k">' + r[0] + '</span><span class="v">' + (r[1] || '—') + '</span></div>').join('');
-  html += '<div class="row total"><span class="k">合計（税込）</span><span class="v">' + yen(body.total) + '</span></div>';
+  if (body.invoiceFee > 0) {
+    html += '<div class="row"><span class="k">スペース料金ほか（税込）</span><span class="v">' + yen(body.total) + '</span></div>';
+    html += '<div class="row"><span class="k">請求書発行手数料（税込）</span><span class="v">' + yen(body.invoiceFee) + '</span></div>';
+    html += '<div class="row total"><span class="k">お支払い総額（税込）</span><span class="v">' + yen(body.grandTotal != null ? body.grandTotal : body.total) + '</span></div>';
+  } else {
+    html += '<div class="row total"><span class="k">合計（税込）</span><span class="v">' + yen(body.total) + '</span></div>';
+  }
   document.getElementById('doneDetails').innerHTML = html;
   // オンライン決済の補足（作成失敗時のみ理由を表示）
   let payTxt = '';

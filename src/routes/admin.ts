@@ -1610,6 +1610,7 @@ app.get('/bookings/:number', async (c) => {
     },
     customerLinked: !!prof, // true=会員/顧客に紐づく（連絡先の変更は共有プロフィールに反映される）
     staffMemo: prof?.staff_memo ? String(prof.staff_memo) : '', // 顧客の社内メモ（管理者のみ・表側非表示）
+    invoiceFee: g.invoice_fee ?? 0, // 請求書払いの発行手数料（0=なし）。total_amountには含まれない
     spaceName: space?.name ?? '',
     spaceId: g.space_id,
     openTime: space?.open_time ?? null,

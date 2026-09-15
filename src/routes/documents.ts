@@ -43,9 +43,9 @@ app.get('/:token', async (c) => {
     getIssuerInfo(c.env.DB),
   ]);
   // 宛名：請求書名 > 会社名 > 氏名
-  const invoiceName = await c.env.DB.prepare('SELECT invoice_name FROM booking_groups WHERE id = ?')
+  const invoiceName = await c.env.DB.prepare('SELECT invoice_name, invoice_fee FROM booking_groups WHERE id = ?')
     .bind(doc.group_id)
-    .first<{ invoice_name: string | null }>();
+    .first<{ invoice_name: string | null; invoice_fee: number | null }>();
   const cust = customer as { company_name?: string; contact_name?: string } | null;
   // 宛名：請求書名（指定時）> 会社名 > 申込者の個人名 の順（#41・A案）
   const recipientName = pickRecipientName(invoiceName?.invoice_name, cust?.company_name, cust?.contact_name);
@@ -71,6 +71,7 @@ app.get('/:token', async (c) => {
     eventName: summary?.eventName || '',
     items: summary?.items || [],
     total: doc.total_amount,
+    invoiceFee: invoiceName?.invoice_fee ?? 0,
     remark: doc.remark ?? undefined,
     paymentMethodLabel: PAY_LABEL[summary?.paymentMethod || ''] || summary?.paymentMethod || '—',
     issuer: {

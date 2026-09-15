@@ -147,6 +147,13 @@ interface CreateBookingBody {
 const KONBINI_LEAD_DAYS = 5;
 const TRANSFER_LEAD_DAYS = 7;
 
+/**
+ * 請求書払い（手動・自社口座／Stripe非経由）の発行手数料（税込・円）。
+ * 銀行振込（Stripe収納代行）は無料。この手数料は total_amount には含めず invoice_fee に記録し、
+ * 請求金額＝ total_amount + invoice_fee として加算表示する（キャンセル料・返金の対象外＝非返金）。
+ */
+const INVOICE_ISSUE_FEE = 500;
+
 function toPricingConfig(s: SpaceRow): SpacePricingConfig {
   return {
     billingType: s.billing_type,
@@ -504,6 +511,8 @@ app.post('/', async (c) => {
 
   // 支払い状態（#35）: 請求書=invoice、0円(全額チケット等)=paid、カード/PayPal=unpaid（決済後にpaid）
   const paymentStatus = paymentMethod === 'invoice' ? 'invoice' : totals.total <= 0 ? 'paid' : 'unpaid';
+  // 請求書払い（手動）のみ発行手数料 ¥500。total_amount には含めず別カラムに記録（非返金・キャンセル料対象外）。
+  const invoiceFee = paymentMethod === 'invoice' ? INVOICE_ISSUE_FEE : 0;
 
   // 決済先行フロー（#68）: カード/PayPal（有料）は「pending」で作成し、カレンダーには書かない。
   //   入金確定時に空きを再確認して confirmed へ昇格（埋まっていたら不成立＋返金）。
@@ -537,10 +546,10 @@ app.post('/', async (c) => {
     const reserveStmts: D1PreparedStatement[] = [
       db
         .prepare(
-          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, original_date, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, customer_message, status, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
+          `INSERT INTO booking_groups (id, booking_number, customer_id, space_id, event_name, total_amount, original_total_amount, invoice_fee, original_date, payment_method, invoice_name, payment_status, purpose, headcount, past_use, referral_source, customer_message, status, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)`,
         )
-        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, totals.total, originalDate, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, customerMessage, initialStatus, now),
+        .bind(groupId, bookingNumber, customerId, space.id, body.eventName, totals.total, totals.total, invoiceFee, originalDate, paymentMethod, invoiceName, paymentStatus, purpose, headcount, pastUse, referralSource, customerMessage, initialStatus, now),
     ];
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
@@ -767,8 +776,8 @@ app.post('/', async (c) => {
         spaceName: space.name,
         eventName: body.eventName,
         days: mailDays,
-        total: totals.total,
-        paymentMethodLabel: '請求書払い',
+        total: totals.total + invoiceFee, // 請求金額＝スペース料金等＋請求書発行手数料
+        paymentMethodLabel: invoiceFee > 0 ? `請求書払い（請求書発行手数料 ¥${invoiceFee.toLocaleString()} を含む）` : '請求書払い',
         viaStripe: false, // 振込先は当社発行の請求書（マイページDL可）に記載
         mypageUrl: member ? `${origin}/mypage.html` : undefined,
       });
@@ -917,6 +926,8 @@ app.post('/', async (c) => {
       bookingNumber,
       groupId,
       total: totals.total,
+      invoiceFee, // 請求書払いの発行手数料（0=なし）
+      grandTotal: totals.total + invoiceFee, // お客様が支払う総額（手数料込み）
       spaceFee: totals.spaceFee,
       optionsTotal,
       primaryKind: totals.primaryKind,

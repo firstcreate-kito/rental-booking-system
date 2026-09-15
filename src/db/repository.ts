@@ -2121,6 +2121,8 @@ export interface BookingGroupRow {
   contact_name: string | null;
   contact_phone: string | null;
   contact_email: string | null;
+  // 請求書払い（手動）の発行手数料（税込・円）。total_amount には含めない（キャンセル/返金の対象外）。
+  invoice_fee: number;
 }
 
 export interface BookingRow {
@@ -3350,18 +3352,20 @@ export async function createDocumentForGroup(
   if (existing) return { token: existing.public_token, created: false };
 
   const g = await db
-    .prepare('SELECT booking_number, customer_id, total_amount FROM booking_groups WHERE id = ?')
+    .prepare('SELECT booking_number, customer_id, total_amount, invoice_fee FROM booking_groups WHERE id = ?')
     .bind(groupId)
-    .first<{ booking_number: string; customer_id: string; total_amount: number }>();
+    .first<{ booking_number: string; customer_id: string; total_amount: number; invoice_fee: number }>();
   if (!g) return null;
 
+  // 請求金額 = スペース料金＋オプション（total_amount）＋ 請求書発行手数料（invoice_fee）。
+  const docTotal = g.total_amount + (g.invoice_fee ?? 0);
   const token = newDocumentToken();
   await db
     .prepare(
       `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount, remark)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(crypto.randomUUID(), groupId, g.customer_id, type, g.booking_number, token, g.total_amount, remark ?? null)
+    .bind(crypto.randomUUID(), groupId, g.customer_id, type, g.booking_number, token, docTotal, remark ?? null)
     .run();
   return { token, created: true };
 }
@@ -3378,22 +3382,23 @@ export async function reissueReceiptForGroup(
   remark: string,
 ): Promise<{ token: string } | null> {
   const g = await db
-    .prepare('SELECT booking_number, customer_id, total_amount FROM booking_groups WHERE id = ?')
+    .prepare('SELECT booking_number, customer_id, total_amount, invoice_fee FROM booking_groups WHERE id = ?')
     .bind(groupId)
-    .first<{ booking_number: string; customer_id: string; total_amount: number }>();
+    .first<{ booking_number: string; customer_id: string; total_amount: number; invoice_fee: number }>();
   if (!g) return null;
 
+  const docTotal = g.total_amount + (g.invoice_fee ?? 0);
   const token = newDocumentToken();
   await db.batch([
     // 旧領収書を差替済にする（無ければ何も起きない）
     db.prepare("UPDATE documents SET status = 'superseded' WHERE group_id = ? AND type = 'receipt' AND status = 'issued'").bind(groupId),
-    // 最終金額＋備考で新しい領収書を発行
+    // 最終金額＋備考で新しい領収書を発行（請求書発行手数料を含む）
     db
       .prepare(
         `INSERT INTO documents (id, group_id, customer_id, type, booking_number, public_token, total_amount, remark)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(crypto.randomUUID(), groupId, g.customer_id, 'receipt', g.booking_number, token, g.total_amount, remark),
+      .bind(crypto.randomUUID(), groupId, g.customer_id, 'receipt', g.booking_number, token, docTotal, remark),
   ]);
   return { token };
 }

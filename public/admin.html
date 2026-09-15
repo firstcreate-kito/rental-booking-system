@@ -3312,8 +3312,11 @@ async function openReschedule(number, prefillItems) {
   rsOriginal = (body.items || []).map(it => ({ date: it.date, startTime: it.startTime, endTime: it.endTime }));
   const payLbl = { stripe:'Stripe（カード/ApplePay/コンビニ）', paypal:'PayPal', bank_transfer:'銀行振込（Stripe収納代行）', invoice:'請求書払い' }[body.paymentMethod] || '';
   const payTxt = payLbl ? ('／' + payLbl + ((body.paymentMethod==='invoice'||body.paymentMethod==='bank_transfer') && body.invoiceName ? '（'+body.invoiceName+'）' : '')) : '';
+  const feeTxt = (body.invoiceFee > 0)
+    ? '／請求書発行手数料 ' + yen(body.invoiceFee) + '（総額 ' + yen((body.totalAmount || 0) + body.invoiceFee) + '）'
+    : '';
   document.getElementById('rsInfo').textContent =
-    body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）' + payTxt;
+    body.spaceName + '／' + body.eventName + '（' + statusLabel(body.status) + '・現在 ' + yen(body.totalAmount) + '）' + payTxt + feeTxt;
   // 予約情報の編集欄に現在値を反映（#110）
   document.getElementById('rs_event').value = body.eventName || '';
   document.getElementById('rs_note').value = body.note || '';

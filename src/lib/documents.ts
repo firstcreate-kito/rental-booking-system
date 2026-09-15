@@ -82,7 +82,8 @@ export interface DocumentData {
   spaceName: string;
   eventName: string;
   items: DocumentItem[];
-  total: number; // 税込合計
+  total: number; // 税込合計（請求書発行手数料を含む）
+  invoiceFee?: number; // 請求書発行手数料（税込・円）。>0 のとき明細に内訳を表示する。
   paymentMethodLabel: string; // 支払い方法の表示名
   issuer: IssuerInfo;
   /** 備考（例：予約内容変更で追加/返金が発生し、この金額になった経緯）。 */
@@ -298,6 +299,7 @@ export function renderDocumentHtml(d: DocumentData): string {
       <div class="row"><span>小計（税抜）</span><span>${yen(net)}</span></div>
       <div class="row"><span>消費税（10%）</span><span>${yen(tax)}</span></div>
       <div class="row grand"><span>合計（税込）</span><span>${yen(total)}</span></div>
+      ${d.invoiceFee && d.invoiceFee > 0 ? `<div class="row" style="border-bottom:0"><span>（内 請求書発行手数料）</span><span>${yen(d.invoiceFee)}</span></div>` : ''}
     </div>
     <div class="foot">お支払い方法：${esc(d.paymentMethodLabel)}${
       issuer.note ? '<br>' + nl2br(issuer.note) : ''

@@ -2417,11 +2417,16 @@ async function startImpersonation() {
   if (!selectedCustomer) return;
   const reason = prompt('閲覧の理由を入力してください（監査ログに記録されます）。\n例）チケットが選べないとの問い合わせ確認', '');
   if (reason === null) return; // キャンセル
+  // ★重要：タブを開くのは「クリック操作の文脈」で先に行う（トークン取得を await した後に
+  //   window.open するとユーザー操作の文脈が切れ、ブラウザにポップアップブロックされる）。
+  const w = window.open('', '_blank');
+  if (!w) { alert('別タブを開けませんでした。ブラウザのポップアップブロックを解除して、もう一度お試しください。'); return; }
+  try { w.document.write('<p style="font-family:sans-serif;padding:16px">閲覧セッションを準備しています…</p>'); } catch (e) {}
   const btn = document.getElementById('csImpBtn');
   btn.disabled = true;
   const { ok, body } = await api('/api/admin/impersonate', jsonBody({ customerId: selectedCustomer, reason: (reason || '').trim() }));
   btn.disabled = false;
-  if (!ok) { alert(body.error || '閲覧セッションの発行に失敗しました'); return; }
+  if (!ok) { try { w.close(); } catch (e) {} alert(body.error || '閲覧セッションの発行に失敗しました'); return; }
   try {
     // 顧客ページ（マイページ・予約フロー・チケット・見学）が読む localStorage キーに閲覧専用トークンを書き込む
     localStorage.setItem('albe_my_session', JSON.stringify({ token: body.token, member: body.member, at: Date.now() }));
@@ -2433,8 +2438,9 @@ async function startImpersonation() {
       adminEmail: (body.admin && body.admin.email) || '',
       at: Date.now(),
     }));
-  } catch (e) { alert('ブラウザの保存領域に書き込めませんでした。プライベートブラウズ等をご確認ください。'); return; }
-  window.open('/mypage.html', '_blank');
+  } catch (e) { try { w.close(); } catch (e2) {} alert('ブラウザの保存領域に書き込めませんでした。プライベートブラウズ等をご確認ください。'); return; }
+  // トークン保存後に、先に開いておいたタブでマイページを読み込む（localStorage を確実に読ませる）
+  try { w.location.href = '/mypage.html'; w.focus && w.focus(); } catch (e) { alert('別タブの遷移に失敗しました。'); return; }
   alert('別タブでお客様のマイページを「閲覧専用」で開きました。\n・画面上部の赤いバーの「閲覧終了」で終了できます（30分で自動終了）。\n・閲覧専用のため、予約確定・決済などの操作はできません。');
 }
 async function toggleBlocked() {
@@ -3289,14 +3295,18 @@ async function openReschedule(number, prefillItems) {
   const _custMsg = (body.customerMessage || '').trim();
   document.getElementById('rsCustMsg').textContent = _custMsg;
   document.getElementById('rsCustMsgWrap').classList.toggle('hidden', !_custMsg);
-  const _cst = body.customer || {};
+  // 連絡先は顧客紐付けの有無に関わらず表示・編集できる。商談中の仮押さえ（顧客未紐付け）は
+  // 予約グループ側に保存し、会員/顧客に紐づく予約は共有プロフィール（customers）を更新する。
+  const _cst = body.contact || body.customer || {};
   document.getElementById('rs_contact').value = _cst.contactName || '';
   document.getElementById('rs_phone').value = _cst.phone || '';
   document.getElementById('rs_email').value = _cst.email || '';
-  document.getElementById('rsInfoMsg').textContent = '';
-  // 顧客が紐づかない予約（ゲスト等）は連絡先の編集不可（イベント名・メモは可）
-  const _hasCust = !!body.customer;
-  ['rs_contact', 'rs_phone', 'rs_email'].forEach(id => { document.getElementById(id).disabled = !_hasCust; });
+  ['rs_contact', 'rs_phone', 'rs_email'].forEach(id => { document.getElementById(id).disabled = false; });
+  // 会員/顧客に紐づく予約は、連絡先の変更が会員プロフィール（過去予約含む）に反映される旨を注記。
+  document.getElementById('rsInfoMsg').className = 'msg';
+  document.getElementById('rsInfoMsg').textContent = body.customerLinked
+    ? '※この予約は会員に紐づいています。連絡先を変更すると会員プロフィールに反映されます。'
+    : '';
   // 支払いステータス変更（本予約かつ金額>0のとき表示）
   const payWrap = document.getElementById('rsPayWrap');
   if (body.status === 'confirmed' && body.totalAmount > 0 && body.paymentStatus) {

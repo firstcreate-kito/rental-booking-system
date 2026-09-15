@@ -1602,6 +1602,14 @@ app.get('/bookings/:number', async (c) => {
     customer: prof
       ? { id: String(prof.id), contactName: prof.contact_name ? String(prof.contact_name) : '', email: prof.email ? String(prof.email) : '', phone: prof.phone ? String(prof.phone) : '' }
       : null,
+    // 連絡先の表示・編集用（会員/顧客に紐づく予約は customers、商談中の仮押さえ等はグループ側を正とする）#110拡張
+    contact: {
+      contactName: prof?.contact_name ? String(prof.contact_name) : (g.contact_name ?? ''),
+      phone: prof?.phone ? String(prof.phone) : (g.contact_phone ?? ''),
+      email: prof?.email ? String(prof.email) : (g.contact_email ?? ''),
+    },
+    customerLinked: !!prof, // true=会員/顧客に紐づく（連絡先の変更は共有プロフィールに反映される）
+    staffMemo: prof?.staff_memo ? String(prof.staff_memo) : '', // 顧客の社内メモ（管理者のみ・表側非表示）
     spaceName: space?.name ?? '',
     spaceId: g.space_id,
     openTime: space?.open_time ?? null,
@@ -1657,11 +1665,18 @@ app.post('/bookings/:number/info', requireRole('owner', 'manager'), async (c) =>
   if (eventName !== undefined && eventName === '') return c.json({ error: 'イベント名は空にできません' }, 400);
   const note = typeof body.note === 'string' ? body.note.trim() : undefined;
 
-  // グループ（イベント名＝サイネージ表示名・メモ）の更新
+  // グループ（イベント名＝サイネージ表示名・メモ）の更新。
+  // 顧客に紐づかない予約（商談中の仮押さえ等）は連絡先もグループ側に保存する（customers を汚さない）。
   const sets: string[] = [];
   const binds: unknown[] = [];
   if (eventName !== undefined) { sets.push('event_name = ?'); binds.push(eventName); }
   if (note !== undefined) { sets.push('note = ?'); binds.push(note || null); }
+  let groupContactUpdated = false;
+  if (!g.customer_id) {
+    if (typeof body.contactName === 'string') { sets.push('contact_name = ?'); binds.push(body.contactName.trim() || null); groupContactUpdated = true; }
+    if (typeof body.phone === 'string') { sets.push('contact_phone = ?'); binds.push(body.phone.trim() || null); groupContactUpdated = true; }
+    if (typeof body.email === 'string') { sets.push('contact_email = ?'); binds.push(body.email.trim() || null); groupContactUpdated = true; }
+  }
   if (sets.length) {
     binds.push(g.id);
     await db.prepare(`UPDATE booking_groups SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
@@ -1683,6 +1698,7 @@ app.post('/bookings/:number/info', requireRole('owner', 'manager'), async (c) =>
   }
 
   if (!sets.length && !customerUpdated) return c.json({ error: '変更する項目がありません' }, 400);
+  const contactEdited = customerUpdated || groupContactUpdated;
 
   // Googleカレンダー（サイネージの元データ）を再同期＝タイトル/説明にイベント名・お名前を反映
   const origin = c.env.PUBLIC_BASE_URL || new URL(c.req.url).origin;
@@ -1696,7 +1712,7 @@ app.post('/bookings/:number/info', requireRole('owner', 'manager'), async (c) =>
 
   try {
     const adminC = c.get('admin');
-    const parts = [eventName !== undefined ? 'イベント名' : null, customerUpdated ? 'お客様連絡先' : null, note !== undefined ? 'メモ' : null].filter(Boolean).join('・');
+    const parts = [eventName !== undefined ? 'イベント名' : null, contactEdited ? 'お客様連絡先' : null, note !== undefined ? 'メモ' : null].filter(Boolean).join('・');
     await recordBookingEvent(db, { groupId: g.id, type: 'info_edit', summary: `予約情報を編集（${parts}）`, actor: adminC?.email ? 'admin:' + adminC.email : 'admin' }, nowJST());
   } catch { /* 履歴記録の失敗は本処理に影響させない */ }
 

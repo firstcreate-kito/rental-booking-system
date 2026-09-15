@@ -985,7 +985,7 @@ export async function getCustomerProfile(db: D1Database, customerId: string) {
   return db
     .prepare(
       `SELECT id, email, company_name, contact_name, phone, postal_code, address, invoice_number,
-              status_id, point_balance, is_registered, is_blocked, blocked_reason, created_at, last_login_at
+              status_id, point_balance, is_registered, is_blocked, blocked_reason, staff_memo, created_at, last_login_at
        FROM customers WHERE id = ?`,
     )
     .bind(customerId)
@@ -2117,6 +2117,10 @@ export interface BookingGroupRow {
   purpose: string | null;
   headcount: number | null;
   customer_message: string | null; // 予約時にお客様が入力したご要望・メッセージ（任意）
+  // 顧客未紐付け（商談中の仮押さえ等）の連絡先。customer_id がある予約では customers 側を正とする（#110拡張）。
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
 }
 
 export interface BookingRow {
@@ -2910,6 +2914,8 @@ export interface BookingCalendarData {
   phone: string | null;
   email: string | null;
   company: string | null;
+  /** 顧客の社内メモ（管理者のみ・GCal説明に表示／表側には一切出さない）#顧客メモ */
+  staffMemo?: string | null;
   eventName: string;
   purpose: string | null;
   headcount: number | null;
@@ -2933,7 +2939,8 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
               bg.purpose, bg.headcount, bg.customer_id, bg.space_id, bg.invoice_name,
               s.name AS space_name, s.google_calendar_id,
               s.billing_type, s.weekend_day_rate_only, s.open_time, s.close_time,
-              c.contact_name, c.phone, c.email
+              c.contact_name, c.phone, c.email, c.staff_memo,
+              bg.contact_name AS group_contact_name, bg.contact_phone AS group_contact_phone, bg.contact_email AS group_contact_email
        FROM booking_groups bg
        LEFT JOIN spaces s ON s.id = bg.space_id
        LEFT JOIN customers c ON c.id = bg.customer_id
@@ -2961,6 +2968,10 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
       contact_name: string | null;
       phone: string | null;
       email: string | null;
+      staff_memo: string | null;
+      group_contact_name: string | null;
+      group_contact_phone: string | null;
+      group_contact_email: string | null;
     }>();
   if (!g) return null;
 
@@ -3011,10 +3022,11 @@ export async function getBookingCalendarData(db: D1Database, groupId: string): P
     weekendDayRateOnly: !!g.weekend_day_rate_only,
     openTime: g.open_time ?? '00:00',
     closeTime: g.close_time ?? '00:00',
-    customerName: g.contact_name ?? 'お客様',
-    phone: g.phone,
-    email: g.email,
+    customerName: g.contact_name ?? g.group_contact_name ?? 'お客様',
+    phone: g.phone ?? g.group_contact_phone,
+    email: g.email ?? g.group_contact_email,
     company: g.invoice_name,
+    staffMemo: g.staff_memo ?? null,
     eventName: g.event_name,
     purpose: g.purpose,
     headcount: g.headcount,

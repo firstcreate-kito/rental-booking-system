@@ -1880,7 +1880,7 @@ function renderPayment() {
     const dis = invoiceTooClose ? ' disabled' : '';
     const grey = invoiceTooClose ? 'color:#9ca3af' : '';
     const checked = methods.length === 0 && !invoiceTooClose ? ' checked' : '';
-    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer"' + dis + checked + ' onchange="onPayMethodChange()"> <span>銀行振込（オンライン／ATM・<b>領収書発行あり</b>）' + (invoiceTooClose ? '' : '<span style="color:#0a7d33;font-weight:700;font-size:12px;margin-left:6px;white-space:nowrap">手数料無料・おすすめ</span>') + '</span></label>';
+    html += '<label style="display:flex;gap:8px;align-items:center;margin:5px 0;' + grey + '"><input type="radio" name="paymethod" value="bank_transfer"' + dis + checked + ' onchange="onPayMethodChange()"> <span>銀行振込（オンライン／ATM・<b>領収書発行あり</b>）</span></label>';
   }
   // 請求書払い（手動・自社口座／Stripe非経由）：後日、請求書を発行→お振込。入金確認は当社で手動（#88関連）
   if (sp.allowManualInvoice) {
